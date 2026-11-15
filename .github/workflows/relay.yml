@@ -27,7 +27,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       # Every workspace, without the install scripts (no Electron download): the phone app is built
       # from packages/app and copied into the image next to the relay.
