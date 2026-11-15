@@ -26,7 +26,7 @@ import {
 import { agentEnv } from '../src/agent-claude-native/bridge/env.mjs'
 import { pickWindowsClaude } from '../src/agent-claude-native/bridge/find-claude.mjs'
 import { describeTool } from '../src/shared/claude-tools'
-import { parsePlist, workhub1SettingsFromPlist } from '../src/workhub1-import'
+import { parsePlist } from '../src/shared/plist'
 
 const fixtures = join(import.meta.dirname, 'fixtures')
 const fakeBridge = join(fixtures, 'fake-bridge')
@@ -615,41 +615,14 @@ describe('Claude plan usage (opt-in)', () => {
   })
 })
 
-describe('Workhub 1 settings (read-only import)', () => {
-  const xml = readFileSync(join(fixtures, 'workhub1-defaults.plist'), 'utf8')
-
+describe('XML property lists', () => {
   it('parses an XML property list', () => {
-    const root = parsePlist(xml) as Record<string, unknown>
+    const root = parsePlist(readFileSync(join(fixtures, 'sample-defaults.plist'), 'utf8')) as Record<string, unknown>
     expect(root['AppleLanguages']).toEqual(['es'])
     expect(root['settings.prBabysitter']).toBe(false)
     expect(root['terminal.fontSize']).toBe(14.5)
     expect(root['title']).toBe('Fish & chips <3')
     expect(root['empty']).toEqual({})
-  })
-
-  it('decodes the JSON values Workhub 1 keeps as data', () => {
-    const v1 = workhub1SettingsFromPlist(xml)
-    expect(v1.mainAccount).toEqual({ name: 'Personal', configDirectory: '~/.claude', command: '' })
-    expect(v1.secondAccount?.configDirectory).toBe('~/.claude-work')
-    expect(v1.profiles?.[0]).toMatchObject({ id: 'acme', githubScope: 'org:acme', folders: [{ path: '~/acme' }] })
-    expect(v1.jira?.['acme']?.site).toBe('acme.example.com')
-  })
-
-  it('reads the modules, options and sidebar keys, and leaves runtime state out', () => {
-    const v1 = workhub1SettingsFromPlist(readFileSync(join(fixtures, 'workhub1-modules.plist'), 'utf8'))
-    expect(v1.automations?.[0]).toMatchObject({ name: 'PR reviews', useSecondAccount: true, triggers: { slackChannelIds: ['C000REVIEW'] } })
-    expect(v1.slack).toMatchObject({ enabled: true, profileID: 'acme', channels: [{ id: 'C000REVIEW' }] })
-    // Threads are only counted: nothing but whether they are closed is kept.
-    expect(v1.slackThreads).toEqual([{ closed: false }, { closed: true }])
-    expect(v1.observability?.['acme']).toMatchObject({ elasticURL: 'https://elastic.example.com:9200', auth: { basic: { username: 'reader' } } })
-    expect(v1.openSessions?.groups).toHaveLength(1)
-    expect(v1.notifications).toEqual({ pullRequests: false, slack: false })
-    expect(v1).toMatchObject({ healthAlerts: false, usageChecker: '~/usageChecker', usageRefreshMinutes: 10, promptLanguage: 'spanish', appLanguage: 'es', sidebarProfile: 'acme' })
-    expect(v1.protectedBranches).toBe('main, trunk')
-    expect(v1.sessionModels).toEqual({ '.claude': 'opus' })
-    expect(v1.sessionEfforts).toEqual({ '.claude-work': 'medium' })
-    expect(v1.appearance).toEqual({ 'terminal.fontSize': 17, 'terminal.fontFamily': '' })
-    expect(JSON.stringify(v1)).not.toContain('cursors')
   })
 })
 

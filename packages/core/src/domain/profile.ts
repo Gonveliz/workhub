@@ -129,3 +129,16 @@ export interface FolderOptions {
 
 /** Where the value of a profile's environment variable is kept (the secret store, never the config file). */
 export const profileEnvRef = (profileId: string, name: string): string => `profile-env:${profileId}:${name}`
+
+/** A Workhub 2 id from any name: lowercase, `[a-z0-9._-]`, starting with a letter or digit. */
+export function slugId(value: string, fallback: string): string {
+  const slug = value
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^[^a-z0-9]+/, '')
+    .replace(/-+$/, '')
+    .slice(0, 64)
+  return slug || fallback
+}

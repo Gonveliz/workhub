@@ -133,6 +133,11 @@ describe('searchSettings', () => {
     expect(searchSettings(SETTINGS_INDEX, 'termino de responder', options('es')).map((h) => h.entry.label)).toContain('notifAlerts.row.replied')
   })
 
+  it('finds the reminder of a waiting session by "remind" or "recordar"', () => {
+    expect(searchSettings(SETTINGS_INDEX, 'remind', options('en')).map((h) => h.entry.label)).toContain('notifAlerts.row.needsAnswer')
+    expect(searchSettings(SETTINGS_INDEX, 'recordar', options('es')).map((h) => h.entry.label)).toContain('notifAlerts.row.needsAnswer')
+  })
+
   it('needs every word, puts label matches first and builds the breadcrumb', () => {
     const hits = searchSettings(SETTINGS_INDEX, 'protected branches', options('en'))
     expect(hits[0]?.entry.label).toBe('settings.protectedBranches')
@@ -157,12 +162,6 @@ describe('searchSettings', () => {
     const chat = SETTINGS_INDEX.find((e) => e.label === 'appearance.chatSize')
     expect(chat?.focus).toBe('settingsV2.general.textSizes')
     expect(entryBreadcrumb({ section: 'general', label: 'settings.language' }, options('en'))).toEqual(['app', 'General'])
-  })
-
-  it('leaves out rows hidden on this computer', () => {
-    const all = searchSettings(SETTINGS_INDEX, 'Workhub 1', options('en'))
-    expect(all.some((h) => h.entry.label === 'import.migrate')).toBe(true)
-    expect(searchSettings(SETTINGS_INDEX, 'Workhub 1', { ...options('en'), visible: (e) => e.only !== 'workhub1' }).some((h) => h.entry.label === 'import.migrate')).toBe(false)
   })
 })
 

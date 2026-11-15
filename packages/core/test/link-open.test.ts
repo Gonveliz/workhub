@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chromeDataDirName, classifyUrl, fillWorkhub1FolderFlags, importedLinkOpener, linkLaunch, planWorkhub1Import, parseChromeProfiles, parseConfig, profileForLink, slackDeepLink, slackTarget } from '../src'
+import { chromeDataDirName, classifyUrl, linkLaunch, parseChromeProfiles, parseConfig, profileForLink, slackDeepLink, slackTarget } from '../src'
 
 describe('classifyUrl', () => {
   it('tells Slack, web and other links apart', () => {
@@ -146,38 +146,16 @@ describe('chromeDataDirName', () => {
   })
 })
 
-describe('Workhub 1 linkOpener import', () => {
-  it('maps open -a to the app and any other command to the custom command', () => {
-    expect(importedLinkOpener('open -a "Google Chrome"')).toEqual({ linkBrowser: 'Google Chrome' })
-    expect(importedLinkOpener("open -a 'Safari'")).toEqual({ linkBrowser: 'Safari' })
-    expect(importedLinkOpener(' open -a Firefox ')).toEqual({ linkBrowser: 'Firefox' })
-    expect(importedLinkOpener('open-acme')).toEqual({ linkCommand: 'open-acme' })
-    expect(importedLinkOpener('open -na Foo --args x')).toEqual({ linkCommand: '"open" -na Foo --args x' })
-    expect(importedLinkOpener('  ')).toBeNull()
-    expect(importedLinkOpener(undefined)).toBeNull()
-  })
-  it('splits an opener with arguments so the launch passes them word by word', () => {
+describe('custom link commands with arguments', () => {
+  it('passes a quoted command line word by word', () => {
     const url = 'https://x.y/'
-    const imported = importedLinkOpener('firefox -P work')
-    expect(imported).toEqual({ linkCommand: '"firefox" -P work' })
-    const command = (imported as { linkCommand: string }).linkCommand
+    const command = '"firefox" -P work'
     expect(linkLaunch('darwin', { command }, url)).toEqual({ command: '/usr/bin/env', args: ['firefox', '-P', 'work', url] })
     expect(linkLaunch('win32', { command }, url)).toEqual({ command: 'firefox', args: ['-P', 'work', url] })
   })
   it('keeps a quoted path with spaces as one executable', () => {
     const url = 'https://x.y/'
-    const imported = importedLinkOpener(`"/Applications/Firefox Dev.app/Contents/MacOS/firefox" -P 'my work'`)
-    expect(imported).toEqual({ linkCommand: '"/Applications/Firefox Dev.app/Contents/MacOS/firefox" -P "my work"' })
-    const command = (imported as { linkCommand: string }).linkCommand
+    const command = '"/Applications/Firefox Dev.app/Contents/MacOS/firefox" -P "my work"'
     expect(linkLaunch('darwin', { command }, url)).toEqual({ command: '/usr/bin/env', args: ['/Applications/Firefox Dev.app/Contents/MacOS/firefox', '-P', 'my work', url] })
-    expect(importedLinkOpener('"/opt/My Tools/open-work"')).toEqual({ linkCommand: '"/opt/My Tools/open-work"' })
-  })
-  it('lands in the imported profile, and fills an existing profile that has no setting', () => {
-    const v1 = { profiles: [{ id: 'work', name: 'Work', linkOpener: 'open-acme' }, { id: 'home', name: 'Home', linkOpener: 'open -a Safari' }, { id: 'none', name: 'None' }] }
-    const plan = planWorkhub1Import(v1, parseConfig({ version: 8 }), '/Users/acme')
-    expect(plan.profiles.map((p) => [p.id, p.linkCommand, p.linkBrowser])).toEqual([['work', 'open-acme', undefined], ['home', undefined, 'Safari'], ['none', undefined, undefined]])
-    const config = parseConfig({ version: 8, profiles: [{ id: 'work', name: 'Work' }, { id: 'home', name: 'Home', linkChromeProfile: 'Default' }] })
-    const filled = fillWorkhub1FolderFlags(v1, config, '/Users/acme')
-    expect(filled.map((p) => [p.id, p.linkCommand])).toEqual([['work', 'open-acme']])
   })
 })

@@ -3,7 +3,7 @@ export const settingsHelpEn = {
   'help.more': 'More information',
   'help.about': 'About {name}',
 
-  'help.tab.general': 'App-wide options: language, notifications, updates, importing from Workhub 1 and where the settings are stored.',
+  'help.tab.general': 'App-wide options: language, notifications, updates and where the settings are stored.',
   'help.tab.appearance': 'How Workhub looks on this computer: light or dark, terminal colors, fonts and text sizes.',
   'help.tab.profiles': 'A profile is one context of work, like a company or a side project: the connections, agent accounts, folders and optional screens it uses. Switch profiles at the top of the sidebar.',
   'help.tab.connections': 'The services Workhub reads from: a code host (GitHub, GitLab), a ticket tracker (Jira, Linear), chat and Health (Elasticsearch). Each profile picks at most one of each kind.',
@@ -20,8 +20,7 @@ export const settingsHelpEn = {
   'help.general.notifications': 'Operating system notifications about sessions you are not looking at.',
   'help.general.updates': 'Workhub contacts GitHub to look for a new version only when this is on or when you click Check now.',
   'help.general.prEvents': 'Notifications when one of your pull requests changes (approved, changes requested, checks failed, merged) or someone asks for your review.',
-  'help.general.import': 'Reads Workhub 1\'s settings on this Mac without changing them, and shows what would be added before saving anything.',
-  'help.general.storage': 'The folder with config.json (settings, never secrets) and secrets.json (tokens, encrypted with the operating system keychain).',
+  'help.general.storage': 'The folder with config.json (settings, never secrets), secrets.json (tokens, encrypted with the operating system keychain) and workhub.db (the app\'s state, with daily copies in backups/).',
 
   'help.id': 'A short permanent identifier: lowercase letters, digits, ".", "_" or "-". It cannot be changed after saving.',
   'help.profile.folders': 'Your project folders for this profile. New sessions offer them first, and the pull request search falls back to their repositories.',

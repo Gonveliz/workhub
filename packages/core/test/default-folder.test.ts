@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fillDefaultFolders, parseConfig, planWorkhub1Import, profileDefaultFolder, type Profile, type Workhub1Settings } from '../src'
+import { fillDefaultFolders, parseConfig, profileDefaultFolder, type Profile } from '../src'
 import { config } from './fixtures'
 
 const HOME = '/Users/ana'
@@ -39,20 +39,5 @@ describe('defaultFolder in the config', () => {
     const withDefault = { ...base, profiles: [profile({ folders: ['/a'], defaultFolder: '/a' })] }
     expect(parseConfig(JSON.parse(JSON.stringify(withDefault))).profiles[0]?.defaultFolder).toBe('/a')
     expect(() => parseConfig(JSON.parse(JSON.stringify({ ...base, profiles: [profile({ defaultFolder: ' ' })] })))).toThrow()
-  })
-})
-
-describe('Workhub 1 import', () => {
-  it('sets each imported profile default folder to its first folder', () => {
-    const v1: Workhub1Settings = {
-      profiles: [
-        { id: 'acme', name: 'Acme', folders: [{ path: '~/acme' }, { path: '~/libs' }] },
-        { id: 'proyectos', name: 'Proyectos', folders: [{ path: '~/Desktop/proyectos' }] },
-        { id: 'empty', name: 'Empty' }
-      ]
-    }
-    const plan = planWorkhub1Import(v1, config(), HOME)
-    const byId = Object.fromEntries(plan.profiles.map((p) => [p.id, p.defaultFolder]))
-    expect(byId).toEqual({ acme: '/Users/ana/acme', proyectos: '/Users/ana/Desktop/proyectos', empty: undefined })
   })
 })

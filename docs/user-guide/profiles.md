@@ -115,7 +115,7 @@ and the rest):
 | **Default browser** | The system default. |
 | **A browser app** | An application name on macOS (for example `Google Chrome`), or the browser's executable elsewhere (for example `chromium`). |
 | **Google Chrome with a profile** | Opens a new Chrome window on the **Chrome profile** you pick. **Chrome app** is optional and empty means Google Chrome; set it for another Chrome-based app. If no profiles are found you can type the profile directory (`Default`, `Profile 1`). |
-| **Custom command** | An executable (a name on your `PATH` or a full path) that gets the link as its last argument, for example a script that opens a work browser profile. To pass arguments, start with the executable in quotes: `"firefox" -P work` (quote any argument with spaces). Nothing else is interpreted: no variables, pipes or globs. A Workhub 1 opener with arguments is imported in this form. If it fails, the default browser opens the link. |
+| **Custom command** | An executable (a name on your `PATH` or a full path) that gets the link as its last argument, for example a script that opens a work browser profile. To pass arguments, start with the executable in quotes: `"firefox" -P work` (quote any argument with spaces). Nothing else is interpreted: no variables, pipes or globs. If it fails, the default browser opens the link. |
 
 Slack message links open in the Slack desktop app when it is installed and the workspace is
 known (macOS); otherwise they follow the choice above. Only web links are opened.
