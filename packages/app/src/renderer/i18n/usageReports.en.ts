@@ -32,6 +32,7 @@ export const usageReportsEn = {
   'reports.all.ticket': 'All tickets',
   'reports.all.pr': 'All pull requests',
   'reports.all.tag': 'All tags',
+  'reports.noTags': 'No tags yet: add them from History or the session monitor',
   'reports.clearFilters': 'Clear filters',
   'reports.effective': 'Showing {from} – {to}',
   'reports.groupBy': 'Group by',

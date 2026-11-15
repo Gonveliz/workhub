@@ -34,6 +34,7 @@ export const usageReportsEs: Record<keyof typeof usageReportsEn, string> = {
   'reports.all.ticket': 'Todos los tickets',
   'reports.all.pr': 'Todos los pull requests',
   'reports.all.tag': 'Todas las etiquetas',
+  'reports.noTags': 'Sin etiquetas todavía: agregalas desde History o el monitor de la sesión',
   'reports.clearFilters': 'Quitar filtros',
   'reports.effective': 'Se muestra del {from} al {to}',
   'reports.groupBy': 'Agrupar por',

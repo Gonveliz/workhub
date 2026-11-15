@@ -113,16 +113,19 @@ export function ReportFiltersBar({
         {MENU_ORDER.map((key) => {
           const list = values?.[VALUES_OF[key]] ?? []
           const current = state.filters[key]
-          // A menu with a single value filters nothing, unless that value is the one picked.
-          if (list.length < 2 && !current) return null
+          // A menu stays visible with one value, so the filter can be found; with none it goes,
+          // except Tag, which stays (disabled) to say where tags come from.
+          if (list.length === 0 && !current && key !== 'tag') return null
+          const empty = list.length === 0 && !current
           const options = [...new Set(current && !list.includes(current) ? [current, ...list] : list)]
           return (
-            <div key={key} className="w-48 shrink-0">
+            <div key={key} className="w-48 shrink-0" title={empty ? t('reports.noTags') : undefined}>
               <Select
                 aria-label={t(`reports.filter.${key}` as MessageKey)}
                 value={current ?? ALL}
                 onChange={(v) => setFilter(key, v)}
-                options={[{ value: ALL, label: t(`reports.all.${key}` as MessageKey) }, ...options.map((v) => ({ value: v, label: filterLabel(key, v, names) }))]}
+                disabled={empty}
+                options={[{ value: ALL, label: empty ? t('reports.noTags') : t(`reports.all.${key}` as MessageKey) }, ...options.map((v) => ({ value: v, label: filterLabel(key, v, names) }))]}
                 className={cn(current && 'border-accent')}
               />
             </div>

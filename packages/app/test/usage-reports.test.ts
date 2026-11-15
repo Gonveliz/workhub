@@ -318,6 +318,13 @@ const view = (over: Partial<Parameters<typeof UsageReportsView>[0]> = {}) =>
   )
 
 describe('Usage and reports screen', () => {
+  it('keeps a greyed-out Tag menu while no session has a tag, saying where tags are added', () => {
+    const html = view({ values: { profiles: ['p1'], projects: ['/w/acme/notes-api'], agents: ['claude'], accounts: [], models: ['gpt-5'], tickets: [], prs: [], tags: [] } })
+    expect(html).toContain('aria-label="Tag"')
+    expect(html).toContain('No tags yet: add them from History or the session monitor')
+    expect(html).not.toContain('aria-label="Pull request"')
+  })
+
   it('shows the filters that have something to pick, the tiles, both charts, the table and the sessions', () => {
     const html = view()
     expect(html).toContain('data-testid="report-filters"')
@@ -325,9 +332,10 @@ describe('Usage and reports screen', () => {
     expect(html).toContain('aria-label="Project"')
     expect(html).toContain('aria-label="Model"')
     expect(html).toContain('aria-label="Tag"')
-    // One agent, one ticket: nothing to filter.
-    expect(html).not.toContain('aria-label="Agent"')
-    expect(html).not.toContain('aria-label="Ticket"')
+    // One agent, one ticket: the menus stay, so the filter can be found; no account: no menu.
+    expect(html).toContain('aria-label="Agent"')
+    expect(html).toContain('aria-label="Ticket"')
+    expect(html).not.toContain('aria-label="Account"')
     expect(html).toContain('aria-pressed="true"')
     expect(html).toContain('data-testid="report-tiles"')
     expect(html).toContain('$3.25')

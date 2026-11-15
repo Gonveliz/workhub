@@ -70,7 +70,8 @@ and how much time went into each project or idea". It reads what Workhub records
 date is missing or the span is longer, the bar says which days it shows). Then one menu per filter
 with something to pick in that profile and period: profile, project (that project only), **Folder
 and below** (a folder and every folder under it), agent, account, model, ticket, pull request and
-tag. The report opens on the active profile, as Session history does; pick **All profiles** to see
+tag (the **Tag** menu stays, greyed out, while no session has a tag yet, and says where tags are
+added). The report opens on the active profile, as Session history does; pick **All profiles** to see
 every one. **Group by** picks what the charts
 and the table split by (project, agent, model, account, ticket, pull request or tag), and
 **Measure** what they show: **Tokens** (fresh tokens: input, cache writes and output, as on Home),
