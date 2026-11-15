@@ -58,11 +58,12 @@ const tick = () => new Promise<void>((r) => setImmediate(r))
 
 /**
  * Feeds the complete lines from `offset` on to `onLine`, a chunk at a time; returns the offset
- * after the last complete line (an unfinished last line is read again next time).
+ * after the last complete line (an unfinished last line is read again next time), or null when
+ * the file cannot be opened.
  */
-async function readLinesFrom(path: string, offset: number, size: number, onLine: (line: string) => void): Promise<number> {
+export async function readLinesFrom(path: string, offset: number, size: number, onLine: (line: string) => void): Promise<number | null> {
   const handle = await open(path, 'r').catch(() => null)
-  if (!handle) return offset
+  if (!handle) return null
   try {
     let pos = offset
     let carry = Buffer.alloc(0)
@@ -176,9 +177,11 @@ export class TokenSpendScanner {
     const reads: SpendBuckets = resume ? { ...prev.reads } : {}
     const costs: CostBuckets = resume && prev.costs ? structuredClone(prev.costs) : emptyCosts()
     const state = resume ? structuredClone(prev.state ?? {}) : {}
-    const offset = await readLinesFrom(path, resume ? prev.offset : 0, size, (line) =>
-      kind === 'claude' ? claudeSpendLine(line, state as ClaudeSpendState, buckets, undefined, costs, reads) : codexSpendLine(line, state as CodexSpendState, buckets, costs, reads)
-    )
+    const from = resume ? prev.offset : 0
+    const offset =
+      (await readLinesFrom(path, from, size, (line) =>
+        kind === 'claude' ? claudeSpendLine(line, state as ClaudeSpendState, buckets, undefined, costs, reads) : codexSpendLine(line, state as CodexSpendState, buckets, costs, reads)
+      )) ?? from
     return { size, mtimeMs, offset, state, buckets, reads, costs }
   }
 
@@ -231,7 +234,7 @@ export class TokenSpendScanner {
 }
 
 /** `projects/<folder>/<session>.jsonl` and the subagent transcripts in `<session>/subagents/`. */
-async function claudeFiles(configDir: string): Promise<string[]> {
+export async function claudeFiles(configDir: string): Promise<string[]> {
   const projects = join(configDir, 'projects')
   const out: string[] = []
   for (const folder of await names(projects)) {
@@ -245,7 +248,7 @@ async function claudeFiles(configDir: string): Promise<string[]> {
 }
 
 /** Rollouts under `sessions/YYYY/MM/DD/`, skipping days more than 30 days before `since`. */
-async function codexFiles(sessionsDir: string, since: number): Promise<string[]> {
+export async function codexFiles(sessionsDir: string, since: number): Promise<string[]> {
   const cutoff = new Date(since - 30 * 86_400_000)
   const limit = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`
   const numeric = (n: string) => /^\d+$/.test(n)

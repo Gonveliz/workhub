@@ -6,8 +6,9 @@
  * until the user turns it back on in Automations. An automation runs prompts unattended, so the
  * user checks what an agent wrote before it runs. Removing one stays a human action in the UI.
  */
-import { automationSchema, automationsForProfile, matchesHistory, type AutomationDefinition, type AutomationRun, type HistoryMessage, type Result, type WorkhubConfig } from '@workhub/core'
-import type { HistoryItem, HistoryResult } from '../shared/api'
+import { automationSchema, automationsForProfile, cutSnippet, matchesHistory, snippetHtmlMarks, type AutomationDefinition, type AutomationRun, type HistoryMessage, type Result, type WorkhubConfig } from '@workhub/core'
+import { parseRunCursor, runCursor } from '@workhub/adapters/sqlite-store'
+import type { HistoryItem, HistoryMatch, HistoryResult, HistorySearchOptions, HistorySearchResult } from '../shared/api'
 import type { AutomationsSnapshot, AutomationStatus } from '../shared/chat-api'
 import type { ControlReply } from './control-server'
 import { resolveControlProfile, type ControlProfileDeps } from './plan-control'
@@ -17,9 +18,10 @@ export const CONTROL_HISTORY_LIMIT = { default: 30, max: 200 } as const
 /** Messages `GET /v1/history/:agent/:session` returns by default and at most (the last ones). */
 export const CONTROL_MESSAGES_LIMIT = { default: 50, max: 500 } as const
 /** Characters of a title, a first prompt and a message in an answer. */
-export const CONTROL_HISTORY_CAP = { title: 200, prompt: 500, message: 4000 } as const
-/** Runs `GET /v1/automations` returns, newest first. */
+export const CONTROL_HISTORY_CAP = { title: 200, prompt: 500, message: 4000, snippet: 600 } as const
+/** Runs `GET /v1/automations` returns by default and at most, newest first. */
 export const CONTROL_RUNS_LIMIT = 20
+export const CONTROL_RUNS_MAX = 200
 
 /** Fields an agent may set on an automation; `id` and `profileId` are Workhub's, `enabled` may only go off. */
 const WRITABLE = new Set(Object.keys(automationSchema.shape).filter((k) => k !== 'id' && k !== 'profileId'))
@@ -35,9 +37,16 @@ export interface AutomationControlDeps extends ControlProfileDeps {
   /** The agent keys (`agentId[:accountId]`) a profile offers. */
   agentKeys: (profileId: string) => Promise<string[]>
   history: () => Promise<HistoryResult>
+  /** Full-text search of past sessions (History's index); without it `q` matches titles, prompts, folders and branches only. */
+  search?: (query: string, options: HistorySearchOptions) => Promise<HistorySearchResult>
   /** The messages of a past session (its agent's transcript). */
   messages: (entry: HistoryItem) => Promise<HistoryMessage[]>
   newId: () => string
+  /**
+   * The run history, newest first: `limit` runs of these automations started before `before`.
+   * Without it, the runs of the snapshot (the last ones the engine keeps) are read.
+   */
+  runs?: (query: { automationIds: readonly string[]; limit: number; before?: number; cursor?: { startedAt: number; id: string } }) => AutomationRun[]
 }
 
 export interface AutomationControl {
@@ -56,6 +65,22 @@ const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v =
 function askOf(params: URLSearchParams, body?: unknown) {
   const b = isRecord(body) ? body : {}
   return { session: b['session'] ?? params.get('session') ?? undefined, profile: b['profile'] ?? params.get('profile') ?? undefined, cwd: b['cwd'] ?? params.get('cwd') ?? undefined }
+}
+
+type Before = { before: number } | { cursor: { startedAt: number; id: string } }
+
+/**
+ * `before`: the previous answer's `nextBefore` (an opaque cursor that goes on exactly after the
+ * last run, ties included), or for people an ISO time or epoch milliseconds. Undefined when absent,
+ * a string when it is none of those.
+ */
+function beforeOf(raw: string | null): Before | undefined | string {
+  if (raw === null || raw === '') return undefined
+  if (/^\d+$/.test(raw)) return { before: Number(raw) }
+  const cursor = parseRunCursor(raw)
+  if (cursor) return { cursor }
+  const ms = Date.parse(raw)
+  return Number.isFinite(ms) ? { before: ms } : '"before" must be a nextBefore cursor, an ISO time or epoch milliseconds'
 }
 
 function limitOf(raw: string | null, limits: { default: number; max: number }): number | string {
@@ -120,8 +145,9 @@ export function mergeAutomation(base: Record<string, unknown>, fields: Record<st
   return out
 }
 
-/** One past session as an agent sees it. */
-export function historyAnswer(e: HistoryItem): Record<string, unknown> {
+/** One past session as an agent sees it; a search match also carries its snippets, cut to length, matches between `<mark>` and `</mark>`. */
+export function historyAnswer(e: HistoryItem | HistoryMatch): Record<string, unknown> {
+  const m = e as HistoryMatch
   return {
     agentId: e.agentId,
     agentName: e.agentName,
@@ -135,6 +161,8 @@ export function historyAnswer(e: HistoryItem): Record<string, unknown> {
     lastModified: iso(e.lastModified),
     ...(e.createdAt ? { createdAt: iso(e.createdAt) } : {}),
     ...(e.automationId ? { automationId: e.automationId, automationName: e.automationName } : {}),
+    ...(m.snippet ? { snippet: snippetHtmlMarks(cutSnippet(m.snippet, CONTROL_HISTORY_CAP.snippet)) } : {}),
+    ...(m.titleSnippet ? { titleSnippet: snippetHtmlMarks(cutSnippet(m.titleSnippet, CONTROL_HISTORY_CAP.snippet)) } : {}),
     resumable: e.resumable
   }
 }
@@ -179,8 +207,22 @@ export function createAutomationControl(deps: AutomationControlDeps): Automation
       const visible = automationsForProfile(snap.automations.map((s) => s.definition), who.profileId, false)
       const ids = new Set(visible.map((d) => d.id))
       const automations = snap.automations.filter((s) => ids.has(s.definition.id))
-      const runs = snap.runs.filter((r) => ids.has(r.automationId)).slice(0, CONTROL_RUNS_LIMIT)
-      return { status: 200, body: { ok: true, automations: automations.map(automationAnswer), runs: runs.map(runAnswer) } }
+      const limit = limitOf(params.get('limit'), { default: CONTROL_RUNS_LIMIT, max: CONTROL_RUNS_MAX })
+      if (typeof limit === 'string') return fail(400, limit)
+      const before = beforeOf(params.get('before'))
+      if (typeof before === 'string') return fail(400, before)
+      // One more than asked tells whether there is a next page.
+      const startOf = (r: AutomationRun) => r.startedAt ?? r.queuedAt
+      const found = deps.runs
+        ? deps.runs({ automationIds: [...ids], limit: limit + 1, ...(before ?? {}) })
+        : snap.runs
+            .filter((r) => ids.has(r.automationId))
+            .filter((r) => !before || ('before' in before ? startOf(r) < before.before : startOf(r) < before.cursor.startedAt || (startOf(r) === before.cursor.startedAt && r.id < before.cursor.id)))
+            .slice(0, limit + 1)
+      const runs = found.slice(0, limit)
+      const last = runs.at(-1)
+      const nextBefore = found.length > limit && last ? runCursor(last) : undefined
+      return { status: 200, body: { ok: true, automations: automations.map(automationAnswer), runs: runs.map(runAnswer), ...(nextBefore ? { nextBefore } : {}) } }
     },
     async create(body, params) {
       const fields = parseAutomationFields(body)
@@ -214,10 +256,26 @@ export function createAutomationControl(deps: AutomationControlDeps): Automation
       const agent = params.get('agent')
       const automation = params.get('automation')
       const folder = params.get('folder')
-      const result = await deps.history()
-      const entries = result.entries.filter(
-        (e) => matchesHistory(e, q) && (!agent || e.agentId === agent) && (!automation || e.automationId === automation) && (!folder || e.cwd === folder || e.cwd?.startsWith(folder.replace(/[\\/]+$/, '') + '/'))
-      )
+      const inFolder = (e: HistoryItem) => !folder || e.cwd === folder || e.cwd?.startsWith(folder.replace(/[\\/]+$/, '') + '/')
+      const listing = await deps.history()
+      if (q.trim() && deps.search) {
+        // Words search the conversations too, best match first, with snippets; every filter applies inside the search, so `total` is exact.
+        const keys = automation ? listing.entries.filter((e) => e.automationId === automation).map((e) => `${e.agentId}:${e.agentSessionId}`) : undefined
+        const found = await deps.search(q, { ...(agent ? { agent } : {}), ...(folder ? { cwdPrefix: folder } : {}), ...(keys ? { keys } : {}), limit })
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            entries: found.entries.map(historyAnswer),
+            total: found.total,
+            ...(found.nextCursor ? { truncated: true } : {}),
+            ...(found.progress.indexing ? { indexing: { indexed: found.progress.indexed, total: found.progress.total } } : {}),
+            ...(found.errors.length ? { errors: found.errors } : {})
+          }
+        }
+      }
+      const result = listing
+      const entries = result.entries.filter((e) => matchesHistory(e, q) && (!agent || e.agentId === agent) && (!automation || e.automationId === automation) && inFolder(e))
       return {
         status: 200,
         body: {

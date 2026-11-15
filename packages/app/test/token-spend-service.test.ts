@@ -51,6 +51,38 @@ describe('TokenSpendService', () => {
     expect((await svc.forProfile('one')).entries).toMatchObject([{ name: 'api', path: main.replaceAll('\\', '/'), tokens: 7 }])
   })
 
+  it('scanNow never runs two scans at once: a call during a scan waits for it and one more', async () => {
+    let running = 0
+    let most = 0
+    let scans = 0
+    const gates: (() => void)[] = []
+    const svc = new TokenSpendService({
+      config: async () => ({ ...emptyConfig(), profiles: [], activeProfileId: '' }),
+      store: memoryStore(),
+      sources: async () => {
+        running++
+        scans++
+        most = Math.max(most, running)
+        await new Promise<void>((done) => gates.push(done))
+        running--
+        return { claudeDirs: [], codexHomes: [], kiroDirs: [] }
+      },
+      emit: () => {}
+    })
+    const first = svc.scanNow()
+    const second = svc.scanNow()
+    const third = svc.scanNow()
+    expect(third).toBe(second)
+    await Promise.resolve()
+    gates.shift()!()
+    await first
+    await new Promise((r) => setTimeout(r, 0))
+    gates.shift()!()
+    await second
+    expect(scans).toBe(2)
+    expect(most).toBe(1)
+  })
+
   it('scans at start-up, keeps each profile to its own folders, and persists the cache', async () => {
     const work = join(root, 'work')
     mkdirSync(join(work, 'api'), { recursive: true })

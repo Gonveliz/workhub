@@ -1,3 +1,4 @@
+import type { TimelinePrEvent } from '@workhub/adapters/sqlite-store'
 import { detectPrEvents, EMPTY_PR_EVENT_STATE, type PrEventState, type PrEventStore, type PullRequest, type WorkhubConfig } from '@workhub/core'
 import type { CodeHostLists } from '../shared/codehost-api'
 import type { PrEventBatch, PrNotification } from '../shared/pr-events-api'
@@ -5,6 +6,12 @@ import type { IpcRegistrar } from './ipc-guard'
 
 /** Workhub 1 synced every 180 seconds. */
 export const PR_SYNC_MS = 180_000
+
+/** `owner/repo#12` (lower case) of a pull or merge request URL, as the detector's event ids start; the URL itself otherwise. */
+export function prSlug(url: string): string {
+  const m = /^https?:\/\/[^/]+\/(.+?)\/(?:-\/)?(?:pull|pulls|merge_requests)\/(\d+)/.exec(url)
+  return m ? `${m[1]!.toLowerCase()}#${m[2]}` : url
+}
 
 /** The part of the code host service the sync reads through. */
 export interface PrEventSource {
@@ -18,6 +25,12 @@ export interface PrEventServiceDeps {
   config: () => Promise<WorkhubConfig>
   /** Delivers a batch to the renderer; called only once the renderer is listening. */
   emit: (batch: PrEventBatch) => void
+  /**
+   * Appends to the pull request timeline (once each; a failure is ignored): the events a sync
+   * detected, `opened` the first time a PR of mine is seen open, and `reviewed` when a PR leaves
+   * my review queue.
+   */
+  record?: (profileId: string, events: readonly TimelinePrEvent[]) => void
   /** Demo mode: only the active profile syncs, and `advance` moves the demo one step on. */
   demo?: { advance: () => number }
   now?: () => number
@@ -101,10 +114,24 @@ export class PrEventService {
       const pr = await this.deps.source.stateOf(profileId, url)
       if (pr) left[url] = pr
     }
-    const result = detectPrEvents({ previous, mine, toReview, left, now: this.now() })
+    const now = this.now()
+    const result = detectPrEvents({ previous, mine, toReview, left, now })
     this.state = { ...this.state, profiles: { ...this.state.profiles, [profileId]: result.state } }
     // Persist before announcing: a crash after the notification must not announce the same event again.
     await this.deps.store.save(this.state).catch(() => undefined)
+    if (this.deps.record) {
+      const timeline: TimelinePrEvent[] = [...result.events]
+      for (const p of mine) if (!previous?.mine[p.url]) timeline.push({ id: `${prSlug(p.url)}|opened`, kind: 'opened', url: p.url, title: p.title, name: `${p.repo}#${p.number}`, at: now })
+      if (previous?.requested) {
+        const still = new Set(toReview.map((p) => p.url))
+        for (const url of previous.requested) if (!still.has(url)) timeline.push({ id: `${prSlug(url)}|reviewed|${now}`, kind: 'reviewed', url, title: '', name: url, at: now })
+      }
+      try {
+        if (timeline.length) this.deps.record(profileId, timeline)
+      } catch {
+        // The timeline is a record: the notification goes out anyway.
+      }
+    }
     if (result.events.length) this.deliver({ profileId, events: result.events })
   }
 

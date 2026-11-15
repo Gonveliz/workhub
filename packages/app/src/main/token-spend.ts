@@ -2,8 +2,9 @@ import { readdir } from 'node:fs/promises'
 import { performance } from 'node:perf_hooks'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { emptySpendCache, TokenSpendScanner, worktreeAliases, type SpendCache, type SpendFileEntry, type SpendSources, type WorktreeLink } from '@workhub/adapters/token-spend'
-import { folderSpend, ownsFolder, parseSpendKey, profileFolderPaths, SPEND_DAYS, spendWindowStart, startOfLocalDay, type SpendBuckets, type WorkhubConfig } from '@workhub/core'
+import { emptySpendCache, repoRootOf, TokenSpendScanner, worktreeAliases, type SpendCache, type SpendFileEntry, type SpendSources, type WorktreeLink } from '@workhub/adapters/token-spend'
+import { UNKNOWN_ACCOUNT, type ProjectResolver } from '@workhub/adapters/sqlite-store'
+import { aliasPath, attributeFolder, folderSpend, owningProfile, ownsFolder, parseSpendKey, profileFolderPaths, SPEND_DAYS, spendWindowStart, startOfLocalDay, type SpendBuckets, type WorkhubConfig } from '@workhub/core'
 import type { FolderSpendResult } from '../shared/api'
 import { usageAccounts } from './agent-usage'
 import { profileProjectChildren } from './workspaces'
@@ -13,7 +14,7 @@ const INTERVAL_MS = 10 * 60_000
 
 export interface TokenSpendDeps {
   config: () => Promise<WorkhubConfig>
-  /** Where the scanned state is kept between runs (`token-spend.json` in the data folder). */
+  /** Where the scanned state is kept between runs (the `token-spend` key of `kv_state` in `workhub.db`). */
   store: { load(fallback: SpendCache): SpendCache; save(value: SpendCache): void; flush(): void }
   sources: () => Promise<SpendSources>
   /** A scan finished: the renderer asks again for its profile's spend. */
@@ -26,6 +27,11 @@ export interface TokenSpendDeps {
   onScanned?: (scan: { ms: number; files: number; failed: boolean }) => void
   /** Marks the scan as running work, so an event-loop stall during it names it (see `Activity`). */
   begin?: (label: string) => () => void
+  /**
+   * After each scan, the same transcripts read for per-turn data (the usage reports); its failure
+   * leaves Home's figures alone.
+   */
+  turns?: (sources: SpendSources) => Promise<unknown>
 }
 
 /**
@@ -40,6 +46,8 @@ export class TokenSpendService {
   private scannedAt: number | null = null
   private scanning = false
   private timer: ReturnType<typeof setInterval> | null = null
+  private inflight: Promise<void> | null = null
+  private queued: Promise<void> | null = null
   /** Linked git worktree of each path looked up (null: none); emptied by each scan. */
   private worktrees = new Map<string, WorktreeLink | null>()
 
@@ -56,8 +64,8 @@ export class TokenSpendService {
 
   start(): void {
     if (this.timer) return
-    void this.refresh()
-    this.timer = setInterval(() => void this.refresh(), this.deps.intervalMs ?? INTERVAL_MS)
+    void this.scanNow()
+    this.timer = setInterval(() => void this.scanNow(), this.deps.intervalMs ?? INTERVAL_MS)
     this.timer.unref?.()
   }
 
@@ -67,14 +75,38 @@ export class TokenSpendService {
     this.deps.store.flush()
   }
 
+  /**
+   * A scan now (the Usage screen's Refresh), never two at once: while one runs, the call waits for
+   * it and then runs one more (what it read may predate the turns just written); callers meanwhile
+   * share that one.
+   */
+  scanNow(): Promise<void> {
+    if (this.queued) return this.queued
+    if (!this.inflight) return this.run()
+    this.queued = this.inflight.then(() => {
+      this.queued = null
+      return this.run()
+    })
+    return this.queued
+  }
+
+  private run(): Promise<void> {
+    const scan = this.refresh().finally(() => {
+      if (this.inflight === scan) this.inflight = null
+    })
+    this.inflight = scan
+    return scan
+  }
+
   async refresh(): Promise<void> {
     const now = this.now()
     const started = performance.now()
     let failed = false
     const end = this.deps.begin?.('token spend scan')
     this.scanning = true
+    let sources: SpendSources | null = null
     try {
-      const sources = await this.deps.sources()
+      sources = await this.deps.sources()
       this.buckets = await this.scanner.scan(sources, startOfLocalDay(now, SPEND_DAYS - 1), spendWindowStart(now))
       this.reads = this.scanner.cacheReads(spendWindowStart(now))
       this.scannedAt = this.now()
@@ -88,6 +120,11 @@ export class TokenSpendService {
       this.scanning = false
       this.deps.onScanned?.({ ms: Math.round(performance.now() - started), files: Object.keys(this.scanner.snapshot().files).length, failed })
       this.deps.emit()
+    }
+    if (sources && this.deps.turns) {
+      const endTurns = this.deps.begin?.('turn scan')
+      await this.deps.turns(sources).catch(() => undefined)
+      endTurns?.()
     }
   }
 
@@ -137,4 +174,56 @@ export async function spendSources(config: WorkhubConfig, home: string, kiroDir:
   const codex = new Set(dirs('codex', '.codex'))
   if (!codex.size) codex.add(resolve(env['CODEX_HOME'] || join(home, '.codex')))
   return { claudeDirs: [...claude], codexHomes: [...codex], kiroDirs: [kiroDir ?? join(home, '.kiro')] }
+}
+
+/**
+ * Who a transcript belongs to, for the per-turn data: the account whose config folder (Claude) or
+ * home (Codex) holds it (null: the default account; `unknown`: a folder no account uses), and the
+ * profile owning the folder a session works in.
+ */
+export function turnOwners(config: WorkhubConfig, home: string, env: NodeJS.ProcessEnv = process.env): { accountOf: (agent: string, dir: string) => string | null; profileOf: (cwd: string) => string | null } {
+  const accounts = new Map<string, string | null>()
+  for (const agent of ['claude', 'codex']) {
+    for (const a of usageAccounts(config, agent, home, env)) accounts.set(`${agent}\u0000${resolve(a.configDir ?? join(home, `.${agent}`))}`, a.accountId)
+  }
+  return {
+    accountOf: (agent, dir) => {
+      const key = `${agent}\u0000${resolve(dir)}`
+      return accounts.has(key) ? (accounts.get(key) ?? null) : UNKNOWN_ACCOUNT
+    },
+    profileOf: (cwd) => owningProfile(cwd, config.profiles, home)?.id ?? null
+  }
+}
+
+/**
+ * The project of each folder, as Home rolls spend up (see `folderSpend`): a linked worktree moved to
+ * its repository, then the deepest profile project folder holding it (a profile folder, or one of
+ * the projects listed in it); outside every profile, the repository root, else the folder itself.
+ * The profiles' folders are read once per call of this function (once per scan).
+ */
+export async function turnProjects(config: WorkhubConfig, home: string, cache: Map<string, WorktreeLink | null> = new Map()): Promise<ProjectResolver> {
+  const folders: string[] = []
+  const children: Record<string, string[]> = {}
+  for (const profile of config.profiles) {
+    for (const f of profileFolderPaths(profile, home)) folders.push(f.path)
+    Object.assign(children, await profileProjectChildren(profile, home).catch(() => ({})))
+  }
+  return async (paths) => {
+    const aliases = await worktreeAliases(paths, cache)
+    const out: Record<string, string> = {}
+    for (const p of paths) {
+      const moved = aliasPath(p, aliases)
+      const place = attributeFolder(moved, folders, children)
+      out[p] = place ? place.path : ((await repoRootOf(moved)) ?? p)
+    }
+    return out
+  }
+}
+
+/**
+ * Whether the transcript scan for the usage reports may read the user's transcripts: never in a
+ * demo (a scenario, or synthetic usage), so a screenshot cannot show real folders.
+ */
+export function ingestsTranscripts(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
+  return !env['WORKHUB_DEMO_SCENARIO'] && env['WORKHUB_DEMO_USAGE'] !== '1'
 }

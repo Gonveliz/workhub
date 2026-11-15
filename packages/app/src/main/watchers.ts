@@ -232,6 +232,8 @@ export interface TicketWatcherDeps {
   announce: (profileId: string, change: TicketChange) => void
   /** One notification for a burst of changes (see `ticketSummaryWords`); without it a burst is only recorded. */
   announceSummary?: (profileId: string, changes: TicketChange[]) => void
+  /** Appends the changes seen to the ticket timeline, announced or not; a failure is ignored. */
+  record?: (profileId: string, changes: readonly TicketChange[], at: number) => void
   now?: () => number
 }
 
@@ -297,6 +299,13 @@ export class TicketWatcher {
       this.known[profileId] = capped && before ? { ...before, ...known } : known
       this.readAt[profileId] = now
       this.save()
+      if (changes.length) {
+        try {
+          this.deps.record?.(profileId, changes, now)
+        } catch {
+          // The timeline is a record: the notifications go out anyway.
+        }
+      }
       if (changes.length > TICKET_BURST_LIMIT) this.deps.announceSummary?.(profileId, changes)
       else for (const change of changes) this.deps.announce(profileId, change)
     } catch {

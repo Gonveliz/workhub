@@ -1,4 +1,5 @@
-import { newAutomation, type AutomationDefinition, type HistoryMessage } from '@workhub/core'
+import { HISTORY_MARK, newAutomation, type AutomationDefinition, type AutomationRun, type HistoryMessage } from '@workhub/core'
+import { AutomationRunLog, WorkhubDb } from '@workhub/adapters/sqlite-store'
 import { describe, expect, it } from 'vitest'
 import { createAutomationControl, mergeAutomation, parseAutomationFields, type AutomationControlDeps } from '../src/main/automation-control'
 import type { HistoryItem } from '../src/shared/api'
@@ -72,6 +73,36 @@ describe('automation fields from an agent', () => {
 })
 
 describe('GET /v1/automations', () => {
+  it('reads every run from the history, a page at a time, newest first, ties included', async () => {
+    const db = WorkhubDb.open(':memory:', { log: () => {} })
+    const log = new AutomationRunLog(db)
+    // Runs 0-9 share one start time; the rest start a minute apart.
+    const run = (i: number, automationId = 'a1'): AutomationRun => {
+      const at = DAY + Math.max(0, i - 9) * 60_000
+      return { id: `r${String(i).padStart(3, '0')}`, automationId, automationName: 'Triage', trigger: 'interval', queuedAt: at, startedAt: at, outcome: 'ok', merged: 0 }
+    }
+    log.record([...Array.from({ length: 75 }, (_, i) => run(i)), run(100, 'a2')])
+    const { control } = setup({ runs: (query) => log.list(query) })
+    const seen: string[] = []
+    let before: string | undefined
+    for (let page = 0; page < 20; page++) {
+      const body = (await control.list(q(`session=sess-work&limit=7${before ? `&before=${encodeURIComponent(before)}` : ''}`))).body as { runs: { id: string }[]; nextBefore?: string }
+      seen.push(...body.runs.map((r) => r.id))
+      if (!body.nextBefore) break
+      before = body.nextBefore
+    }
+    expect(seen).toEqual(Array.from({ length: 75 }, (_, i) => `r${String(74 - i).padStart(3, '0')}`))
+    const first = (await control.list(q('session=sess-work'))).body as { runs: { id: string }[] }
+    expect(first.runs).toHaveLength(20)
+    // An ISO time still works for people; another profile's automation stays out; a bad page is refused.
+    const iso = (await control.list(q(`session=sess-work&limit=200&before=${encodeURIComponent(new Date(DAY + 60_000).toISOString())}`))).body as { runs: { id: string }[] }
+    expect(iso.runs.map((r) => r.id)).toHaveLength(10)
+    expect(iso.runs.some((r) => r.id === 'r100')).toBe(false)
+    expect((await control.list(q('session=sess-work&before=yesterday'))).status).toBe(400)
+    expect((await control.list(q('session=sess-work&limit=0'))).status).toBe(400)
+    db.close()
+  })
+
   it("lists the session profile's automations and those of every profile, with their runs", async () => {
     const { control } = setup()
     const r = await control.list(q('session=sess-work'))
@@ -133,6 +164,36 @@ describe('GET /v1/history', () => {
     expect((await control.history(q('automation=a1'))).body['total']).toBe(1)
     expect((await control.history(q('limit=1'))).body).toMatchObject({ total: 3, truncated: true })
     expect((await control.history(q('limit=0'))).status).toBe(400)
+  })
+
+  it('searches the History index for q with every filter inside the search, snippets as <mark>, totals exact', async () => {
+    const asked: { query: string; options: Record<string, unknown> }[] = []
+    const { control } = setup({
+      search: async (query, options) => {
+        asked.push({ query, options: options as Record<string, unknown> })
+        return {
+          entries: [
+            { ...entry({ agentSessionId: 's-3', agentId: 'codex' }), snippet: `the ${HISTORY_MARK.open}deploy${HISTORY_MARK.close} window` },
+            { ...entry({ agentSessionId: 's-2', cwd: '/w/acme/api' }), snippet: `${'x'.repeat(2000)}${HISTORY_MARK.open}deploy${HISTORY_MARK.close}` }
+          ],
+          total: 7,
+          start: 0,
+          nextCursor: '2',
+          errors: [],
+          progress: { indexing: true, indexed: 1, total: 3 }
+        }
+      }
+    })
+    const r = await control.history(q('q=deploy&folder=/w/acme&agent=claude&automation=a1&limit=2'))
+    expect(asked[0]).toEqual({ query: 'deploy', options: { agent: 'claude', cwdPrefix: '/w/acme', keys: ['claude:s-2'], limit: 2 } })
+    expect(r.body).toMatchObject({ ok: true, total: 7, truncated: true, indexing: { indexed: 1, total: 3 } })
+    const entries = r.body['entries'] as Record<string, string>[]
+    expect(entries[0]!['snippet']).toBe('the <mark>deploy</mark> window')
+    // Cut to 600 characters of text, before the markers become tags.
+    expect(entries[1]!['snippet']).toBe(`${'x'.repeat(599)}…`)
+    // Without words the listing answers, newest first, as before.
+    expect((await control.history(q(''))).body['total']).toBe(3)
+    expect(asked).toHaveLength(1)
   })
 
   it("reads a past session's messages without tool output, text capped", async () => {
