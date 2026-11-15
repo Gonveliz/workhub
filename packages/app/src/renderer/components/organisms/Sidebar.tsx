@@ -82,7 +82,7 @@ function NavButton({
       {/* The badge and the shortcut share one slot at the right edge: the shortcut takes its place on hover. */}
       <span className="grid justify-items-end *:col-start-1 *:row-start-1">
         {badge && <span className="flex items-center gap-1 transition-opacity group-hover:opacity-0 group-focus-visible:opacity-0">{badge}</span>}
-        <Kbd shortcut={item.shortcut} className="opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+        {item.shortcut && <Kbd shortcut={item.shortcut} className="opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />}
       </span>
     </button>
   )

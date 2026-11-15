@@ -31,7 +31,7 @@ export type ChatItem =
   | { id: number; at?: number; kind: 'exit'; code: number | null; stderr?: string[] }
   /** `view`/`result`: what the call did per tool (diff, command output), when the agent reports it. */
   | { id: number; at?: number; kind: 'tool'; toolCallId: string; title: string; status: string; toolKind?: string; detail?: string; view?: ToolView; result?: ToolResultView }
-  | { id: number; at?: number; kind: 'permission'; requestId: string; title: string; detail?: string; options: PermissionOption[]; questions?: AgentQuestion[]; answer?: string }
+  | { id: number; at?: number; kind: 'permission'; requestId: string; title: string; detail?: string; options: PermissionOption[]; questions?: AgentQuestion[]; answer?: string; answeredAt?: number }
   /** A hook's output or a harness banner: its own block, never part of the agent's reply. */
   | { id: number; at?: number; kind: 'notice'; noticeKind: 'hook' | 'info' | 'warning'; title: string; text: string; failed?: boolean }
   /** A compaction of the conversation: running while the agent summarizes it, then done (with what it summarized) or failed. */
@@ -66,9 +66,43 @@ function withDerived(s: SessionData): SessionData {
   return { ...s, awaiting: scanAwaiting(s.items), lastTurnEnd: scanLastTurnEnd(s.items) }
 }
 
-/** Whether a permission request or a question is still waiting for the user's answer. */
-export function awaitingAnswer(s: Pick<SessionData, 'items'> & { awaiting?: boolean }): boolean {
-  return s.awaiting ?? scanAwaiting(s.items)
+/** Whether a permission request or a question (in the chat, or at the console's prompt) still waits for the user's answer. */
+export function awaitingAnswer(s: Pick<SessionData, 'items'> & { awaiting?: boolean; view?: Pick<SessionView, 'consoleAsking' | 'state'> }): boolean {
+  return (s.awaiting ?? scanAwaiting(s.items)) || (s.view?.consoleAsking === true && (s.view.state === 'ready' || s.view.state === 'busy'))
+}
+
+/** An answer marked here that main has not confirmed after this long is reopened (the call never reached it, e.g. a phone offline). */
+const ANSWER_GRACE_MS = 10_000
+
+/** The answer shown on a request that was answered from somewhere else (the phone, another window). */
+export const ANSWERED_ELSEWHERE = '✓'
+
+/**
+ * Lines the chat's permission items up with the open requests the main process keeps for the
+ * session: requests the chat never saw (a window reopened, a phone that just connected, a push
+ * that beat its event) are appended, and open items the main process no longer has were answered
+ * elsewhere. Returns `s` itself when nothing changed.
+ */
+export function reconcilePending(s: SessionData, pending: SessionView['pendingPermissions'], answered: readonly string[] = [], now = Date.now()): SessionData {
+  if (!pending) return s
+  const open = new Set(pending.map((p) => p.requestId))
+  const seen = new Set(s.items.flatMap((i) => (i.kind === 'permission' ? [i.requestId] : [])))
+  let items = s.items
+  // Gone from main: answered through another window or device when main says so, else withdrawn
+  // (the agent cancelled it, the turn ended or was stopped). Still open in main though marked
+  // answered here a while ago: the answer never arrived, so it waits again.
+  const stale = (i: ChatItem) => i.kind === 'permission' && i.answer !== undefined && i.answer !== '—' && i.answer !== ANSWERED_ELSEWHERE && open.has(i.requestId) && now - (i.answeredAt ?? now) >= ANSWER_GRACE_MS
+  if (s.items.some((i) => (i.kind === 'permission' && i.answer === undefined && !open.has(i.requestId)) || stale(i)))
+    items = items.map((i) => {
+      if (i.kind !== 'permission') return i
+      if (i.answer === undefined && !open.has(i.requestId)) return { ...i, answer: answered.includes(i.requestId) ? ANSWERED_ELSEWHERE : '—' }
+      if (stale(i)) return { ...i, answer: undefined, answeredAt: undefined }
+      return i
+    })
+  const missing = pending.filter((p) => !seen.has(p.requestId))
+  if (missing.length) items = [...items, ...missing.map((p) => ({ id: ++seq, at: p.at, kind: 'permission' as const, requestId: p.requestId, title: p.title, detail: p.detail, options: p.options, questions: p.questions }))]
+  if (items === s.items) return s
+  return { ...s, items, awaiting: scanAwaiting(items) }
 }
 
 // What the user is looking at: a session counts as seen only while its screen is up in a focused window.
@@ -283,7 +317,7 @@ export function withCompaction(s: SessionData, e: Extract<AgentEvent, { type: 'c
 
 export function markPermission(id: string, requestId: string, answer: string): void {
   patch(id, (s) => {
-    const items = s.items.map((i) => (i.kind === 'permission' && i.requestId === requestId ? { ...i, answer } : i))
+    const items = s.items.map((i) => (i.kind === 'permission' && i.requestId === requestId ? { ...i, answer, answeredAt: Date.now() } : i))
     return { ...s, items, awaiting: scanAwaiting(items) }
   })
 }
@@ -405,9 +439,14 @@ function applyView(view: SessionView): void {
   const prev = sessions[view.id]
   const ended = view.state === 'starting' || view.state === 'stopped' || view.state === 'error' || view.mode === 'console'
   const data = prev ? { ...prev, view } : { view, items: [], monitor: {}, awaiting: false }
-  set({ ...sessions, [view.id]: ended ? withdrawOpenRequests(data) : data })
+  const next = ended ? withdrawOpenRequests(data) : reconcilePending(data, view.pendingPermissions, view.answeredPermissions)
+  set({ ...sessions, [view.id]: next })
   const kind = attentionFromTransition(prev?.view.state, view.state)
   if (kind) raise(view.id, kind)
+  // A request the chat first learns of from the view, or the console starting to ask: the session needs a look.
+  const chatAsked = !ended && next.items.length > data.items.length && next.awaiting === true
+  const consoleAsked = view.consoleAsking === true && prev?.view.consoleAsking !== true
+  if (chatAsked || consoleAsked) raise(view.id, 'needsAnswer')
 }
 
 /** A session left the main process's list: drop it (its transcript stays in History). */
@@ -417,6 +456,24 @@ export function onRemoved(id: string): void {
   if (!sessions[id]) return
   const { [id]: _gone, ...rest } = sessions
   set(rest)
+}
+
+/** The title of an untitled tool call. */
+export const UNTITLED_TOOL = 'Used a tool'
+
+/**
+ * The title of a tool call whose start this chat never saw (the window reloaded while it ran, so
+ * only its untitled result arrives): the request answered since the last tool row, which the agent
+ * worded the same way (an AskUserQuestion reads "Asked you a question"), else a generic title.
+ * Never the raw tool-use id.
+ */
+export function orphanToolTitle(items: readonly ChatItem[]): string {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]!
+    if (item.kind === 'tool' || item.kind === 'turnEnd' || item.kind === 'replayStart') break
+    if (item.kind === 'permission' && item.answer !== undefined && item.answer !== '—') return item.title
+  }
+  return UNTITLED_TOOL
 }
 
 export function applyEvent(s: SessionData, e: AgentEvent, next: () => number): SessionData {
@@ -448,11 +505,13 @@ export function applyEvent(s: SessionData, e: AgentEvent, next: () => number): S
           )
         : [
             ...s.items,
-            { id: next(), at: Date.now(), kind: 'tool' as const, toolCallId: e.toolCallId, title: e.title ?? e.toolCallId, status: e.status ?? '', toolKind: e.kind, detail: e.detail, view: e.view, result: e.result }
+            { id: next(), at: Date.now(), kind: 'tool' as const, toolCallId: e.toolCallId, title: e.title ?? orphanToolTitle(s.items), status: e.status ?? '', toolKind: e.kind, detail: e.detail, view: e.view, result: e.result }
           ]
       return { ...s, items }
     }
     case 'permission':
+      // The view's push may have brought the request first (see `reconcilePending`): one item per request.
+      if (s.items.some((i) => i.kind === 'permission' && i.requestId === e.requestId)) return s
       return { ...s, awaiting: true, items: [...s.items, { id: next(), at: Date.now(), kind: 'permission', requestId: e.requestId, title: e.title, detail: e.detail, options: e.options, questions: e.questions }] }
     case 'permissionCancelled': {
       const items = s.items.map((i) => (i.kind === 'permission' && i.requestId === e.requestId && !i.answer ? { ...i, answer: '—' } : i))

@@ -1,7 +1,9 @@
 # Usage and budgets
 
 Workhub shows how much of each plan your agent accounts have used, lets you set ceilings that
-keep automatic work under a limit, and tracks token spend per folder.
+keep automatic work under a limit, tracks token spend per folder, and reports tokens, cost and
+agent time per project, ticket, pull request, agent, model, account or tag
+([Usage and reports](#usage-and-reports)).
 
 ## Plan usage
 
@@ -55,6 +57,126 @@ weighs on your plan. Cache reads, which are re-reads of context and would dwarf 
 cost much less, appear apart on each row as "+ cache". The session monitor splits the same way:
 **Spent (fresh)** and **Cache reads** are separate boxes, and the detail rows keep **Context re-read
 from cache**.
+
+## Usage and reports
+
+**Usage and reports** (the **Usage** tab in the top bar, **View → Usage and reports**, or **See
+reports** on Home's **Usage by agent** card; it has no keyboard shortcut) answers "how many tokens
+and how much time went into each project or idea". It reads what Workhub records (see
+[What Workhub records](#what-workhub-records)).
+
+**Filters.** **Period**: **Today**, **Last 7 days**, **Last 30 days**, **This week** (from Monday),
+**This month** or **Custom** (a **From** and a **To** day, both included, up to 540 days; when a
+date is missing or the span is longer, the bar says which days it shows). Then one menu per filter
+with something to pick in that profile and period: profile, project (that project only), **Folder
+and below** (a folder and every folder under it), agent, account, model, ticket, pull request and
+tag (the **Tag** menu stays, greyed out, while no session has a tag yet, and says where tags are
+added). The report opens on the active profile, as Session history does; pick **All profiles** to see
+every one. **Group by** picks what the charts
+and the table split by (project, agent, model, account, ticket, pull request or tag), and
+**Measure** what they show: **Tokens** (fresh tokens: input, cache writes and output, as on Home),
+**USD** (cost at list prices) or **Agent time**. **Clear filters** removes them. The choices are
+remembered on this computer.
+
+**Charts.** The four tiles sum the period: fresh tokens (input, output and cache writes, which add
+up to the figure, with cache reads apart),
+cost at list prices, agent time and sessions. The bar chart shows the measure per day (per week
+when the period is longer than 60 days), stacked by group; hover a bar, or Tab to the chart and
+move with the arrow keys, for that day's numbers. Next to it, each group's share of the period as
+a ranked bar with its exact value and percent of the period's total. The seven groups with the
+most tokens get a color of their own and the rest fold into **Other**; a group keeps its color
+when you switch the measure, but colors belong to the current view, so the same color can mean
+another group under another filter or grouping. Clicking a group in the legend or the share list
+filters by it (a project by that exact project; not **Other**, nor the "no value" group such as
+**No ticket**). Grouped by ticket, pull request or tag, a session linked to several counts in each,
+so shares can add up to more than 100%; the total stays the period's. Folders show by name in the
+charts and shortened (`~/…/repo`) in the table; hover for the full path.
+
+**Totals table.** Per group: sessions, turns, input, output and cache tokens, cost and agent time,
+with a **Total** row, ten groups per page. Click a column header to sort by it (again to reverse, back on the first page). Grouped by ticket,
+pull request or tag, a session linked to several of them counts in each, so the rows can add up
+to more than the total.
+
+**Sessions.** The sessions the totals count: those with agent work in the period that matches the
+filters, most recent first, with that period's numbers, ten per page (the pager below reads
+"11–20 of 57" and moves with **Previous page** and **Next page**; changing the filters or the period
+goes back to the first page): title, date, agent, account, folder, turns, tokens, cost, agent time, linked tickets
+and pull requests, and its tags. Clicking a title opens **Session history** searching for that
+session, where you can resume it; a session whose transcript is gone is not listed there; one that
+ran in a temporary folder is, because the search is its exact id.
+
+**Tags.** Free labels for what a session was about (an idea, a client, a spike): lower case, up to
+20 per session (at 20 the field says so; remove one to add another), each up to 40 characters.
+Saving a tag reads the report again. Add them in the sessions list here, with **Tags…** in a Session history row's menu,
+or in the **Tags** section of the session monitor. Return or a comma adds one; × removes it. Then
+filter or group by tag.
+
+**Weekly summary.** A card for one week (this week by default, Monday to Sunday; the arrows move
+between weeks): agent time, cost and sessions, time and cost per project (projects under one
+dollar fold into one **Other** row when there are two or more of them and something above the
+line), and the pull requests and tickets the week's sessions were linked to. It follows only the profile filter, and says whose
+week it is (a profile's name, or **All profiles**) next to **Copy summary**. **Copy
+summary** copies it as Markdown in the app's language, ready to paste to someone who has never
+seen Workhub: projects by folder name (with the parent folder when two share a name; never a full
+path), pull request links, ticket keys, and a
+line on what agent time and list prices mean.
+
+What these numbers are not: cost is at list prices, not what a plan subscription bills; agent time
+is the agent working, not your own time at the keyboard; only Claude, Codex and Kiro transcripts
+on this computer are read, so other agents and other computers do not appear. Links to tickets
+and pull requests exist only for sessions Workhub ran (it records what their monitor found).
+Usage and reports is not offered to a paired phone.
+
+## What Workhub records
+
+To report time and spend per project, ticket, pull request, account, agent, model and tag, Workhub
+reads the transcripts Claude, Codex and Kiro write on your computer (the same ones the token spend
+comes from) and keeps one row per assistant message with token usage in its database: when it was
+written, the model, the tokens, the cost at list prices, the folder it worked in and the project
+that folder belongs to. It keeps no prompt or reply text; session titles and automation failure
+reasons are kept as the app shows them. Sub-agents' tokens count, their time does not (it runs
+inside the parent's reply). The
+first scan after an update reads every transcript there is (the main log shows its progress);
+later scans, every 10 minutes, read only what was appended. **Refresh** on the Usage screen first
+reads the transcripts written since the last scan (the button spins meanwhile, for at most about
+20 seconds), then reloads the charts and tables. Demo modes never read your transcripts. **Agent time** is the time from your prompt, or the
+agent's previous reply, to each reply, with gaps longer than 30 minutes counted as 30.
+
+Next to that it records the sessions you run in Workhub, the pull requests, tickets, branches and
+worktrees their monitor relates them to, the tags you give them, every automation run, and the
+pull request and ticket changes Workhub notices. All of it stays in `workhub.db` in the
+[data folder](../architecture.md#data-folder); transcripts are read in place and nothing is sent
+anywhere.
+
+## Ask your agent about your usage
+
+An agent running in Workhub can read that data, read-only, to answer questions like "how much did I
+spend on ABC-123?", "which sessions worked on this pull request?" or "write my weekly report". It
+uses three tools of Workhub's MCP (or the `workhub-analytics` skill, which calls the same endpoint):
+
+| Tool | What it gives |
+|---|---|
+| `usage_report` | From the usage database: dollars, tokens (input, output and cache writes, as on Home), agent time and sessions per project, ticket, tag or agent over a span, per day or week (filters: folder, pull request, ticket, model, agent, tag), or a weekly summary (time and dollars per project, pull requests and tickets worked on, PRs opened, merged and reviewed, ticket moves). It reads the session's profile unless asked for another one or all. |
+| `analytics_schema` | The tables and columns the agent may read (sessions, turns, their links and tags, automation runs, pull request and ticket events, flow maps and flow history), how to query them and example queries. |
+| `analytics_query` | One SQL query (`SELECT` or `WITH`) over those tables: at most 2000 rows, stopped after 5 seconds. |
+
+A **project** is the deepest project folder of a profile holding the folder the agent worked in (a
+worktree counts for its repository), else the git repository root, else the folder itself.
+
+For example: *"Using my Workhub usage, give me a short report of last week: hours and dollars per
+project, and the tickets and PRs I worked on."*
+
+Workhub sends nothing anywhere through these tools; the answers become part of the agent's
+conversation, which goes to your agent's provider like any other tool output. Reads are not limited
+to the session's profile (like the History an agent can read). Workhub refuses anything but a
+single read (no changes, no `PRAGMA` or `ATTACH`, no file functions) and runs each query in a
+separate process on a read-only connection; a query that takes longer than 5 seconds is stopped
+and cannot freeze the app. App state (`kv_state`, where things like device pairing live), the schema
+bookkeeping, the transcript scan's bookkeeping (file paths on your computer) and the History search
+index (first prompts of every profile's sessions) cannot be read. Where the app's SQLite has no
+authorizer to back that up, `analytics_query` refuses every query ("read-only guard unavailable")
+and `usage_report` still answers. Reviewer sessions may use the tools too; paired devices cannot.
+Each query's text (not its values) is written, shortened, to the diagnostics log.
 
 ## Reviving an idle conversation
 

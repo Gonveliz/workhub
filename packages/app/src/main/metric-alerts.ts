@@ -36,7 +36,7 @@ export interface ProfileMetricState {
   updatedAt?: number
 }
 
-/** `metric-alerts.json`: per profile, the daily series and the alerts. */
+/** The `metric-alerts` key of `kv_state`: per profile, the daily series and the alerts. */
 export interface MetricAlertsState {
   profiles: Record<string, ProfileMetricState>
 }

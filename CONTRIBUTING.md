@@ -5,7 +5,7 @@ Coding agents: read [AGENTS.md](AGENTS.md) first.
 
 ## Setup
 
-Requirements: Node.js 22, npm 10, and `gh` signed in if you work on pull request features.
+Requirements: Node.js 24, npm 10, and `gh` signed in if you work on pull request features.
 
 Windows: nothing else to install. `npm ci` uses the prebuilt node-pty binaries, so the Visual Studio
 Build Tools are not needed (node-pty's own source build requires the Spectre-mitigated libraries

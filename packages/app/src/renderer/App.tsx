@@ -38,6 +38,7 @@ import { useTraySync } from './lib/useTraySync'
 import { useReadAloud } from './lib/readAloud'
 import { AutomationsScreen } from './screens/AutomationsScreen'
 import { SlackScreen } from './screens/SlackScreen'
+import { UsageReportsScreen } from './screens/UsageReportsScreen'
 import { HistoryScreen } from './screens/HistoryScreen'
 import { HealthScreen } from './screens/HealthScreen'
 import { FlowMapsScreen } from './screens/flowMaps/FlowMapsScreen'
@@ -81,6 +82,8 @@ function Shell() {
   const [selectedSession, setSelectedSession] = useState<string | null>(null)
   // A new object per request, so asking for the same PR again focuses it again.
   const [prFocus, setPrFocus] = useState<{ url: string } | null>(null)
+  // Usage and reports asked History to show one session (a new object each time, so the same one shows again).
+  const [historyFocus, setHistoryFocus] = useState<{ query: string } | null>(null)
   // The agents of the profile they were read for: another profile's list never shows (or starts) here.
   const [agentList, setAgentList] = useState<{ profileId: string | null; list: EffectiveAgent[] } | null>(null)
   const [dialog, setDialog] = useState<{ open: boolean; cwd?: string; agentKey?: string; groupId?: string }>({ open: false })
@@ -348,7 +351,7 @@ function Shell() {
         setPrefs({ monitorHidden: !readPrefs().monitorHidden })
         return
       }
-      const item = reachable.find((i) => matchesShortcut(e, i.shortcut, platform))
+      const item = reachable.find((i) => i.shortcut && matchesShortcut(e, i.shortcut, platform))
       if (item) {
         e.preventDefault()
         navigate(item.route)
@@ -490,7 +493,7 @@ function Shell() {
           {kept.map((r) => (
             <div key={r} className={r === route ? SCREEN_PANE : 'hidden'}>
               {r === 'history' ? (
-                <HistoryScreen profileId={activeProfileId} profiles={profiles} onOpened={openSession} visible={route === 'history'} />
+                <HistoryScreen profileId={activeProfileId} profiles={profiles} onOpened={openSession} visible={route === 'history'} focus={historyFocus} />
               ) : (
                 <PullRequestsScreen profile={profile} focus={prFocus} onOpenSettings={openSettings} visible={route === 'pullRequests'} />
               )}
@@ -518,6 +521,15 @@ function Shell() {
                 <TicketsScreen profile={profile} sessions={sessions} onOpenSettings={openSettings} />
               ) : route === 'slack' ? (
                 <SlackScreen profile={profile} sessions={sessions} onOpenSession={openSession} onOpenSettings={openSettings} />
+              ) : route === 'usage' ? (
+                <UsageReportsScreen
+                  profileId={activeProfileId}
+                  profiles={profiles}
+                  onShowInHistory={(id) => {
+                    setHistoryFocus({ query: id })
+                    showScreen('history')
+                  }}
+                />
               ) : route === 'automations' ? (
                 <AutomationsScreen profile={profile} profiles={profiles} agents={agents} onOpenSession={openSession} />
               ) : null}

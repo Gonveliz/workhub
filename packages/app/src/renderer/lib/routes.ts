@@ -1,4 +1,4 @@
-import { Activity, Bot, CalendarDays, GitPullRequest, Hash, History, House, Route as RouteIcon, Settings, SquareTerminal, Ticket, type LucideIcon } from 'lucide-react'
+import { Activity, Bot, ChartColumn, CalendarDays, GitPullRequest, Hash, History, House, Route as RouteIcon, Settings, SquareTerminal, Ticket, type LucideIcon } from 'lucide-react'
 import type { MessageKey } from '../i18n/translate'
 import type { Route } from './nav'
 
@@ -9,6 +9,7 @@ export const ROUTE_LABEL: Record<Route, MessageKey> = {
   slack: 'nav.slack',
   automations: 'nav.automations',
   history: 'nav.history',
+  usage: 'nav.usage',
   flowMaps: 'nav.flowMaps',
   health: 'nav.health',
   plan: 'nav.plan',
@@ -23,6 +24,7 @@ export const ROUTE_ICON: Record<Route, LucideIcon> = {
   slack: Hash,
   automations: Bot,
   history: History,
+  usage: ChartColumn,
   flowMaps: RouteIcon,
   health: Activity,
   plan: CalendarDays,

@@ -1,9 +1,12 @@
 // Types of the preload bridge (window.hub), shared by main, preload and renderer.
+import type { AnalyticsApi } from './analytics-api'
 import type { ChromeProfile, GroupChoice, SessionWorktree, WorktreeStatus } from '@workhub/core'
 import type { NotificationKind, TrayApi, TrayRoute } from './tray-api'
 import type { ProfileEnvApi, SetupApi, SystemNotificationsApi } from './setup-api'
 import type { AgentToolsApi } from './agent-tools-api'
 import type {
+  AgentQuestion,
+  PermissionOption,
   LocalChanges,
   AppOptions,
   AgentCapabilities,
@@ -22,7 +25,6 @@ import type {
   HistoryMessage,
   SubagentConversation,
   ImageInput,
-  ImportPlan,
   ModelOption,
   PlanUsageWindow,
   Profile,
@@ -35,7 +37,6 @@ import type {
   SessionScreen,
   SlashCommandInfo,
   ValidationIssue,
-  Workhub1SecretResult,
   WorkhubConfig
 } from '@workhub/core'
 import type { AiReviewApi } from './ai-review-api'
@@ -83,15 +84,6 @@ export interface ConfigApi {
   /** Stores the sidebar groups (computed in the renderer with the pure functions of core). */
   saveSessionGroups(groups: SessionGroups): Promise<Result<WorkhubConfig>>
   effectiveAgents(profileId: string | null): Promise<EffectiveAgent[]>
-  /**
-   * Workhub 1's settings mapped onto this config, read-only (macOS). `available: false` when Workhub 1
-   * has none here. `pendingSecrets`: the connections from Workhub 1 still missing their token (names only).
-   */
-  previewWorkhub1Import(): Promise<Workhub1Preview>
-  /** Reads Workhub 1's settings again and adds what the preview showed. Never writes to Workhub 1. */
-  applyWorkhub1Import(): Promise<Result<WorkhubConfig>>
-  /** macOS: copies the tokens of Workhub 1's Keychain items (macOS asks to allow each) into the secret store. Statuses only, never a secret. */
-  importWorkhub1Secrets(): Promise<Workhub1SecretResult[]>
   /** Main changed the config on its own (a session's group place moved to its real id). */
   onChanged(cb: () => void): () => void
 }
@@ -106,6 +98,17 @@ export type SessionMode = 'app' | 'console' | 'shell'
 /** The terminal channels of a session; their output arrives as `output` events with these ids. */
 export function terminalChannel(sessionId: string, channel: 'console' | 'shell'): string {
   return `${sessionId}:${channel}`
+}
+
+/** A permission request or question of the app engine that waits for the user; kept by the main process until answered. */
+export interface PendingPermission {
+  requestId: string
+  title: string
+  options: PermissionOption[]
+  detail?: string
+  questions?: AgentQuestion[]
+  /** Epoch ms when the agent asked. */
+  at: number
 }
 
 /** A session as the renderer sees it. */
@@ -153,6 +156,20 @@ export interface SessionView extends Session {
   pendingMode?: 'app' | 'console'
   /** Epoch ms when `state` last changed (the header's activity timer). */
   stateSince?: number
+  /**
+   * Permission requests and questions of the chat not answered yet, oldest first. Always present
+   * for a chat session (empty when nothing waits), so a window or device that connects later
+   * shows them, and one answered elsewhere disappears everywhere.
+   */
+  pendingPermissions?: PendingPermission[]
+  /** Ids of requests answered through Workhub (any window or device), newest last, so a chat can tell "answered elsewhere" from "withdrawn". */
+  answeredPermissions?: string[]
+  /** The console's terminal UI posted a notification asking for a permission or an answer, and nothing answered it yet. */
+  consoleAsking?: boolean
+  /** When the console started asking (epoch ms); absent while it does not. */
+  consoleAskingSince?: number
+  /** Sent to a paired device in place of a session too large for one relay frame: only its id, label and state. */
+  tooLarge?: boolean
 }
 
 export interface SetModeOptions {
@@ -208,6 +225,57 @@ export interface HistoryResult {
   entries: HistoryItem[]
   /** Accounts that could not be listed, with the reason. */
   errors: { account: string; message: string }[]
+  /** The accounts listed completely (`agentId` NUL `accountId or ''`), so the search index drops only their missing sessions. */
+  listed?: string[]
+  /** Every account the listing tried, failed or not: the index drops the sessions of any other. */
+  accounts?: string[]
+}
+
+/** A past session found by History search, with the text around the matches (each between `HISTORY_MARK.open` and `.close`; see `snippetParts`). */
+export interface HistoryMatch extends HistoryItem {
+  /** From the conversation; absent when only the title, prompt or folder matched or the session is not indexed yet. */
+  snippet?: string
+  /** The title with its matches marked, when it matched. */
+  titleSnippet?: string
+}
+
+export interface HistorySearchOptions {
+  agent?: string
+  /** Accounts by id (`''`: an agent's default folder). */
+  accountIds?: string[]
+  /** Sessions run in this folder or below. */
+  cwdPrefix?: string
+  /** Sessions run in one of these folders or below (with `cwdPrefix`, any of them). */
+  cwdPrefixes?: string[]
+  /** Only these sessions (`agentId:agentSessionId`): the screen's own filters, applied inside the search. */
+  keys?: string[]
+  /** From a paired device: the profile whose folders the search is limited to (the desktop sets the folders itself). */
+  profileId?: string | null
+  /** Epoch ms bounds on the session's last change. */
+  since?: number
+  until?: number
+  limit?: number
+  /** `nextCursor` of the previous page. */
+  cursor?: string
+}
+
+/** How far History's full-text index is: `indexed` of `total` sessions are up to date. */
+export interface HistoryIndexProgress {
+  indexing: boolean
+  indexed: number
+  total: number
+}
+
+export interface HistorySearchResult {
+  /** Index matches first, best first, then the sessions only the plain search matches. */
+  entries: HistoryMatch[]
+  /** Matches in all, on every page. */
+  total: number
+  /** Position of the first entry in that order. */
+  start: number
+  errors: { account: string; message: string }[]
+  progress: HistoryIndexProgress
+  nextCursor?: string
 }
 
 /** Plan usage of one agent account (Claude, Codex; Settings → Usage, opt-in per agent). */
@@ -316,6 +384,12 @@ export interface SessionsApi {
 
 export interface HistoryApi {
   list(): Promise<HistoryResult>
+  /** Full-text search of past sessions (titles, prompts, folders and conversations), with snippets. */
+  search(query: string, options?: HistorySearchOptions): Promise<HistorySearchResult>
+  /** How far the search index is. */
+  indexProgress(): Promise<HistoryIndexProgress>
+  /** The index made progress (or finished). */
+  onIndexProgress(cb: (progress: HistoryIndexProgress) => void): () => void
   /** The past sessions with these agent session ids (every account's copy): names closed sidebar rows. */
   find(keys: string[]): Promise<HistoryItem[]>
   /** Opens a session's folder in the file manager; false when it is not an existing folder. */
@@ -495,6 +569,32 @@ export interface HubApi {
   /** Settings → Remote access: pairing phones and what they may do. */
   remote: RemoteApi
   diagnostics: DiagnosticsApi
+  storage: StorageApi
+  analytics: AnalyticsApi
+}
+
+/** Where the app keeps its state (Settings → Advanced → Data). */
+export interface StorageInfo {
+  /** The database file (`workhub.db` in the data folder). */
+  path: string
+  /** Its size on disk in bytes, write-ahead log included. */
+  sizeBytes: number
+  /** The folder of the daily copies. */
+  backupFolder: string
+  /** The newest copy, if any. */
+  lastBackup: string | null
+  /** Set when a damaged database was moved aside and a fresh one started (see troubleshooting). */
+  recovered: { movedTo: string; at: number; reason: string } | null
+}
+
+export type StorageBackupResult = { ok: true; path: string } | { ok: false; error: string }
+
+export interface StorageApi {
+  info(): Promise<StorageInfo>
+  /** Copies the database now, to a new `workhub-YYYY-MM-DD-HHmm.db` (the daily copy is kept apart). */
+  backup(): Promise<StorageBackupResult>
+  /** Opens the backups folder in the file manager. */
+  revealBackups(): void
 }
 
 /**
@@ -510,12 +610,4 @@ export interface DiagnosticsApi {
   report(report: RendererReport): void
   /** Shows the log file in the file manager. */
   revealLogs(): void
-}
-
-/** What Settings knows about Workhub 1 on this machine (see `previewWorkhub1Import`). */
-export interface Workhub1Preview {
-  available: boolean
-  plan?: ImportPlan
-  error?: string
-  pendingSecrets?: { connectionId: string; name: string }[]
 }

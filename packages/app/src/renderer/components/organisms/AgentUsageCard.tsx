@@ -1,4 +1,4 @@
-import { ArrowRight, Gauge } from 'lucide-react'
+import { ArrowRight, ChartColumn, Gauge } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { ApiAgentSpend, CreditSpend } from '@workhub/core'
 import { AgentIcon, Badge, Button } from '../atoms'
@@ -119,7 +119,8 @@ export function AgentUsageCard({
   apiSpend = [],
   ceilings,
   now,
-  onOpenSettings
+  onOpenSettings,
+  onOpenReports
 }: {
   sections: AgentUsageSection[]
   kiro: KiroUsageNote | null
@@ -130,6 +131,8 @@ export function AgentUsageCard({
   ceilings: Record<string, Record<string, number>>
   now: number
   onOpenSettings: () => void
+  /** Opens Usage and reports (tokens, cost and time per project and more). */
+  onOpenReports?: () => void
 }) {
   const { t, formatNumber } = useI18n()
   const spendHover = useKiroSpendHover()
@@ -144,6 +147,12 @@ export function AgentUsageCard({
         actions={
           <span className="flex items-center gap-1">
             <UsageRefreshButton />
+            {onOpenReports && (
+              <Button size="sm" variant="ghost" className="text-accent hover:text-accent" onClick={onOpenReports} data-testid="open-reports">
+                {t('reports.seeReports')}
+                <ChartColumn className="size-3.5" aria-hidden />
+              </Button>
+            )}
             <Button size="sm" variant="ghost" className="text-accent hover:text-accent" onClick={onOpenSettings}>
               {t('agentUsage.openSettings')}
               <ArrowRight className="size-3.5" aria-hidden />

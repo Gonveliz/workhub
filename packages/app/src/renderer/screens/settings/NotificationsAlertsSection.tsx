@@ -17,7 +17,8 @@ import {
   type PausePreset,
   type Profile,
   type QuietHours,
-  type TrayPopoverOptions
+  type TrayPopoverOptions,
+  REMIND_NEEDS_ANSWER_CHOICES
 } from '@workhub/core'
 import type { ConfigSnapshot, Platform } from '@shared/api'
 import { Button, Input, Select, Switch } from '../../components/atoms'
@@ -118,7 +119,20 @@ export function NotificationsAlertsSection({ snap, run, initialId, platform, onO
           <tbody data-testid="notifications-group-sessions">
             <GroupHeading title={t('notifAlerts.group.sessions')} />
             <MatrixRow id={NOTIFICATION_ROW_IDS.sessionsReplied} label={t('notifAlerts.row.replied')} hint={t('notifAlerts.row.repliedHint')} notify={flag('notifyReplied', t('notifAlerts.row.replied'))} />
-            <MatrixRow id={NOTIFICATION_ROW_IDS.sessionsNeedsAnswer} label={t('notifAlerts.row.needsAnswer')} notify={flag('notifyNeedsAnswer', t('notifAlerts.row.needsAnswer'))} />
+            <MatrixRow
+              id={NOTIFICATION_ROW_IDS.sessionsNeedsAnswer}
+              label={t('notifAlerts.row.needsAnswer')}
+              notify={flag('notifyNeedsAnswer', t('notifAlerts.row.needsAnswer'))}
+              threshold={
+                <Select
+                  aria-label={t('notifAlerts.remindAria')}
+                  value={String(options.remindNeedsAnswerMinutes)}
+                  disabled={!editable || !options.notifyNeedsAnswer}
+                  options={remindChoices(options.remindNeedsAnswerMinutes).map((m) => ({ value: String(m), label: m ? t('notifAlerts.thr.remindEvery', { count: m }) : t('notifAlerts.thr.remindOff') }))}
+                  onChange={(v) => void save({ remindNeedsAnswerMinutes: Number(v) })}
+                />
+              }
+            />
             <MatrixRow id={NOTIFICATION_ROW_IDS.sessionsError} label={t('notifAlerts.row.error')} notify={flag('notifyError', t('notifAlerts.row.error'))} />
           </tbody>
 
@@ -366,6 +380,11 @@ function GroupHeading({ title, detail }: { title: string; detail?: string }) {
       </th>
     </tr>
   )
+}
+
+/** The reminder intervals offered, plus the stored one when it is not among them (typed in config.json). */
+function remindChoices(current: number): number[] {
+  return REMIND_NEEDS_ANSWER_CHOICES.includes(current as (typeof REMIND_NEEDS_ANSWER_CHOICES)[number]) ? [...REMIND_NEEDS_ANSWER_CHOICES] : [...REMIND_NEEDS_ANSWER_CHOICES, current].sort((a, b) => a - b)
 }
 
 /** One source: what happens, its switch (`null`: shares the row above's) and its threshold ("—" when it has none). */

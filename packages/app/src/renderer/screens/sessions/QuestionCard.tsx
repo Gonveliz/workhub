@@ -1,4 +1,5 @@
 import { Check, MessageCircleQuestionMark } from 'lucide-react'
+import { answerText } from './PermissionCard'
 import { useState } from 'react'
 import type { AgentQuestion } from '@workhub/core'
 import { Button, Input } from '../../components/atoms'
@@ -12,6 +13,8 @@ interface QuestionCardProps {
   answer?: string
   /** Sends the answers; `null` skips the questions. `label` is what the card shows once answered. */
   onSubmit: (answers: Record<string, string> | null, label: string) => void
+  /** Shown above the composer rather than in the log: no log indent. */
+  pinned?: boolean
 }
 
 /** A radio dot or a checkbox, drawn so it reads the same in both themes. */
@@ -34,14 +37,14 @@ function Mark({ on, multi }: { on: boolean; multi: boolean }) {
  * The questions an agent asks with choices (Claude Code's AskUserQuestion), answered in the chat:
  * one option each (or several on a multi-select), or the user's own words under "Other".
  */
-export function QuestionCard({ questions, answer, onSubmit }: QuestionCardProps) {
+export function QuestionCard({ questions, answer, onSubmit, pinned }: QuestionCardProps) {
   const { t } = useI18n()
   const [picks, setPicks] = useState<QuestionPick[]>(() => questions.map(() => EMPTY_PICK))
   const answers = questionAnswers(questions, picks)
   const set = (i: number, pick: QuestionPick) => setPicks((all) => all.map((p, j) => (j === i ? pick : p)))
 
   return (
-    <div role="group" aria-label={t('chat.questionAsked')} className="ml-8 rounded-lg border border-warning/40 bg-warning-soft p-3" data-testid="chat-question">
+    <div role="group" aria-label={t('chat.questionAsked')} className={cn('rounded-lg border border-warning/40 bg-warning-soft p-3', !pinned && 'ml-8')} data-testid="chat-question">
       <div className="flex items-center gap-2 text-sm font-medium text-warning">
         <MessageCircleQuestionMark className="size-4" aria-hidden />
         {t('chat.questionAsked')}
@@ -55,7 +58,7 @@ export function QuestionCard({ questions, answer, onSubmit }: QuestionCardProps)
               </li>
             ))}
           </ul>
-          <div className="mt-2 text-sm text-muted [overflow-wrap:anywhere]">{answer === '—' ? t('chat.permissionWithdrawn') : t('chat.answered', { answer })}</div>
+          <div className="mt-2 text-sm text-muted [overflow-wrap:anywhere]">{answerText(answer, t)}</div>
         </>
       ) : (
         <form

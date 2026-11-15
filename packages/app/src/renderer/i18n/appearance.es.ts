@@ -28,9 +28,5 @@ export const appearanceEs: Record<keyof typeof appearanceEn, string> = {
   'appearance.chatSizeHint': 'El texto de las conversaciones con agentes, sobre el tamaño del texto de la app.',
   'appearance.px': '{size} px',
   'appearance.reset': 'Restablecer',
-  'import.appearance': 'Apariencia',
-  'import.appearanceTerminal': 'terminal {size} px',
-  'import.appearanceText': 'texto {size} px',
-  'import.appearanceChat': 'conversaciones {size} px',
   'appearance.resetNamed': 'Restablecer {name}'
 }

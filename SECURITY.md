@@ -19,10 +19,14 @@ folder. It holds:
 - `secrets.json`: API tokens you type into Settings, and the private addresses of calendars (Plan), encrypted with Electron `safeStorage`
   (macOS Keychain, Windows DPAPI, Linux libsecret/kwallet). Workhub refuses to store a secret when
   OS encryption is unavailable and never writes one in plain text.
-- State files: open sessions, session names and windows, token spend, usage and budget ledgers,
-  Slack and automation state, pull request events, alert state, Plan state (fired reminders and
-  meeting briefs) and AI review checkouts. These can contain session titles, repository names,
-  meeting titles and Slack message text; they hold no credentials.
+- `workhub.db` (a SQLite database with owner-only file permissions on macOS and Linux) and its
+  daily copies in `backups/`: open sessions, session names and windows, token spend,
+  usage and budget ledgers, Slack and automation state, pull request events, alert state, Plan
+  state (milestones, inbox, fired reminders and meeting briefs), flow maps and their history, and
+  History's search index (the text of past Claude Code conversations: what you typed and the
+  agent's answers, plus every session's title, first prompt, folder and branch). The
+  `ai-review/` folder holds the AI review checkouts. These can contain session titles, repository
+  names, meeting titles and Slack message text; they hold no credentials.
 
 GitHub and GitLab access uses the `gh` and `glab` CLIs and your own sign-in; Workhub stores no
 token for them. Slack is read through a Claude account's Slack connector; there is no Slack token.
@@ -33,7 +37,7 @@ folder) and are not copied.
 
 Workhub contacts only services you configure (code host, Jira or Linear, Elastic, agents) and,
 when you turn on update checks (off by default), GitHub Releases. Reading Claude plan usage from
-Anthropic's usage endpoint is opt-in. Workhub 1 import is read-only and copies no secrets. The
+Anthropic's usage endpoint is opt-in. The
 optional Slack tracking hook edits an account's `settings.json` only on request, keeps a `.bak`
 copy, and removes only its own entry.
 

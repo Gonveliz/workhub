@@ -73,8 +73,17 @@ stays in the current view.
   appear in the conversation, where **Click to view** opens them in the file viewer.
 - **Timestamps**: every message shows the day and hour it was sent; hover for the full date with
   seconds.
-- Permission requests appear in the conversation; answer them there.
-- **Questions**: when Claude Code asks a question with choices, the conversation shows each
+- **Permission requests** stay pinned above the message box, whatever the conversation scrolled
+  to, until you answer them; the conversation keeps a line where each was asked, and the answer
+  once given. They survive closing and reopening the window and reach a paired phone, and a request
+  answered elsewhere (the phone, another window) shows as such; one the agent withdrew, or that a
+  stopped turn left behind, shows as withdrawn. Above the message box a line says how many requests
+  wait for your answer; after you answer one, the focus moves to the next request or back to the
+  message box. While one waits and the session is not on screen (its window visible and focused),
+  Workhub notifies again at the interval set in **Settings → Notifications and alerts** (15 minutes
+  by default, counted again from when you last looked at it; it follows the **Needs an answer**
+  switch and an automation's own Notify setting).
+- **Questions**: when Claude Code asks a question with choices, the same pinned card shows each
   question with its options (one, or several when it says so) and an **Other** field for your own
   answer; **Send answer** sends them all, **Skip** declines. A question still open when the session
   stops or switches to the console is marked withdrawn, so the session no longer waits for an answer.
@@ -180,7 +189,9 @@ be opened in a new window.
   left edge.
 - Attention flags appear when a session, while not on screen, finishes a turn (**Ready to
   review**), asks for a permission or an answer (**Needs an answer**) or fails (**Error**). The app
-  icon badge and OS notifications follow the same events (**Settings → General**).
+  icon badge and OS notifications follow the same events (**Settings → Notifications and alerts**).
+  A session whose console asks for a permission or a question counts as **Needs an answer** too,
+  until you press Enter in that console or it stops.
 - **Groups**: **New group** creates a folder of sessions. Drag a session onto a group or onto
   another session to move it; drag groups to reorder them. The row menu has **Move up** and **Move
   down** (Alt+↑ and Alt+↓), **Move to group**, **Take out of group**, and for groups **Rename

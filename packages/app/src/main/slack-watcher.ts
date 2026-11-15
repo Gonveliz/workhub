@@ -41,7 +41,8 @@ import {
   type ConfigurationService,
   type TrackedThread,
   type WakePlan,
-  type WorkhubConfig
+  type WorkhubConfig,
+  type StateStore
 } from '@workhub/core'
 import { agentKeyBudget } from './agent-usage'
 import type { DemoChatSource } from '@workhub/adapters/chat-slack'
@@ -51,7 +52,6 @@ import type { ChatNoticeEvent, SlackDemoInput, SlackHealth, SlackHookAccount, Sl
 import { claudeAccounts } from './claude-accounts'
 import { OwnerStarts } from './owner-starts'
 import type { SessionDriver } from './session-driver'
-import type { StateFile } from './state-file'
 
 /** What the automations tell the watcher (set once both exist). */
 export interface ChatAutomationLink {
@@ -66,7 +66,7 @@ export interface SlackWatcherDeps {
   hook: ChatTrackingHook
   /** Set in demo mode (WORKHUB_DEMO_SLACK=1). */
   demo: DemoChatSource | null
-  state: StateFile<ChatWatcherState>
+  state: StateStore<ChatWatcherState>
   driver: SessionDriver
   startSession: (input: StartSessionInput) => Promise<SessionView>
   /** The per-identity single start shared with the sidebar's reopen; one of its own when absent (tests). */

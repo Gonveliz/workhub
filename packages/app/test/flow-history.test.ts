@@ -1,18 +1,16 @@
-import { mkdtempSync, readdirSync, utimesSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_HEALTH_THRESHOLDS, emptyConfig, flowHistoryStart, hourStart, type Connection, type HealthEnvironment, type Profile, type SecretStore, type WorkhubConfig } from '@workhub/core'
 import type { HttpClient } from '@workhub/adapters/http'
 import type { FlowMapSummary } from '../src/shared/health-api'
-import { FlowHistoryStore, flowHistoryFileName } from '../src/main/flow-history'
-import { FLOW_HISTORY_REFRESH_MS, FLOW_HISTORY_RETRY_BASE_MS, FLOW_HISTORY_RETRY_MAX_MS, HEALTH_MIN_GAP_MS, HealthService } from '../src/main/health-service'
+import { SqliteFlowMaps } from '@workhub/adapters/sqlite-store'
+import { FLOW_HISTORY_DAYS, FlowHistoryStore, flowHistoryScopeId } from '../src/main/flow-history'
+import { openTestDb } from './test-db'
+import { FLOW_HISTORY_REFRESH_MS, FLOW_HISTORY_RETRY_BASE_MS, FLOW_HISTORY_RETRY_MAX_MS, FLOW_STATE_FRESH_MS, HEALTH_MIN_GAP_MS, HealthService } from '../src/main/health-service'
 import { FlowMapList, groupFlowMaps } from '../src/renderer/screens/flowMaps/FlowMapList'
 
 const H = 3_600_000
-const tmp = () => mkdtempSync(join(tmpdir(), 'wh-flow-history-'))
 
 const elastic: Connection = { id: 'es', kind: 'health', provider: 'elastic-apm', endpoint: 'https://es.example.test:9200', secretRef: 'connection/es', settings: {} }
 const env: HealthEnvironment = { id: 'dev', name: 'Develop', apmEnvironments: ['dev'], k8sIndexSuffix: '', hasKubeState: false, apm: { errors: 'errors-*', traces: 'traces-*', metrics: 'metrics-*' }, kibanaUrl: '', thresholds: { ...DEFAULT_HEALTH_THRESHOLDS } }
@@ -39,15 +37,14 @@ function cluster(fail = false) {
 }
 
 function setup(opts: { http: HttpClient; now: () => number }) {
-  const dir = tmp()
-  const flowMapsDir = join(dir, 'flow-maps')
-  mkdirSync(flowMapsDir)
-  for (const m of maps) writeFileSync(join(flowMapsDir, `${m.id}.json`), JSON.stringify(m))
+  const db = openTestDb()
+  const flowMaps = new SqliteFlowMaps(db)
+  for (const m of maps) flowMaps.put(m.id, JSON.stringify(m))
   const config: WorkhubConfig = { ...emptyConfig(), connections: [elastic], profiles: [profile], activeProfileId: 'work' }
   const secrets: SecretStore = { get: async () => 'key', set: async () => {}, delete: async () => {}, has: async () => true }
-  const flowHistory = new FlowHistoryStore(join(dir, 'flow-history'), opts.now, 0)
-  const service = new HealthService({ configuration: { current: async () => config } as never, secrets, demo: false, httpFor: () => opts.http, now: opts.now, flowMapsDir, flowHistory })
-  return { service, flowHistory, dir }
+  const flowHistory = new FlowHistoryStore(db, opts.now)
+  const service = new HealthService({ configuration: { current: async () => config } as never, secrets, demo: false, httpFor: () => opts.http, now: opts.now, flowMaps, flowHistory })
+  return { service, flowHistory, db }
 }
 
 describe('HealthService with the flow history', () => {
@@ -158,33 +155,56 @@ describe('HealthService with the flow history', () => {
     now = start + FLOW_HISTORY_REFRESH_MS + 1
     await service.flowMap('work', 'dev', 'checkout', 24) // two calls in the open hour, p95 well over 50 ms
     expect(await service.flowMapStates('work', 'dev')).toEqual({ checkout: 'alert', orders: 'unknown' })
+    // Nothing fetched for a while (the connection down, the profile idle): the stored hours say
+    // nothing about now, so the list shows no state rather than a stale one.
+    now += FLOW_STATE_FRESH_MS + 1
+    expect(await service.flowMapStates('work', 'dev')).toEqual({ checkout: 'unknown', orders: 'unknown' })
   })
 })
 
 describe('FlowHistoryStore', () => {
-  it('writes one file per scope, named by a hash', () => {
-    const dir = tmp()
-    const store = new FlowHistoryStore(dir, () => Date.UTC(2026, 0, 15), 0)
-    store.set('work|key|dev', 'tx|a|b', { hours: [], settledUntil: 0, fetchedAt: Date.UTC(2026, 0, 15) })
-    store.flush()
-    expect(readdirSync(dir)).toEqual([flowHistoryFileName('work|key|dev')])
-    expect(new FlowHistoryStore(dir).get('work|key|dev', 'tx|a|b')).toMatchObject({ fetchedAt: Date.UTC(2026, 0, 15) })
+  const rows = (db: ReturnType<typeof openTestDb>, sql: string) => db.raw.prepare(sql).all() as Record<string, unknown>[]
+  const hour = (at: number, count = 1) => ({ at, count, failed: 0, latency: [] as [number, number][] })
+
+  it('stores each scope under a hash and reads it back after a restart', () => {
+    const db = openTestDb()
+    const now = Date.UTC(2026, 0, 15)
+    const store = new FlowHistoryStore(db, () => now)
+    store.set('work|key|dev', 'tx|a|b', { hours: [hour(now - H)], settledUntil: now - H, fetchedAt: now })
+    expect(rows(db, 'SELECT DISTINCT scope FROM flow_history_measures')).toEqual([{ scope: flowHistoryScopeId('work|key|dev') }])
+    expect(JSON.stringify(rows(db, 'SELECT * FROM flow_history_hours'))).not.toContain('work|key|dev')
+    expect(new FlowHistoryStore(db, () => now).get('work|key|dev', 'tx|a|b')).toEqual({ hours: [hour(now - H)], settledUntil: now - H, fetchedAt: now })
   })
 
-  it('drops measures nobody read for a week and deletes files not written for a week', () => {
-    const dir = tmp()
+  it('writes only the hours that changed and drops the ones a merge removed', () => {
+    const db = openTestDb()
     const now = Date.UTC(2026, 0, 15)
-    const store = new FlowHistoryStore(dir, () => now, 0)
+    const store = new FlowHistoryStore(db, () => now)
+    store.set('s', 'm', { hours: [hour(now - 3 * H), hour(now - 2 * H), hour(now - H)], settledUntil: 0, fetchedAt: now - 1000 })
+    db.raw.prepare('UPDATE flow_history_hours SET fetched_at = 0').run()
+    store.set('s', 'm', { hours: [hour(now - 3 * H), hour(now - H, 5)], settledUntil: 0, fetchedAt: now })
+    expect(rows(db, 'SELECT hour_at, fetched_at FROM flow_history_hours ORDER BY hour_at')).toEqual([
+      { hour_at: now - 3 * H, fetched_at: 0 },
+      { hour_at: now - H, fetched_at: now }
+    ])
+    expect(new FlowHistoryStore(db, () => now).get('s', 'm')?.hours.map((h) => h.count)).toEqual([1, 5])
+  })
+
+  it('shows a week, hides measures nobody read for a week, and keeps the hours for the retention', () => {
+    const db = openTestDb()
+    const now = Date.UTC(2026, 0, 15)
+    const store = new FlowHistoryStore(db, () => now)
     store.set('s', 'old', { hours: [], settledUntil: 0, fetchedAt: now - 8 * 24 * H })
-    store.set('s', 'new', { hours: [{ at: now - 8 * 24 * H, count: 1, failed: 0, latency: [] }], settledUntil: 0, fetchedAt: now })
+    store.set('s', 'new', { hours: [hour(now - 8 * 24 * H)], settledUntil: 0, fetchedAt: now })
     expect(store.get('s', 'old')).toBeUndefined()
     expect(store.get('s', 'new')?.hours).toEqual([])
-    store.flush()
-    const file = join(dir, flowHistoryFileName('s'))
-    const old = (now - 8 * 24 * H) / 1000
-    utimesSync(file, old, old)
-    expect(store.prune()).toBe(1)
-    expect(existsSync(file)).toBe(false)
+    // An hour older than a week stays in the database for later analysis, until the retention ends.
+    db.raw.prepare('INSERT INTO flow_history_hours (scope, measure, hour_at, json, fetched_at) VALUES (?, ?, ?, ?, ?)').run(flowHistoryScopeId('s'), 'new', now - 30 * 24 * H, JSON.stringify(hour(now - 30 * 24 * H)), now)
+    db.raw.prepare('INSERT INTO flow_history_hours (scope, measure, hour_at, json, fetched_at) VALUES (?, ?, ?, ?, ?)').run(flowHistoryScopeId('s'), 'new', now - (FLOW_HISTORY_DAYS + 1) * 24 * H, '{}', now)
+    store.set('gone', 'm', { hours: [], settledUntil: 0, fetchedAt: now - (FLOW_HISTORY_DAYS + 1) * 24 * H })
+    expect(store.prune()).toBe(2)
+    expect(rows(db, 'SELECT hour_at FROM flow_history_hours ORDER BY hour_at').map((r) => r['hour_at'])).toEqual([now - 30 * 24 * H])
+    expect(rows(db, 'SELECT scope FROM flow_history_measures').map((r) => r['scope'])).not.toContain(flowHistoryScopeId('gone'))
   })
 })
 

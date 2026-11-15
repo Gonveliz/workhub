@@ -1,18 +1,17 @@
-import { dueActions, EMPTY_CALENDAR_STATE, pruneBriefs, pruneFired, type CalendarEvent, type CalendarState, type DueAction, type PlannerSettings } from '@workhub/core'
-import type { StateFile } from './state-file'
+import { dueActions, EMPTY_CALENDAR_STATE, pruneBriefs, pruneFired, type CalendarEvent, type CalendarState, type DueAction, type PlannerSettings, type StateStore } from '@workhub/core'
 
 /** How often the Plan watcher looks for reminders and briefs that are due. */
 export const CALENDAR_WATCH_INTERVAL_MS = 30_000
 
 /**
- * The Plan state shared by the watcher and the brief service (`calendar-state.json`): one copy in
- * memory, saved through the state file; old entries are pruned as it is written.
+ * The Plan state shared by the watcher and the brief service (the `calendar-state` key of `kv_state`):
+ * one copy in memory, saved through the database; old entries are pruned as it is written.
  */
 export class CalendarStateStore {
   private state: CalendarState
 
   constructor(
-    private readonly file: StateFile<CalendarState>,
+    private readonly file: StateStore<CalendarState>,
     private readonly now: () => number = Date.now
   ) {
     const loaded = file.load(EMPTY_CALENDAR_STATE)

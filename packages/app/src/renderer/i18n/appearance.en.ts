@@ -26,9 +26,5 @@ export const appearanceEn = {
   'appearance.chatSizeHint': 'The text of agent conversations, on top of the app text size.',
   'appearance.px': '{size} px',
   'appearance.reset': 'Reset',
-  'import.appearance': 'Appearance',
-  'import.appearanceTerminal': 'terminal {size} px',
-  'import.appearanceText': 'text {size} px',
-  'import.appearanceChat': 'conversations {size} px',
   'appearance.resetNamed': 'Reset {name}'
 } as const

@@ -11,7 +11,6 @@ import type { ValidationIssue } from "@workhub/core";
 import type { ConfigSnapshot, Platform } from "@shared/api";
 import { Button } from "../components/atoms";
 import { useToast } from "../components/molecules";
-import { Workhub1SecretsImport } from "../components/organisms";
 import {
   SaveBar,
   SAVE_SHORTCUT,
@@ -29,11 +28,6 @@ import {
 } from "../lib/configIssues";
 import { matchesShortcut } from "../lib/shortcuts";
 import type { UnsavedChanges } from "../lib/unsavedChanges";
-import {
-  showWorkhub1Migration,
-  showWorkhub1Tokens,
-  useWorkhub1Preview,
-} from "../lib/workhub1";
 import { AccountsSection } from "./settings/AccountsSection";
 import { ConnectionsSection } from "./settings/ConnectionsSection";
 import { focusSettingGroup, focusSettingRow } from "./settings/focusRow";
@@ -58,7 +52,6 @@ import {
   SETTINGS_INDEX,
   searchSettings,
   type SettingsHit,
-  type SettingsIndexEntry,
 } from "./settings/settings-index";
 import { SettingsNav } from "./settings/SettingsNav";
 import { Issues } from "./settings/shared";
@@ -149,8 +142,6 @@ function SettingsBody({
   const searchRef = useRef<HTMLInputElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const root = useRef<HTMLDivElement>(null);
-  // Workhub 1 on this Mac (read again after every config change): drives the migration UI's visibility.
-  const workhub1 = useWorkhub1Preview(snap?.config);
 
   const activeProfileId = snap?.config.activeProfileId ?? null;
   const profiles = snap?.config.profiles ?? [];
@@ -221,20 +212,14 @@ function SettingsBody({
     return true;
   };
 
-  const editable = snap ? !snap.loadError : false;
-  const importVisible =
-    editable && showWorkhub1Migration(window.hub.platform, workhub1);
-  const visible = (entry: SettingsIndexEntry) =>
-    entry.only !== "workhub1" || importVisible;
   const groupLabel = (group: SettingsNavGroup) => t(GROUP_LABEL[group]);
   const hits = useMemo(
     () =>
       searchSettings([...SETTINGS_INDEX, ...profileEntries(profiles)], query, {
         t,
         groupLabel,
-        visible,
       }),
-    [query, t, importVisible, profiles],
+    [query, t, profiles],
   ); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => setActiveHit(0), [query]);
 
@@ -452,12 +437,7 @@ function SettingsBody({
         );
       case "advanced":
         return (
-          <AdvancedSection
-            snap={snap}
-            run={run}
-            workhub1={workhub1}
-            importVisible={importVisible}
-          />
+          <AdvancedSection snap={snap} run={run} />
         );
     }
   };
@@ -529,11 +509,6 @@ function SettingsBody({
               />
             )}
             <StoredIssues snap={snap} onFix={fix} />
-            {showWorkhub1Tokens(window.hub.platform, workhub1) && (
-              <div className="rounded-lg border border-border bg-surface px-4 py-3 shadow-sm">
-                <Workhub1SecretsImport compact />
-              </div>
-            )}
             {query && (
               <SearchResults
                 hits={hits}

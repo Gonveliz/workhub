@@ -58,7 +58,9 @@ hop of an existing flow, or asks to fix a map that Workhub lists as invalid.
      replace them.
 
 3. **Install it.** Inside a Workhub session, post it to the control endpoint; the answer names the
-   invalid fields if any. With the `workhub` MCP tools available, call `flow_map_save` with
+   invalid fields if any; on success it is `{ "ok": true, "id": "<id>", "file": "<id>.json" }`,
+   where `file` is only a display name (maps are stored in Workhub's database, not as files). With
+   the `workhub` MCP tools available, call `flow_map_save` with
    `{ "map": <the map> }` instead of `curl`:
 
    ```sh
@@ -73,16 +75,16 @@ hop of an existing flow, or asks to fix a map that Workhub lists as invalid.
    A posted map replaces the stored one with the same `id`, except that a map posted without
    `alerts` keeps the stored map's `alerts`.
 
-   Outside a session, save it as `<data folder>/flow-maps/<id>.json` or hand the file to the user
-   for **Settings → Flow maps → Import JSON…**. Then tell the user to open Flow maps (⌘7) → the
+   Outside a session, hand the file to the user for **Settings → Flow maps → Import JSON…** (maps
+   are stored in Workhub's database; a file dropped in the data folder's `flow-maps/` is not read). Then tell the user to open Flow maps (⌘7) → the
    environment → Reload.
 
 4. **Check it.** Open it in Workhub (or ask the user to): the Coverage tab lists what is not
    measured, what APM returned nothing for and what failed. "No data" or "could not read" means a
    wrong `service`, `transaction` or `destination`: verify the exact value in APM (`terms`
-   aggregation on the field, filtered by `service.name`) and fix the file. The Executions tab
+   aggregation on the field, filtered by `service.name`) and post the corrected map again. The Executions tab
    lists, for one real trace, the calls the map does not know about ("Seen in the trace, not in
-   the map"): add the ones that matter. Posting the same `id` again replaces the file.
+   the map"): add the ones that matter. Posting the same `id` again replaces the stored map.
 
 ## Never
 

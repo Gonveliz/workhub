@@ -1,4 +1,4 @@
-import { ArrowRightLeft, ArrowUp, Brain, ChevronRight, FoldVertical, CircleAlert, Clock, History, ImagePlus, Info, LoaderCircle, Pause, Play, ShieldAlert, Square, TriangleAlert, Volume2, Webhook, X, type LucideIcon } from 'lucide-react'
+import { ArrowRightLeft, ArrowUp, Brain, ChevronRight, FoldVertical, CircleAlert, Clock, History, ImagePlus, Info, LoaderCircle, Pause, Play, Square, TriangleAlert, Volume2, Webhook, X, type LucideIcon } from 'lucide-react'
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { appOptions, filterSlashCommands, gatePrompt, sessionIdentity, setCeiling, setSessionCeiling, slashQuery, type SlashCommandInfo, type SubagentSummary } from '@workhub/core'
 import { Button, IconButton } from '../../components/atoms'
@@ -8,6 +8,7 @@ import { BrandMark, ToolCallCard } from '../../components/organisms'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { MessageKey } from '../../i18n/translate'
 import { cn } from '../../lib/cn'
+import { usePendingFocus } from '../../lib/pendingFocus'
 import { onComposerDraft, takeComposerDraft } from '../../lib/drafts'
 import { hasImageFiles, imageFilesOf, insertImageMarkers, pickImageFiles, PROMPT_IMAGE_TYPES, readImageFiles, removeImageMarker } from '../../lib/images'
 import { acceptsInput, restoreComposer } from '../../lib/prompt-queue'
@@ -28,7 +29,7 @@ import { BackgroundTasksNotice } from './BackgroundTasksNotice'
 import { waitingTasks } from '../../lib/backgroundTasks'
 import { idleContext, lastActivityAt } from '../../lib/idle-context'
 import { SessionControls } from './SessionControls'
-import { QuestionCard } from './QuestionCard'
+import { openRequests, PermissionCard, PermissionMarker } from './PermissionCard'
 import type { ContinuityOptions } from '@shared/continuity-api'
 import { dismissOffer, originText, useContinuityActions, useContinuityOffer } from '../../lib/continuity'
 import { ContinuityNotice } from './ContinuityNotice'
@@ -318,39 +319,7 @@ const ChatBlock = memo(function ChatBlock({ item, onAnswer, sessionId, cwd, hasS
       )
     }
     case 'permission':
-      if (item.questions?.length) {
-        return (
-          <QuestionCard
-            questions={item.questions}
-            answer={item.answer}
-            onSubmit={(answers, label) => onAnswer(item.requestId, answers ? 'allow' : 'deny', label, answers ?? undefined)}
-          />
-        )
-      }
-      return (
-        <div role="group" aria-label={t('chat.permissionRequested')} className="ml-8 rounded-lg border border-warning/40 bg-warning-soft p-3">
-          <div className="flex items-center gap-2 text-sm font-medium text-warning">
-            <ShieldAlert className="size-4" aria-hidden />
-            {t('chat.permissionRequested')}
-          </div>
-          <div className="mt-1 text-sm text-text [overflow-wrap:anywhere]">{item.title}</div>
-          {item.detail && <pre className="mt-1 max-h-32 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted [overflow-wrap:anywhere]">{item.detail}</pre>}
-          {item.answer ? (
-            <div className="mt-2 text-sm text-muted">{item.answer === '—' ? t('chat.permissionWithdrawn') : t('chat.answered', { answer: item.answer })}</div>
-          ) : (
-            <div className="mt-2.5 flex flex-wrap gap-1.5">
-              {item.options.map((o) => (
-                <Button key={o.optionId} size="sm" variant={o.kind.startsWith('allow') ? 'primary' : 'secondary'} onClick={() => onAnswer(item.requestId, o.optionId, o.name)}>
-                  {o.name}
-                </Button>
-              ))}
-              <Button size="sm" variant="ghost" onClick={() => onAnswer(item.requestId, null, t('common.cancel'))}>
-                {t('common.cancel')}
-              </Button>
-            </div>
-          )}
-        </div>
-      )
+      return item.answer === undefined ? <PermissionMarker item={item} /> : <PermissionCard item={item} onAnswer={onAnswer} />
     case 'error':
       return (
         <div>
@@ -609,12 +578,17 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
     setImages([])
   }
 
+  // Open requests stay above the composer, whatever the log scrolled to, until answered.
+  const pending = useMemo(() => openRequests(data.items), [data.items])
+  const pendingBox = useRef<HTMLElement>(null)
+  const focusAfterAnswer = usePendingFocus(pending, pendingBox, composer)
   const answer = useCallback(
     (requestId: string, optionId: string | null, label: string, answers?: Record<string, string>) => {
+      focusAfterAnswer(requestId)
       window.hub.sessions.respondPermission(v.id, requestId, optionId, answers)
       markPermission(v.id, requestId, label)
     },
-    [v.id]
+    [v.id, focusAfterAnswer]
   )
 
   // Workhub 1 keys: Return sends, Shift-Return adds a line, Esc interrupts.
@@ -770,6 +744,18 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
           <div ref={bottom} />
         </div>
       </div>
+      {pending.length > 0 && (
+        <section ref={pendingBox} data-testid="pending-requests" aria-label={t('chat.pendingRequests')} className="flex max-h-[45%] shrink-0 flex-col gap-2 overflow-y-auto border-t border-warning/30 px-6 py-3">
+          <p role="status" className="text-xs font-medium text-warning" data-testid="pending-count">
+            {tn('chat.pendingCount', pending.length)}
+          </p>
+          {pending.map((i) => (
+            <div key={i.id} data-request-id={i.requestId}>
+              <PermissionCard item={i} onAnswer={answer} pinned />
+            </div>
+          ))}
+        </section>
+      )}
       <div className="shrink-0 px-6 pb-4">
         <div
           className={cn('@container w-full rounded-xl border border-border bg-surface shadow-sm transition-colors focus-within:border-accent/60', open && 'cursor-text')}

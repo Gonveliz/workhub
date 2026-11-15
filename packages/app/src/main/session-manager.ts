@@ -43,7 +43,7 @@ import {
   type TranscriptReader,
   type WorkhubConfig
 } from '@workhub/core'
-import { terminalChannel, type SessionMode, type SessionView, type SetModeOptions, type StartSessionInput } from '../shared/api'
+import { terminalChannel, type PendingPermission, type SessionMode, type SessionView, type SetModeOptions, type StartSessionInput } from '../shared/api'
 import { ConsoleActivity } from './console-activity'
 import { NO_CONTROL_ENV } from './control-server'
 import { pathInsideFolder } from './reveal'
@@ -61,6 +61,13 @@ export function consoleMcpConfig(servers: readonly McpServerLaunch[], platform: 
   if (!servers.length || platform === 'win32') return undefined
   return JSON.stringify({ mcpServers: Object.fromEntries(servers.map((s) => [s.name, { type: 'stdio', command: s.command, args: s.args, env: s.env }])) })
 }
+
+/** How many answered request ids the view remembers (enough for a burst of questions). */
+const ANSWERED_PERMISSIONS_KEPT = 20
+/** The head of a request's detail kept on the view (the event carries it whole). */
+const PENDING_DETAIL_CHARS = 2000
+/** Input xterm sends by itself (focus in/out, cursor position and device attribute replies), not the user typing. */
+const isTerminalReply = (data: string): boolean => data.length > 0 && data.replace(/\x1b\[(?:I|O|\d+;\d+R|\?\d+(?:;\d+)*c)/g, '') === ''
 
 interface ManagedSession {
   view: SessionView
@@ -88,8 +95,10 @@ interface ManagedSession {
   /** The engine picked while a turn ran: the hand-over waits for the turn to end (Workhub 1's `pendingEngine`). */
   pending?: Engine
   pendingTimer?: ReturnType<typeof setTimeout>
-  /** Permission requests of the app engine not answered yet: the turn waits on the user. */
-  openPermissions: Set<string>
+  /** Permission requests of the app engine not answered yet (the turn waits on the user), by request id, oldest first. */
+  openPermissions: Map<string, PendingPermission>
+  /** The last requests answered through `respondPermission`, so the view can say which ones left answered (vs withdrawn). */
+  answeredPermissions: string[]
   /** The reasoning effort the session started with, kept across a view switch. */
   effort?: string
   /** What the console's terminal UI shows: a spinner while a turn runs, a notification when it asks. */
@@ -324,7 +333,8 @@ export class SessionManager {
       ...(input.readOnly ? { readOnly: true } : {}),
       ...(placed.worktree ? { worktree: placed.worktree } : {}),
       ...(internal.origin ? { origin: internal.origin } : {}),
-      ...(input.resumeAgentSessionId || input.identity ? { resumed: true } : {})
+      ...(input.resumeAgentSessionId || input.identity ? { resumed: true } : {}),
+      pendingPermissions: []
     }
     const session: ManagedSession = {
       view,
@@ -337,7 +347,8 @@ export class SessionManager {
       switching: false,
       readOnly: input.readOnly === true,
       ...(input.effort ? { effort: input.effort } : {}),
-      openPermissions: new Set(),
+      openPermissions: new Map(),
+      answeredPermissions: [],
       console: new ConsoleActivity(),
       consoleStartedAt: 0,
       clock: new ActiveClock(),
@@ -588,7 +599,7 @@ export class SessionManager {
       s.engine = engine
       s.openPermissions.clear()
       s.console.reset()
-      this.update(id, { mode: show, pendingMode: undefined, state: 'starting', error: undefined })
+      this.update(id, { mode: show, pendingMode: undefined, state: 'starting', error: undefined, pendingPermissions: [], consoleAsking: false })
     } finally {
       s.switching = false
     }
@@ -679,7 +690,10 @@ export class SessionManager {
     const s = this.sessions.get(id)
     if (!s) return
     s.runtime.respondPermission(id, requestId, optionId, answers)
-    s.openPermissions.delete(requestId)
+    if (s.openPermissions.delete(requestId)) {
+      s.answeredPermissions = [...s.answeredPermissions.filter((r) => r !== requestId), requestId].slice(-ANSWERED_PERMISSIONS_KEPT)
+      this.update(id, { pendingPermissions: [...s.openPermissions.values()], answeredPermissions: [...s.answeredPermissions] })
+    }
     this.checkPending(s)
   }
 
@@ -689,8 +703,10 @@ export class SessionManager {
     const [id, channel] = channelId.split(':')
     const s = channel === 'console' ? this.sessions.get(id!) : undefined
     if (s) {
-      // Typing in the console answers whatever it asked.
-      s.console.typed()
+      // Typing in the console answers whatever it asked; xterm's own replies (focus reports, cursor
+      // position, device attributes) are not typing, and moving through the options is not an answer: Enter is.
+      if (!isTerminalReply(data)) s.console.typed()
+      if (s.view.consoleAsking && /[\r\n]/.test(data)) this.update(s.view.id, { consoleAsking: false, consoleAskingSince: undefined })
       this.checkPending(s)
     }
   }
@@ -959,11 +975,15 @@ export class SessionManager {
   /** Keeps what decides whether a turn is in progress: open permission requests, the console's title. */
   private track(s: ManagedSession, e: AgentEvent, channel?: 'console' | 'shell'): void {
     if (!channel && s.engine === 'app') {
-      if (e.type === 'permission') s.openPermissions.add(e.requestId)
+      const before = s.openPermissions.size
+      // The detail travels in full with the event; the view, pushed on every change and to the phone, keeps a head of it.
+      if (e.type === 'permission') s.openPermissions.set(e.requestId, { requestId: e.requestId, title: e.title, options: e.options, ...(e.detail ? { detail: e.detail.length > PENDING_DETAIL_CHARS ? `${e.detail.slice(0, PENDING_DETAIL_CHARS)}…` : e.detail } : {}), ...(e.questions ? { questions: e.questions } : {}), at: Date.now() })
       else if (e.type === 'permissionCancelled') s.openPermissions.delete(e.requestId)
       else if (e.type === 'state' && e.state !== 'busy') s.openPermissions.clear()
+      // The view carries what waits, so a window or device that connects later shows it (and one answered elsewhere goes away).
+      if (e.type === 'permission' || s.openPermissions.size !== before) this.update(s.view.id, { pendingPermissions: [...s.openPermissions.values()] })
     } else if (channel === 'console' && s.engine === 'console' && e.type === 'output') {
-      s.console.feed(e.data)
+      if (s.console.feed(e.data) && s.console.asking !== (s.view.consoleAsking ?? false)) this.update(s.view.id, { consoleAsking: s.console.asking, consoleAskingSince: s.console.asking ? Date.now() : undefined })
     }
   }
 
@@ -976,7 +996,9 @@ export class SessionManager {
     }
     // When the state began, for the header's "Working 1:23" / "Idle 2 min".
     const since = patch.state && patch.state !== s.view.state ? { stateSince: Date.now() } : {}
-    s.view = { ...s.view, ...patch, ...since }
+    // A console that stopped, failed or restarts no longer asks anything.
+    const consoleGone = s.view.consoleAsking && patch.state && patch.state !== 'ready' && patch.state !== 'busy' ? { consoleAsking: false, consoleAskingSince: undefined } : {}
+    s.view = { ...s.view, ...patch, ...since, ...consoleGone }
     this.deps.emitChanged(s.view)
     if (patch.state && 'stateSince' in since) {
       s.clock.observe(patch.state, s.view.stateSince ?? Date.now())

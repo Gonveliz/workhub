@@ -1,6 +1,3 @@
-import { mkdtempSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { MenuItemConstructorOptions } from 'electron'
 import {
@@ -18,7 +15,8 @@ import {
 import { buildAppMenuTemplate, newSessionKeys, type AppMenuInput, type MenuAgent } from '../src/main/app-menu'
 import { cleanSessionName, MAX_SESSION_NAME, SessionNames } from '../src/main/session-names'
 import { SessionManager } from '../src/main/session-manager'
-import { StateFile } from '../src/main/state-file'
+import { KvState } from '@workhub/adapters/sqlite-store'
+import { openTestDb, storedState } from './test-db'
 import { openSessionsByHistory, visibleHistory } from '../src/renderer/screens/HistoryScreen'
 import { parseSessionWindowHash, parseSubagentWindowHash, sessionTitle } from '../src/renderer/lib/windows'
 import { sessionWindowHash, subagentWindowHash } from '../src/main/session-windows'
@@ -139,7 +137,6 @@ describe('application menu', () => {
 
 // --- Renaming -------------------------------------------------------------------------------------
 
-const tempFile = (name: string) => join(mkdtempSync(join(tmpdir(), 'workhub-names-')), name)
 
 describe('session names', () => {
   it('keeps one trimmed line, cut to the limit; empty forgets', () => {
@@ -150,23 +147,23 @@ describe('session names', () => {
   })
 
   it('persists names by identity across restarts, and moves one to a real identity', () => {
-    const path = tempFile('session-names.json')
-    const names = new SessionNames(new StateFile(path, 10))
+    const db = openTestDb()
+    const names = new SessionNames(new KvState(db, 'session-names', 10))
     names.set('a', ' Login bug ')
     names.set('b', 'Temp')
     names.move('b', 'real-b')
     names.set('a', 'Login bug')
     names.flush()
-    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ names: { a: 'Login bug', 'real-b': 'Temp' } })
-    const again = new SessionNames(new StateFile(path, 10))
+    expect(storedState(db, 'session-names')).toEqual({ names: { a: 'Login bug', 'real-b': 'Temp' } })
+    const again = new SessionNames(new KvState(db, 'session-names', 10))
     expect([again.get('a'), again.get('b'), again.get('real-b')]).toEqual(['Login bug', undefined, 'Temp'])
     again.set('a', '')
     again.flush()
-    expect(new SessionNames(new StateFile(path, 10)).get('a')).toBeUndefined()
+    expect(new SessionNames(new KvState(db, 'session-names', 10)).get('a')).toBeUndefined()
   })
 
   it('a renamed session keeps its name when it is opened again (resumed under the same id)', async () => {
-    const path = tempFile('session-names.json')
+    const db = openTestDb()
     const runtime: AgentRuntime = {
       adapter: 'native',
       capabilities: () => ({ ...NO_CAPABILITIES, appMode: true }),
@@ -186,7 +183,7 @@ describe('session names', () => {
         terminal: runtime,
         transcripts: [],
         history: {},
-        names: new SessionNames(new StateFile(path, 10)),
+        names: new SessionNames(new KvState(db, 'session-names', 10)),
         emitEvent: () => {},
         emitChanged: (s) => changed.push(s),
         emitReplay: () => {},
@@ -255,6 +252,8 @@ describe('history filtering', () => {
     expect(ids(visibleHistory(entries, { agent: 'claude', account: '*' }))).toEqual(['a', 'c'])
     expect(ids(visibleHistory(entries, { agent: '*', account: 'p' }))).toEqual(['c'])
     expect(ids(visibleHistory(entries, { agent: '*', account: '*', profile: { folders: ['/work/acme'], accountIds: [] } }))).toEqual(['a', 'd'])
+    // Opened from Usage with its id: the throwaway session is listed.
+    expect(ids(visibleHistory(entries, { agent: '*', account: '*', query: 'b' }))).toEqual(['a', 'b', 'c', 'd'])
   })
 
   it('marks open sessions by their agent session id, never stopped ones', () => {

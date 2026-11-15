@@ -37,6 +37,36 @@ Workhub keeps an always-on log of the main process.
 When you report a problem, include the app version, your OS, the steps to reproduce and the relevant
 lines of `main.log`. Report security problems privately as described in [SECURITY.md](../SECURITY.md).
 
+## The database
+
+Workhub keeps its state (open sessions, names, watcher memory, spend, Plan, flow maps and their
+history) in `workhub.db`, a SQLite file in the data folder; **Settings → Advanced → Data** shows its
+path and size. `config.json` and `secrets.json` stay separate files.
+
+- **Start-up lines**: `main.log` has `database <path> schema=<n>` and the result of the one-time
+  import of earlier versions' JSON files (`legacy JSON import: imported …; skipped …; corrupt …`).
+- **The old JSON files**: the import runs once per data folder. Nothing is deleted: an imported file
+  is renamed to `<name>.json.migrated` (`flow-maps/` and `flow-history/` to `flow-maps.migrated/` and
+  `flow-history.migrated/`), one whose data the database already had to `<name>.json.skipped`, and
+  one that is not JSON to `<name>.json.corrupt`. Workhub never reads them again; once it starts fine
+  and your sessions, Plan and flow maps look right, you can delete them by hand.
+- **Going back to an older version**: an older version does not know the database and starts from
+  its own JSON files (the `.migrated` ones are not read, so it starts empty). When you return to this
+  version, the database is used as it was; whatever the older version wrote is kept as `.skipped`
+  files and is not merged.
+- **A damaged database**: only when SQLite reports `workhub.db` as damaged does Workhub rename it to
+  `workhub.db.corrupt-<timestamp>`, log it, show a notice in **Settings → Advanced** (Diagnostics and
+  Data) with that path and the backups folder, and start with a fresh one. While a `.corrupt-*` file
+  is there no backup is pruned. Restore the newest copy from `backups/` (quit Workhub, copy
+  `backups/workhub-<date>.db` over `workhub.db`, delete `workhub.db-wal` and `workhub.db-shm`).
+- **The database cannot be opened** (locked by another process, disk full, no permission): Workhub
+  shows an error and quits, and leaves the file as it is. Fix the cause and start again.
+- **Backups**: `backups/workhub-YYYY-MM-DD.db` about 30 seconds after start and once a day,
+  `workhub-YYYY-MM-DD-HHmm.db` for **Back up now**; the newest 7 of each kind are kept. **Show backups
+  folder** in Settings → Advanced → Data opens the folder.
+- **Flow maps** are no longer read from a `flow-maps/` folder: import them in **Settings → Flow maps**
+  or post them with the `workhub-flow-map` skill.
+
 ## Health is unreachable or returns 401
 
 On the Health screen, an environment that cannot be read shows the reason and **Try again**.

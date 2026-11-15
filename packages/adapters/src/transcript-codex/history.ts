@@ -61,9 +61,9 @@ export class CodexSessionHistory implements SessionHistorySource {
     if (meta.subagent) return null
     const id = meta.id ?? rolloutId(path.split(/[\\/]/).pop() ?? '')
     if (!id) return null
-    const modified = await stat(path).then((s) => s.mtimeMs, () => null)
-    if (modified === null) return null
-    const entry: HistoryEntry = { agentId: account.agentId, accountId: account.accountId, agentSessionId: id, title: prompt ? oneLine(prompt) : id, lastModified: modified }
+    const file = await stat(path).then((s) => s, () => null)
+    if (file === null) return null
+    const entry: HistoryEntry = { agentId: account.agentId, accountId: account.accountId, agentSessionId: id, title: prompt ? oneLine(prompt) : id, lastModified: file.mtimeMs, sizeBytes: file.size }
     if (prompt) entry.firstPrompt = prompt
     if (meta.cwd) entry.cwd = meta.cwd
     if (meta.branch) entry.gitBranch = meta.branch

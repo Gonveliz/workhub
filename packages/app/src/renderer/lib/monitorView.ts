@@ -5,11 +5,12 @@ import type { ContextUsage, LocalChanges, SubagentSummary, ToolCallSummary } fro
  * and the numbers each board shows, computed from what the session already reports.
  */
 
-/** Section ids in Workhub 1's order: Slack first, then tickets, pull requests, the boards, MCP, local work. */
+/** Section ids in Workhub 1's order: Slack first, then tickets, pull requests, tags, the boards, MCP, local work. */
 export const MONITOR_SECTIONS = [
   'slack',
   'tickets',
   'pullRequests',
+  'tags',
   'sessionTime',
   'tokens',
   'context',
@@ -118,4 +119,13 @@ export function requestBars(requests: readonly number[] | undefined): RequestBar
   if (!requests || requests.length < 2) return null
   const max = Math.max(...requests, 1)
   return { max, bars: requests.map((value) => ({ value, fraction: Math.max(value / max, 0.07) })) }
+}
+
+/**
+ * The id a session's tags are kept under: the agent's session id, as the usage data records it.
+ * Null until the agent reports it, so no tag is ever saved under an id the session later leaves.
+ */
+export function tagsSessionId(v: { agentSessionId?: string; readOnly?: boolean }): string | null {
+  if (v.readOnly) return null
+  return v.agentSessionId ?? null
 }

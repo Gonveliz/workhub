@@ -365,6 +365,16 @@ describe('Map list', () => {
     expect(html).toContain('title="3 parts over their limits"')
     expect(html).toContain('w-56')
   })
+
+  it('shows no dot for a map whose state is unknown, so nothing looks live without a fresh reading', () => {
+    const maps = [
+      { id: 'checkout', name: 'Checkout', file: 'checkout.json', nodes: 3, edges: 2 },
+      { id: 'refunds', name: 'Refunds', file: 'refunds.json', nodes: 2, edges: 1 }
+    ]
+    const html = renderToStaticMarkup(createElement(FlowMapList, { maps, states: { checkout: 'ok' }, opened: null, query: '', onQuery: noop, onOpen: noop }))
+    expect((html.match(/data-testid="flow-map-no-state"/g) ?? []).length).toBe(1)
+    expect(html).toContain('no limits or no stored data')
+  })
 })
 
 describe('Claude draft focused on one part', () => {

@@ -7,7 +7,7 @@
 import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { parsePlist, type PlistValue } from '../workhub1-import'
+import { parsePlist, type PlistValue } from './plist'
 
 export type NotificationPermission = 'allowed' | 'denied' | 'unknown'
 

@@ -47,6 +47,7 @@ export function toHistoryEntries(raw: unknown, agentId: string, accountId: strin
     const branch = str(s['gitBranch'])
     if (branch) entry.gitBranch = branch
     if (typeof s['createdAt'] === 'number') entry.createdAt = s['createdAt']
+    if (typeof s['fileSize'] === 'number') entry.sizeBytes = s['fileSize']
     return [entry]
   })
 }

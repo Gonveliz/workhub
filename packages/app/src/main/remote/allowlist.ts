@@ -31,8 +31,14 @@ export const REMOTE_INVOKES: Readonly<Record<string, RemoteCapability | 'any'>> 
   'sessions:stop': 'sessions',
   'remote:file': 'sessions',
   'remote:history': 'sessions',
+  // Paged reads of the lists below (dispatcher.ts, PAGED_SOURCES) and a session's sub-agents and
+  // background tasks for a device that connected after they started (activity.ts).
+  'remote:sessions': 'sessions',
+  'remote:activity': 'sessions',
   'history:list': 'sessions',
   'history:find': 'sessions',
+  'history:search': 'sessions',
+  'history:indexProgress': 'sessions',
   'codeHost:lists': 'pullRequests',
   'codeHost:view': 'pullRequests',
   'codeHost:pullRequest': 'pullRequests',
@@ -40,12 +46,15 @@ export const REMOTE_INVOKES: Readonly<Record<string, RemoteCapability | 'any'>> 
   'codeHost:comment': 'pullRequests',
   'codeHost:reply': 'pullRequests',
   'codeHost:close': 'pullRequests',
+  'remote:pullRequests': 'pullRequests',
   // Not save/remove: an automation names its folder and permission mode, and runNow would then run
   // whatever a device defined. A device runs the automations the desktop already has.
   'automations:get': 'automations',
   'automations:setEnabled': 'automations',
   'automations:runNow': 'automations',
   'automations:stop': 'automations',
+  'remote:automations': 'automations',
+  'remote:automationRuns': 'automations',
   'health:get': 'health',
   'health:details': 'health',
   'health:flowMaps': 'health',

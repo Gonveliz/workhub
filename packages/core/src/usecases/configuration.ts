@@ -8,7 +8,6 @@ import { fail, knownAgents, ok, validateConfig, type Result, type ValidationIssu
 import type { AutomationDefinition } from '../automations/types'
 import type { ChatWatcherSettings } from '../chat/types'
 import { deleteAutomation, saveAutomation, setChatWatcher } from './chat-automation-config'
-import { applyWorkhub1Import, type ImportPlan } from './workhub1-import'
 
 const key = (i: ValidationIssue) => `${i.path}\u0000${i.message}`
 
@@ -187,46 +186,6 @@ export function replaceStoredSessionIdentity(
   const before = config.sessionGroups ?? EMPTY_SESSION_GROUPS
   const after = replaceSessionIdentity(before, oldKey, newKey, meta)
   return after === before ? ok(config) : commit(config, { ...config, sessionGroups: after })
-}
-
-/**
- * Adds imported profiles, accounts and connections (ids that already exist must be left out by
- * the caller). Imported connections may lack their secret: secrets are never imported, so a
- * missing one is reported as a stored problem ("re-enter it") instead of refusing the import.
- */
-export function addImported(
-  config: WorkhubConfig,
-  additions: { profiles: Profile[]; accounts: AgentAccount[]; connections: Connection[] }
-): Result<WorkhubConfig> {
-  for (const [list, items] of [
-    ['profiles', additions.profiles],
-    ['accounts', additions.accounts],
-    ['connections', additions.connections]
-  ] as const) {
-    for (const item of items) {
-      if ((config[list] as { id: string }[]).some((x) => x.id === item.id)) return exists(`${list}.${item.id}`)
-    }
-  }
-  const next: WorkhubConfig = {
-    ...config,
-    profiles: [...config.profiles, ...additions.profiles],
-    accounts: [...config.accounts, ...additions.accounts],
-    connections: [...config.connections, ...additions.connections]
-  }
-  if (!next.activeProfileId && next.profiles[0]) next.activeProfileId = next.profiles[0].id
-  return commitImported(config, next, additions.connections.map((c) => c.id))
-}
-
-/**
- * Validates an imported config like any change, except that the imported connections (by id) may
- * lack their secret: secrets are never imported, so the stored problem asks to re-enter it.
- */
-export function commitImported(before: WorkhubConfig, next: WorkhubConfig, importedConnectionIds: string[]): Result<WorkhubConfig> {
-  const imported = new Set(importedConnectionIds.map((id) => `connections.${id}.secretRef`))
-  const result = commit(before, next)
-  if (result.ok) return result
-  const blocking = result.issues.filter((i) => !(imported.has(i.path) && i.message === 'a secret is required'))
-  return blocking.length ? fail(blocking) : ok(next)
 }
 
 /** What to do with a connection's secret when saving it. */
@@ -412,15 +371,6 @@ export class ConfigurationService {
       const r = deleteAutomation(config, id)
       return r.ok ? commit(config, r.value) : r
     })
-  }
-
-  async addImported(additions: { profiles: Profile[]; accounts: AgentAccount[]; connections: Connection[] }): Promise<Result<WorkhubConfig>> {
-    return this.write((config) => addImported(config, additions))
-  }
-
-  /** Applies a Workhub 1 import plan (see `applyWorkhub1Import`); the result's notes are the plan's plus what was already here. */
-  async applyImport(plan: ImportPlan): Promise<Result<WorkhubConfig>> {
-    return this.write((config) => applyWorkhub1Import(config, plan).result)
   }
 
   async deleteAgent(id: string): Promise<Result<WorkhubConfig>> {

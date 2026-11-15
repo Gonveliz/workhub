@@ -114,11 +114,6 @@ Secrets you type into Settings (API tokens) are stored encrypted with the operat
 and never written to the settings file. If the system cannot encrypt, Workhub refuses to store
 them.
 
-If you used Workhub 1 on macOS, **Settings → Advanced → Data** offers **Import from Workhub 1**. It shows
-a **Preview** of what would be added, never changes Workhub 1, and copies no secrets: connections
-that need one are marked "re-enter the secret". A separate **Import tokens from Workhub 1** step
-can copy Jira and Elastic tokens from the macOS Keychain, with a permission prompt per token.
-
 ## Updates
 
 **Settings → General → Updates** has a **Check for new versions automatically** switch, off by default: nothing

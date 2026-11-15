@@ -1,4 +1,5 @@
-import type { HistoryMessage } from '@workhub/core'
+import { cutSnippet, type HistoryMessage } from '@workhub/core'
+import type { HistoryMatch, HistorySearchResult } from '../../shared/api'
 import type { RemoteHistoryPage } from '../../shared/remote-api'
 
 /** One page of a session's conversation stays well under the relay's frame once sealed. */
@@ -57,4 +58,34 @@ export function pageHistory(all: readonly HistoryMessage[], before?: number): Hi
     start--
   }
   return { messages: page.reverse(), start, total: all.length }
+}
+
+/** A search answer stays this small (the relay's frame is about 520 KB once sealed). */
+export const HISTORY_SEARCH_BYTES = 200 * 1024
+const SEARCH_TEXT_MAX = 400
+
+/**
+ * History search as a paired device gets it: title, first prompt and snippets shortened (snippets
+ * between their parts, never inside a marker), and only as many matches as fit
+ * `HISTORY_SEARCH_BYTES`. When some do not fit, `nextCursor` resumes at the first one left out.
+ */
+export function remoteHistorySearch(result: HistorySearchResult): HistorySearchResult {
+  const short = (text: string) => (text.length > SEARCH_TEXT_MAX ? `${text.slice(0, SEARCH_TEXT_MAX - 1)}…` : text)
+  const entries: HistoryMatch[] = []
+  let bytes = 0
+  for (const e of result.entries) {
+    const { firstPrompt, snippet, titleSnippet, ...rest } = e
+    const slim: HistoryMatch = { ...rest, title: short(e.title) }
+    if (firstPrompt) slim.firstPrompt = short(firstPrompt)
+    if (snippet) slim.snippet = cutSnippet(snippet, SEARCH_TEXT_MAX)
+    if (titleSnippet) slim.titleSnippet = cutSnippet(titleSnippet, SEARCH_TEXT_MAX)
+    const size = sizeOf(slim)
+    if (entries.length > 0 && bytes + size > HISTORY_SEARCH_BYTES) break
+    entries.push(slim)
+    bytes += size
+  }
+  const { nextCursor: _next, ...base } = result
+  const cut = entries.length < result.entries.length
+  const nextCursor = cut ? String(result.start + entries.length) : result.nextCursor
+  return { ...base, entries, ...(nextCursor ? { nextCursor } : {}) }
 }

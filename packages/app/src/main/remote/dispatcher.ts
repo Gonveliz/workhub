@@ -1,9 +1,15 @@
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
-import type { RemoteCapability } from '../../shared/remote-api'
-import { isUnattendedMode, type ConversationEntry, type EffectiveAgent, type Profile, type SubagentConversation, type ToolResultView, type ToolView, type WorkhubConfig } from '@workhub/core'
-import type { ConfigSnapshot, SessionView, StartSessionInput } from '../../shared/api'
+import type { RemoteCapability, RemotePullRequestList, RemotePullRequestsPage } from '../../shared/remote-api'
+import { isUnattendedMode, type AgentEvent, type AutomationRun, type ConversationEntry, type EffectiveAgent, type Profile, type PullRequestItem, type SubagentConversation, type ToolResultView, type ToolView, type WorkhubConfig } from '@workhub/core'
+import type { ConfigSnapshot, HistorySearchResult, SessionView, StartSessionInput } from '../../shared/api'
+import type { CodeHostLists } from '../../shared/codehost-api'
+import type { AutomationsSnapshot, AutomationStatus } from '../../shared/chat-api'
+import { pageOf, PAGE_BYTES, PageRequestError, readPageRequest, type PageRequest } from './paging'
+import { remoteBackgroundTask, remoteSubagentSummary } from './activity'
 import type { HandlerTable } from './ipc-recorder'
 import { REMOTE_EVENTS, REMOTE_INVOKES, REMOTE_MESSAGES, remoteAllows } from './allowlist'
+import { remoteHistorySearch } from './history'
+import { historySearchOptions } from '../history'
 
 /** A paired device while it is connected: who it is, what it was granted, and how events reach it. */
 export interface RemoteDevice {
@@ -30,6 +36,18 @@ export const REMOTE_MAX_IN_FLIGHT = 32
 export const REMOTE_COSTLY_RATE = { calls: 10, windowMs: 60_000 }
 const COSTLY_CHANNELS: ReadonlySet<string> = new Set(['sessions:start', 'sessions:reopen', 'plan:brief', 'automations:runNow'])
 const MCP_ACTIONS: ReadonlySet<unknown> = new Set(['refresh', 'reconnect', 'enable', 'disable'])
+
+/**
+ * Lists a device reads a page at a time (`{ limit, cursor }` → `{ items, nextCursor, total }`), by
+ * the handler whose answer they page. The handler's answer goes through the same redaction as when
+ * the device calls it directly; only then is it cut into pages.
+ */
+export const PAGED_SOURCES: Readonly<Record<string, string>> = {
+  'remote:sessions': 'sessions:list',
+  'remote:pullRequests': 'codeHost:lists',
+  'remote:automations': 'automations:get',
+  'remote:automationRuns': 'automations:get'
+}
 
 /** What a device sees when a handler fails for a reason other than a refusal; the real error goes to the log. */
 export const REMOTE_GENERIC_ERROR = 'the desktop could not complete the request'
@@ -128,13 +146,15 @@ export class RemoteHub {
     const entry = this.devices.get(deviceId)
     if (!entry) throw new RemoteRefused('the device is not connected')
     if (!remoteAllows(REMOTE_INVOKES, channel, entry.device.capabilities)) throw this.refuse(deviceId, channel)
-    const handler = this.deps.handlers.invoke(channel)
+    const source = PAGED_SOURCES[channel]
+    const handler = this.deps.handlers.invoke(source ?? channel)
     if (!handler) throw this.refuse(deviceId, channel)
     const limits = this.limitsOf(deviceId)
     this.spend(deviceId, channel, limits)
     limits.inFlight++
     try {
-      const checked = await this.validate(channel, args)
+      const paged = source ? pagedCall(channel, args) : null
+      const checked = paged ? paged.sourceArgs : await this.validate(channel, args)
       // Only a call that passed its checks spends an agent run.
       if (COSTLY_CHANNELS.has(channel) && !limits.costly.take(this.now())) throw this.limited(deviceId, channel, 'too many new agent runs')
       let result: unknown
@@ -146,7 +166,8 @@ export class RemoteHub {
         this.deps.log?.warn(`remote: ${channel} from ${deviceId} failed: ${err instanceof Error ? err.message : String(err)}`)
         throw new RemoteRefused(REMOTE_GENERIC_ERROR)
       }
-      return redactResult(channel, result)
+      if (!paged || !source) return redactResult(channel, result)
+      return paged.page(redactResult(source, result))
     } finally {
       limits.inFlight--
     }
@@ -241,6 +262,8 @@ export class RemoteHub {
       case 'sessions:reopen':
         checkToken(args[0], 'the session identity')
         return [args[0], await this.checkedStart(args[1]), ...args.slice(2)]
+      case 'history:search':
+        return this.checkedHistorySearch(args[0], args[1])
       case 'sessions:setModel':
         checkToken(args[1], 'the model')
         return args
@@ -273,6 +296,18 @@ export class RemoteHub {
     return start
   }
 
+  /**
+   * A device searches the History of the folders it may start sessions in (the profile's, as for
+   * `sessions:start`) and nothing else: any folder, account or session list it sends is replaced.
+   */
+  private async checkedHistorySearch(query: unknown, raw: unknown): Promise<unknown[]> {
+    if (typeof query !== 'string') throw new RemoteRefused('a search text is required')
+    const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+    const profileId = typeof o['profileId'] === 'string' ? o['profileId'] : null
+    const { cwdPrefix: _one, cwdPrefixes: _many, keys: _keys, accountIds: _accounts, ...rest } = historySearchOptions(raw)
+    return [query.slice(0, 500), { ...rest, cwdPrefixes: await this.deps.profileFolders(profileId) }]
+  }
+
   /** A device may switch a session's mode, but never to one that skips permissions, nor a read-only reviewer's at all. */
   private async checkModeChange(sessionId: unknown, modeId: unknown): Promise<void> {
     if (typeof modeId !== 'string' || !modeId) throw new RemoteRefused('a mode id is required')
@@ -285,14 +320,102 @@ export class RemoteHub {
   }
 }
 
+/**
+ * A paged call's arguments: what its handler takes, and how its (redacted) answer becomes a page.
+ * `remote:pullRequests` takes the profile id first; every paged call takes the page request last.
+ */
+function pagedCall(channel: string, args: unknown[]): { sourceArgs: unknown[]; page: (result: unknown) => unknown } {
+  try {
+    switch (channel) {
+      case 'remote:sessions': {
+        const request = readPageRequest(args[0])
+        return { sourceArgs: [], page: (r) => pageOf(Array.isArray(r) ? (r as SessionView[]) : [], request, (v) => String(v?.id), { stub: sessionStub }) }
+      }
+      case 'remote:pullRequests': {
+        const profileId = args[0] ?? null
+        if (profileId !== null && typeof profileId !== 'string') throw new RemoteRefused('the profile is not valid')
+        const request = readPageRequest(args[1])
+        const list = (args[1] as { list?: unknown } | undefined)?.list
+        if (list !== undefined && list !== 'mine' && list !== 'toReview') throw new RemoteRefused('the list is not valid')
+        return { sourceArgs: [profileId], page: (r) => pullRequestsPage(r as CodeHostLists, request, list) }
+      }
+      case 'remote:automations': {
+        const request = readPageRequest(args[0])
+        return { sourceArgs: [], page: (r) => pageOf((r as AutomationsSnapshot | null)?.automations ?? [], request, (a: AutomationStatus) => a.definition.id) }
+      }
+      case 'remote:automationRuns': {
+        const request = readPageRequest(args[0])
+        const only = (args[0] as { automationId?: unknown } | undefined)?.automationId
+        if (only !== undefined && typeof only !== 'string') throw new RemoteRefused('the automation is not valid')
+        return {
+          sourceArgs: [],
+          page: (r) => {
+            const runs = (r as AutomationsSnapshot | null)?.runs ?? []
+            return pageOf(only === undefined ? runs : runs.filter((run) => run.automationId === only), request, (run: AutomationRun) => run.id)
+          }
+        }
+      }
+      default:
+        throw new RemoteRefused(`${channel} is not available remotely`)
+    }
+  } catch (err) {
+    if (err instanceof PageRequestError) throw new RemoteRefused(err.message)
+    throw err
+  }
+}
+
+/** A session that does not fit a page on its own: enough for the list to name it. */
+function sessionStub(v: SessionView): SessionView {
+  return { id: v.id, label: v.label, state: v.state, tooLarge: true } as SessionView
+}
+
+/**
+ * The lists' state without their rows, how many each holds, and a page of the list asked for, or
+ * the first page of each (each in half a page's bytes, so both fit one frame). Rows without a
+ * link are left out: the phone could neither open nor tell them apart.
+ */
+function pullRequestsPage(lists: CodeHostLists, request: PageRequest, only?: RemotePullRequestList): RemotePullRequestsPage {
+  const linked = (items: unknown) => (Array.isArray(items) ? (items as PullRequestItem[]).filter((i) => typeof i?.pr?.url === 'string' && i.pr.url !== '') : [])
+  const mine = linked(lists?.mine)
+  const toReview = linked(lists?.toReview)
+  const { mine: _mine, toReview: _toReview, ...rest } = lists ?? ({} as CodeHostLists)
+  const out: RemotePullRequestsPage = { lists: rest, counts: { mine: mine.length, toReview: toReview.length } }
+  const key = (i: PullRequestItem) => i.pr.url
+  if (only) out[only] = pageOf(only === 'mine' ? mine : toReview, request, key)
+  else {
+    const first = { ...request, cursor: null }
+    out.mine = pageOf(mine, first, key, { maxBytes: PAGE_BYTES / 2 })
+    out.toReview = pageOf(toReview, first, key, { maxBytes: PAGE_BYTES / 2 })
+  }
+  return out
+}
+
 /** Events that carry what a device has no use for, trimmed like the matching results. */
 function redactEvent(channel: string, args: unknown[]): unknown[] {
   if (channel === 'session:changed' && args[0] && typeof args[0] === 'object') return [remoteSessionView(args[0] as SessionView), ...args.slice(1)]
+  if (channel === 'session:event' && args[0] && typeof args[0] === 'object') return [remoteAgentEvent(args[0] as AgentEvent), ...args.slice(1)]
   return args
+}
+
+/** A monitor update's sub-agents and background tasks as `remote:activity` sends them: no model, tokens or cost, text cut. */
+export function remoteAgentEvent(e: AgentEvent): AgentEvent {
+  if (e.type !== 'monitor' || !e.snapshot || typeof e.snapshot !== 'object') return e
+  const { subagents, backgroundTasks } = e.snapshot
+  if (!Array.isArray(subagents) && !Array.isArray(backgroundTasks)) return e
+  return {
+    ...e,
+    snapshot: {
+      ...e.snapshot,
+      ...(Array.isArray(subagents) ? { subagents: subagents.map(remoteSubagentSummary) } : {}),
+      ...(Array.isArray(backgroundTasks) ? { backgroundTasks: backgroundTasks.map(remoteBackgroundTask) } : {})
+    }
+  }
 }
 
 /** How much of a slash command's description a device gets: enough for the menu line. */
 const COMMAND_DESCRIPTION_MAX = 120
+/** How much of a waiting permission request's title and detail a device gets. */
+const PERMISSION_TEXT_MAX = 600
 /** Slash commands a device gets per session; an agent with hundreds of skills would otherwise fill the frame. */
 const COMMANDS_MAX = 300
 
@@ -313,6 +436,9 @@ export function remoteSessionView(view: SessionView): SessionView {
     }))
   }
   if (Array.isArray(view.models)) out.models = view.models.map((m) => ({ id: m.id, name: m.name }))
+  // A waiting request's text is cut as a sub-agent's step is: one long prompt must not make the session unsendable.
+  if (Array.isArray(view.pendingPermissions))
+    out.pendingPermissions = view.pendingPermissions.map((p) => ({ ...p, title: cutText(String(p.title ?? ''), PERMISSION_TEXT_MAX), ...(typeof p.detail === 'string' ? { detail: cutText(p.detail, PERMISSION_TEXT_MAX) } : {}) }))
   return out
 }
 
@@ -375,6 +501,7 @@ function redactResult(channel: string, result: unknown): unknown {
   if (channel === 'sessions:list' && Array.isArray(result)) return (result as SessionView[]).map(remoteSessionView)
   if (channel === 'config:effectiveAgents' && Array.isArray(result)) return (result as EffectiveAgent[]).map(remoteEffectiveAgent)
   if (channel === 'sessions:subagent' && result && typeof result === 'object') return remoteSubagent(result as SubagentConversation)
+  if (channel === 'history:search' && result && typeof result === 'object') return remoteHistorySearch(result as HistorySearchResult)
   return result
 }
 

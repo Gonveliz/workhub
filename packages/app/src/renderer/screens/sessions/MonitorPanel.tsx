@@ -6,7 +6,8 @@ import { useConfig } from '../../configStore'
 import { useI18n } from '../../i18n/I18nProvider'
 import { cn } from '../../lib/cn'
 import { formatTokens } from '../../lib/home'
-import { changesTotal, contextView, requestBars, pullRequestLabel, sessionTime, subagentTokens } from '../../lib/monitorView'
+import { changesTotal, contextView, requestBars, pullRequestLabel, sessionTime, subagentTokens, tagsSessionId } from '../../lib/monitorView'
+import { TagsEditor } from '../../components/molecules/TagsEditor'
 import { DEFAULT_PREFS, SIZE_RANGES, setPrefs, usePrefs } from '../../lib/prefs'
 import { PaneResizeHandle } from '../../components/molecules/PaneResizeHandle'
 import { usePullRequestsByUrl, useTicketPreviews, useTicketsStatus } from '../../lib/sessionWork'
@@ -224,6 +225,7 @@ export function MonitorPanel({ data, visible }: { data: SessionData; visible: bo
   const n = (x: number | undefined) => (x === undefined ? '–' : formatTokens(x, locale))
   const showTokens = fields.includes('tokens') || fields.includes('cost') || fields.includes('credits')
   const total = changes ? changesTotal(changes) : null
+  const tagsId = tagsSessionId(v)
 
   return (
     <aside aria-label={t('monitor.label')} className="relative max-w-[45%] min-w-60 shrink-0 border-l border-border bg-sidebar" style={{ width }} data-monitor-of={v.id}>
@@ -275,6 +277,12 @@ export function MonitorPanel({ data, visible }: { data: SessionData; visible: bo
                 <PullRequestCard key={item.pr.url} item={item} profileId={profileId} />
               ))}
             </ul>
+          </MonitorSection>
+        )}
+
+        {tagsId && (
+          <MonitorSection id="tags" title={t('tags.label')}>
+            <TagsEditor sessionId={tagsId} compact />
           </MonitorSection>
         )}
 

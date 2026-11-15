@@ -77,7 +77,7 @@ export function LanguageAppearanceGroup() {
               onChange={(v) => setPrefs({ terminalFontFamily: v })}
               options={[
                 ...TERMINAL_FONT_FAMILIES.map((f) => ({ value: f, label: f || t('appearance.fontDefault') })),
-                // A family imported from Workhub 1 that is not in the list stays selectable.
+                // A saved family that is not in the list stays selectable.
                 ...(prefs.terminalFontFamily && !(TERMINAL_FONT_FAMILIES as readonly string[]).includes(prefs.terminalFontFamily)
                   ? [{ value: prefs.terminalFontFamily, label: prefs.terminalFontFamily }]
                   : [])

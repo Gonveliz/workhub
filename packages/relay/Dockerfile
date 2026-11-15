@@ -1,7 +1,7 @@
 # Workhub Remote relay. Build context is the repository root:
 #   docker build -f packages/relay/Dockerfile -t workhub-relay .
 # The web client (packages/app's web build) is copied in when present, so one container serves both.
-FROM node:22-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
 COPY packages/protocol/package.json packages/protocol/
@@ -13,7 +13,7 @@ COPY packages/protocol packages/protocol
 COPY packages/relay packages/relay
 RUN npm run build -w @workhub/relay
 
-FROM node:22-alpine
+FROM node:24-alpine
 ARG RELAY_VERSION=dev
 ENV NODE_ENV=production PORT=8787 DATA_DIR=/data RELAY_VERSION=$RELAY_VERSION
 RUN addgroup -S relay && adduser -S relay -G relay && mkdir -p /data /web && chown relay:relay /data

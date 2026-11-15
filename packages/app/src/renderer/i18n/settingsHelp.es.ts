@@ -5,7 +5,7 @@ export const settingsHelpEs: Record<keyof typeof settingsHelpEn, string> = {
   'help.more': 'Más información',
   'help.about': 'Acerca de {name}',
 
-  'help.tab.general': 'Opciones de toda la app: idioma, notificaciones, actualizaciones, importar desde Workhub 1 y dónde se guarda la configuración.',
+  'help.tab.general': 'Opciones de toda la app: idioma, notificaciones, actualizaciones y dónde se guarda la configuración.',
   'help.tab.appearance': 'Cómo se ve Workhub en esta computadora: claro u oscuro, colores de la terminal, fuentes y tamaños de texto.',
   'help.tab.profiles': 'Un perfil es un contexto de trabajo, como una empresa o un proyecto personal: las conexiones, cuentas de agentes, carpetas y pantallas opcionales que usa. Cambia de perfil arriba en la barra lateral.',
   'help.tab.connections': 'Los servicios de los que Workhub lee: un host de código (GitHub, GitLab), un gestor de tickets (Jira, Linear), chat y Salud (Elasticsearch). Cada perfil elige como máximo uno de cada tipo.',
@@ -22,8 +22,7 @@ export const settingsHelpEs: Record<keyof typeof settingsHelpEn, string> = {
   'help.general.notifications': 'Notificaciones del sistema operativo sobre sesiones que no estás mirando.',
   'help.general.updates': 'Workhub consulta GitHub para buscar una versión nueva solo si esto está activado o si haces clic en Buscar ahora.',
   'help.general.prEvents': 'Notificaciones cuando cambia uno de tus pull requests (aprobado, cambios pedidos, checks fallidos, fusionado) o cuando alguien te pide una revisión.',
-  'help.general.import': 'Lee la configuración de Workhub 1 en esta Mac sin modificarla y muestra qué se agregaría antes de guardar nada.',
-  'help.general.storage': 'La carpeta con config.json (configuración, nunca secretos) y secrets.json (tokens, cifrados con el llavero del sistema operativo).',
+  'help.general.storage': 'La carpeta con config.json (configuración, nunca secretos), secrets.json (tokens, cifrados con el llavero del sistema operativo) y workhub.db (el estado de la app, con copias diarias en backups/).',
 
   'help.id': 'Un identificador corto y permanente: minúsculas, dígitos, ".", "_" o "-". No se puede cambiar después de guardar.',
   'help.profile.folders': 'Las carpetas de tus proyectos para este perfil. Las sesiones nuevas las ofrecen primero, y la búsqueda de pull requests usa sus repositorios si no hay otro filtro.',

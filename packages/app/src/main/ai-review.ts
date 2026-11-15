@@ -35,13 +35,13 @@ import {
   type FindingStatus,
   type Profile,
   type ReviewTrigger,
-  type WorkhubConfig
+  type WorkhubConfig,
+  type StateStore
 } from '@workhub/core'
 import type { GitReview, RepoProbe } from '@workhub/adapters/git-review'
 import type { SessionView, StartSessionInput } from '../shared/api'
 import type { AiReviewHold, AiReviewNotice, AiReviewSnapshot, AiReviewStartResult, AiReviewView } from '../shared/ai-review-api'
 import type { IpcRegistrar } from './ipc-guard'
-import type { StateFile } from './state-file'
 
 /** The usage gate's word on starting a reviewer: `ok`, or the budget that holds it. */
 export type ReviewGate = { ok: true } | { ok: false; budget: BudgetStatus }
@@ -62,7 +62,7 @@ export interface AiReviewDeps {
     forget(sessionId: string): Promise<void>
   }
   git: Pick<GitReview, 'probe' | 'refreshBase' | 'resolveBase' | 'remotes' | 'mergeBase' | 'isAncestor' | 'commits' | 'diffStat' | 'diff' | 'checkout' | 'remove'>
-  state: StateFile<AiReviewState>
+  state: StateStore<AiReviewState>
   /** Folder for review worktrees (inside the app's data folder). */
   workDir: string
   emit: (snapshot: AiReviewSnapshot) => void

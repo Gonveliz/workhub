@@ -49,7 +49,7 @@ import {
 } from '@workhub/core'
 import type { FlowMapResult, FlowMapState, FlowMapSummary, FlowTraceLogsResult, FlowTraceResult, FlowTracesResult, HealthDetail, HealthDetailResult, HealthEnvironmentView, HealthState, HealthView } from '../shared/health-api'
 import type { FlowHistoryStore } from './flow-history'
-import { flowMapSummaries, readFlowMapFiles } from './flow-maps'
+import { flowMapSummaries, readFlowMapFiles, type FlowMapRows } from './flow-maps'
 
 /** The least time between two real reads of a profile or of one row's details, however often the screen asks. */
 export const HEALTH_MIN_GAP_MS = 30_000
@@ -122,6 +122,11 @@ export const FLOW_HISTORY_RETRY_BASE_MS = HEALTH_MIN_GAP_MS
 export const FLOW_HISTORY_RETRY_MAX_MS = 30 * 60_000
 /** Flow-history reads that may run against the cluster at once. */
 export const FLOW_HISTORY_CONCURRENCY = 4
+/**
+ * A map's list state (`ok`/`alert`) needs a reading fetched this recently; older stored hours
+ * (the connection down, the profile idle) say nothing about now, so the state is `unknown`.
+ */
+export const FLOW_STATE_FRESH_MS = 2 * 60 * 60_000
 
 type Resolved = { view: HealthView } | { profileId: string; provider: HealthProvider; environments: HealthEnvironment[]; cached: Cached; state: HealthState; connectionName?: string; refreshMinutes: number; floorMinutes: number }
 
@@ -137,8 +142,8 @@ export interface HealthServiceDeps {
   demo: boolean
   httpFor?: (tls: TlsPolicy) => HttpClient
   now?: () => number
-  /** The folder of the flow-map files; no flow maps without it. */
-  flowMapsDir?: string
+  /** The stored flow maps; no flow maps without them. */
+  flowMaps?: FlowMapRows
   /** The local history of flow-map measures; without it every reading asks the cluster for the whole week. */
   flowHistory?: FlowHistoryStore
 }
@@ -264,21 +269,21 @@ export class HealthService {
     }
   }
 
-  /** The flow-map files, for the lists (the screen and Settings); none without a folder. */
+  /** The stored flow maps, for the lists (the screen and Settings); none without a store. */
   async flowMaps(_profileId: string | null): Promise<FlowMapSummary[]> {
-    if (!this.deps.flowMapsDir) return []
-    return flowMapSummaries(readFlowMapFiles(this.deps.flowMapsDir))
+    if (!this.deps.flowMaps) return []
+    return flowMapSummaries(readFlowMapFiles(this.deps.flowMaps))
   }
 
   /** Every map of an environment by id: over its limits in the last stored hour or not (see `FlowMapState`). */
   async flowMapStates(profileId: string | null, environmentId: string): Promise<Record<string, FlowMapState>> {
-    if (!this.deps.flowMapsDir) return {}
+    if (!this.deps.flowMaps) return {}
     const r = await this.resolve(profileId)
     if ('view' in r) return {}
     const env = r.environments.find((e) => e.id === environmentId)
     if (!env) return {}
     const out: Record<string, FlowMapState> = {}
-    for (const f of readFlowMapFiles(this.deps.flowMapsDir)) {
+    for (const f of readFlowMapFiles(this.deps.flowMaps)) {
       const map = f.map
       if (!map || (map.environmentId && map.environmentId !== env.id)) continue
       if (!hasFlowAlerts(map) || !r.provider.flowMeasureHours || !this.deps.flowHistory) {
@@ -286,19 +291,20 @@ export class HealthService {
         continue
       }
       const result = await this.flowMapFromHistory(r, env, map, 1, false, true)
-      out[map.id] = !result.ok || !result.reading ? 'unknown' : flowAlertsOf(map, result.reading, env).length > 0 ? 'alert' : 'ok'
+      const fresh = result.ok && !!result.reading && this.now() - result.reading.at <= FLOW_STATE_FRESH_MS
+      out[map.id] = !result.ok || !result.reading || !fresh ? 'unknown' : flowAlertsOf(map, result.reading, env).length > 0 ? 'alert' : 'ok'
     }
     return out
   }
 
   /**
    * One map measured on an environment, from the cache while the reading is younger than
-   * `HEALTH_DETAIL_LIFETIME_MS`; the file is read every time, so an edited map reads again at once.
+   * `HEALTH_DETAIL_LIFETIME_MS`; the map is read every time, so an edited map reads again at once.
    */
   async flowMap(profileId: string | null, environmentId: string, mapId: string, hours: number, force = false, storedOnly = false): Promise<FlowMapResult> {
-    if (!this.deps.flowMapsDir) return { ok: false, error: 'Flow maps are not available' }
-    const file = readFlowMapFiles(this.deps.flowMapsDir).find((f) => f.map?.id === mapId || (!f.map && basename(f.file) === `${mapId}.json`))
-    if (!file) return { ok: false, error: 'This flow map is no longer in the folder' }
+    if (!this.deps.flowMaps) return { ok: false, error: 'Flow maps are not available' }
+    const file = readFlowMapFiles(this.deps.flowMaps).find((f) => f.map?.id === mapId || (!f.map && basename(f.file) === `${mapId}.json`))
+    if (!file) return { ok: false, error: 'This flow map no longer exists' }
     if (!file.map) return { ok: false, error: `The flow map file is invalid: ${file.error ?? 'unreadable'}` }
     const map = file.map
     // Without Health, or without an environment (an empty id), the map is still drawn, without numbers.
@@ -414,9 +420,9 @@ export class HealthService {
 
   /** The map file and the environment a flow-map ask names, or the reason one of them is missing. */
   private async flowMapTarget(profileId: string | null, environmentId: string, mapId: string): Promise<{ ok: true; map: FlowMap; env: HealthEnvironment; provider: HealthProvider; cached: Cached } | { ok: false; error: string }> {
-    if (!this.deps.flowMapsDir) return { ok: false, error: 'Flow maps are not available' }
-    const file = readFlowMapFiles(this.deps.flowMapsDir).find((f) => f.map?.id === mapId || (!f.map && basename(f.file) === `${mapId}.json`))
-    if (!file) return { ok: false, error: 'This flow map is no longer in the folder' }
+    if (!this.deps.flowMaps) return { ok: false, error: 'Flow maps are not available' }
+    const file = readFlowMapFiles(this.deps.flowMaps).find((f) => f.map?.id === mapId || (!f.map && basename(f.file) === `${mapId}.json`))
+    if (!file) return { ok: false, error: 'This flow map no longer exists' }
     if (!file.map) return { ok: false, error: `The flow map file is invalid: ${file.error ?? 'unreadable'}` }
     const r = await this.resolve(profileId)
     if ('view' in r) return { ok: false, error: 'Health is not set up for this profile' }

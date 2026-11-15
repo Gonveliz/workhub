@@ -43,6 +43,14 @@
  *     -H 'content-type: application/json' -d '{"session":"'"$WORKHUB_SESSION"'","automation":{"triggers":{"intervalMinutes":30}}}'
  *   curl --unix-socket "$WORKHUB_SOCKET" "http://workhub/v1/history?session=$WORKHUB_SESSION&q=deploy"
  *   curl --unix-socket "$WORKHUB_SOCKET" "http://workhub/v1/history/claude/<agent-session-id>?session=$WORKHUB_SESSION"
+ *
+ * And it lets an agent read the usage database, read-only (`analytics-control.ts`; the
+ * `workhub-analytics` skill):
+ *
+ *   curl --unix-socket "$WORKHUB_SOCKET" "http://workhub/v1/analytics/schema?session=$WORKHUB_SESSION"
+ *   curl --unix-socket "$WORKHUB_SOCKET" -X POST http://workhub/v1/analytics/query \
+ *     -H 'content-type: application/json' -d '{"session":"'"$WORKHUB_SESSION"'","sql":"SELECT cwd, TOTAL(usd) FROM turns GROUP BY cwd"}'
+ *   curl --unix-socket "$WORKHUB_SOCKET" "http://workhub/v1/analytics/report?session=$WORKHUB_SESSION&kind=spend_by_project"
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, statSync, unlinkSync } from 'node:fs'
@@ -50,6 +58,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
+import type { AnalyticsControl } from './analytics-control'
 import type { AutomationControl } from './automation-control'
 import type { PlanControl } from './plan-control'
 
@@ -72,7 +81,7 @@ export type ControlResult = { ok: true } | { ok: false; status: number; error: s
 export interface ControlDeps {
   /** Opens the session's "Review changes" window on these repos (plus the ones it finds itself). */
   openReview(sessionId: string, repos: ReviewRequestRepo[]): ControlResult
-  /** Validates and stores a flow map (the Flow maps screen); errors name the fields. */
+  /** Validates and stores a flow map (the Flow maps screen); errors name the fields. `file` is a display name (`<id>.json`): maps live in the database. */
   saveFlowMap?(map: unknown): { ok: true; file: string; id: string } | { ok: false; errors: string[] }
   /** Adds the items of a body to a profile's inbox as pending (`parseInboxProposals` checks it). */
   addInboxItems?(body: unknown): Promise<{ ok: true; added: string[]; duplicates: string[] } | { ok: false; status: number; error: string }>
@@ -80,6 +89,8 @@ export interface ControlDeps {
   plan?: PlanControl
   /** Automations (list, add, edit; never turned on) and past sessions for agents. */
   automations?: AutomationControl
+  /** Read-only analytics over the usage database (schema, one SELECT, the Usage reports); reviewers too. */
+  analytics?: AnalyticsControl
   log?: (message: string) => void
 }
 
@@ -316,6 +327,23 @@ export async function handleControl(deps: ControlDeps, req: IncomingMessage, res
       return send(res, 400, { ok: false, error: 'bad agent or session id' })
     }
     return reply(res, await deps.automations.session(ids[0], ids[1], url.searchParams))
+  }
+  if (url.pathname.startsWith('/v1/analytics/')) {
+    if (!deps.analytics) return send(res, 404, { ok: false, error: 'analytics are not available' })
+    if (url.pathname === '/v1/analytics/query') {
+      if (req.method !== 'POST') return send(res, 405, { ok: false, error: 'use POST' })
+      let body: unknown
+      try {
+        body = await readJson(req)
+      } catch (e) {
+        return send(res, 400, { ok: false, error: e instanceof Error ? e.message : 'bad body' })
+      }
+      return reply(res, await deps.analytics.query(body, url.searchParams))
+    }
+    const route = url.pathname === '/v1/analytics/schema' ? 'schema' : url.pathname === '/v1/analytics/report' ? 'report' : null
+    if (!route) return send(res, 404, { ok: false, error: 'unknown endpoint' })
+    if (req.method !== 'GET') return send(res, 405, { ok: false, error: 'use GET' })
+    return reply(res, await deps.analytics[route](url.searchParams))
   }
   const read = Object.hasOwn(PLAN_READS, url.pathname) ? PLAN_READS[url.pathname] : undefined
   if (read) {

@@ -35,7 +35,7 @@ import {
   fitsFrame
 } from '@workhub/protocol'
 import type { RemoteCapability, RemoteDevicePlatform, RemoteDeviceView, RemoteStatusView } from '../../shared/remote-api'
-import { isRemoteCapability } from '../../shared/remote-api'
+import { isRemoteCapability, REMOTE_FEATURES } from '../../shared/remote-api'
 import type { MirroredNotification } from '../notifier'
 import { RemoteHub, RemoteRefused } from './dispatcher'
 
@@ -531,7 +531,7 @@ export class RemoteService {
     switch (message.t) {
       case 'ready':
         link.ready = true
-        this.sendChannel(device.id, link, { t: 'ready', capabilities: device.capabilities, desktop: this.status().desktopName, features: ['away'] })
+        this.sendChannel(device.id, link, { t: 'ready', capabilities: device.capabilities, desktop: this.status().desktopName, features: [REMOTE_FEATURES.away, REMOTE_FEATURES.paging, REMOTE_FEATURES.activity] })
         this.touch(device.id)
         this.changed()
         return

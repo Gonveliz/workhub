@@ -27,7 +27,7 @@ fixes it (a profile's problem opens that profile on the right tab).
 | | **Agents** | One card per agent installed on this computer, with its own sign-in and its accounts, **Add account** and each account's form; the usage reading switch under each agent. See [Agents](#agents). |
 | | **Connections** | The services Workhub reads, grouped by kind (Code, Tickets, Calendars, Slack, Health), each with the profiles and screens that use it. See [Connections](#connections). |
 | Per profile | **Profiles** | The list of profiles: colour and symbol, name, an **active** badge and a summary (folders, screens that are on, agents offered), with **Open** and a copy button that duplicates it; **New profile** adds one. See below. |
-| Advanced | **Advanced** | **Diagnostics and help** (**Setup check**, **Welcome tour**, **How Workhub works**) and **Data**: where `config.json` and `secrets.json` are kept and, on macOS while Workhub 1 is on this Mac, **Import from Workhub 1**. |
+| Advanced | **Advanced** | **Diagnostics and help** (**Setup check**, **Welcome tour**, **How Workhub works**) and **Data**: where `config.json`, `secrets.json` and the `workhub.db` database are kept, the database size, **Back up now** and **Show backups folder**. |
 
 ### A profile
 
@@ -38,7 +38,7 @@ sidebar. Its header holds the name, colour and symbol, and **Delete**. Under it,
 | Tab | What it holds |
 |---|---|
 | **Folders** | The profile's folders, the default folder for new sessions, each folder's options, and worktrees ("each new session in its own worktree"). |
-| **Screens** | One row per screen with its switch and the connection it reads on the same row: **Pull requests**, **Tickets**, **Slack**, **Automations**, **Health**, **Flow maps** (reads the Health connection), **Plan** and **Review before the pull request**. Opening a row shows that screen's settings for this profile: trackers ([Tickets](tickets.md)), the Slack archive time and the watcher ([Slack](slack.md)), the Elasticsearch connection, environments, alert kinds, metric rules and quiet hours ([Health](health.md)), the maps folder and limits ([Flow maps](flow-maps.md)), calendars, reminders, the brief, people and the inbox ([Plan](plan.md)), and the [review before PR](review-before-pr.md). **None** as the connection turns Pull requests or Tickets off. |
+| **Screens** | One row per screen with its switch and the connection it reads on the same row: **Pull requests**, **Tickets**, **Slack**, **Automations**, **Health**, **Flow maps** (reads the Health connection), **Plan** and **Review before the pull request**. Opening a row shows that screen's settings for this profile: trackers ([Tickets](tickets.md)), the Slack archive time and the watcher ([Slack](slack.md)), the Elasticsearch connection, environments, alert kinds, metric rules and quiet hours ([Health](health.md)), importing maps and limits ([Flow maps](flow-maps.md)), calendars, reminders, the brief, people and the inbox ([Plan](plan.md)), and the [review before PR](review-before-pr.md). **None** as the connection turns Pull requests or Tickets off. |
 | **Agents** | **Agents this profile offers, in order** (the first one offered is the default), **If a Claude account reaches its limit** (account failover), and which accounts and agents the profile offers. |
 | **Sessions and links** | **Open links with**, **Use this profile for folders without one**, and the environment variables of its sessions (values stored encrypted). |
 
@@ -81,7 +81,18 @@ active one) on its tab. The arrow keys move between results. Esc clears the sear
 ## Where settings live
 
 **Settings → Advanced → Data** shows the folder with `config.json` (settings, never secrets) and
-`secrets.json` (tokens, encrypted with the operating system keychain). Workhub makes no network
+`secrets.json` (tokens, encrypted with the operating system keychain). Everything else Workhub
+remembers between launches (open sessions, names, watcher state, spend, Plan, flow maps and their
+history, History's search index) is in one database file, `workhub.db`, in the same folder; the row shows its path and size.
+A copy `workhub-YYYY-MM-DD.db` is made in `backups/` about 30 seconds after the app starts and once
+a day after that; **Back up now** makes a separate one, `workhub-YYYY-MM-DD-HHmm.db`, and **Show
+backups folder** opens the folder. The newest 7 daily and the newest 7 manual copies are kept. To
+restore one, quit Workhub and replace `workhub.db` with the copy (delete `workhub.db-wal` and
+`workhub.db-shm` first). If the database ever has to be moved aside because it was damaged, a
+notice in **Diagnostics and help** and in **Data** says where it went (see
+[Troubleshooting](../troubleshooting.md#the-database)). The first start of this version moves the
+JSON state files of earlier versions into the database and renames them to `.migrated`; see
+[Troubleshooting](../troubleshooting.md#the-database). Workhub makes no network
 calls except to services you configure and, if you turn it on, GitHub for update checks. There is no
 telemetry. See [SECURITY.md](../../SECURITY.md) for what is stored where.
 
@@ -191,7 +202,9 @@ The rows are grouped:
 
 - **Sessions**: replied (only when you are not looking at the session), waiting for you, failed.
   A session notifies once until you look at it, and its newest notification replaces the older
-  one. Sessions of an [automation](automations.md) notify only when they fail unless its
+  one. The waiting row's threshold is the reminder: while a permission or a question still waits,
+  Workhub notifies again every 5, 15, 30 or 60 minutes (15 by default), or never
+  (**No reminder**). Sessions of an [automation](automations.md) notify only when they fail unless its
   **Notifications** field says otherwise.
 - **Pull requests**: one row with how many events are on ("8 of 10 on"); open it for a switch per
   event (review requested, approved, changes requested, comments, CI failed or passing again,

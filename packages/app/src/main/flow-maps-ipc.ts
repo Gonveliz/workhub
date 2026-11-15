@@ -1,18 +1,16 @@
 /**
- * The Flow maps bridge: the files of the data folder (import, delete, reveal), the map window and
- * what only the main process can do for it (the clipboard, forwarding "Ask Claude" to the main window).
+ * The Flow maps bridge: the stored maps (import, delete, alerts), the map window and what only the
+ * main process can do for it (the clipboard, forwarding "Ask Claude" to the main window).
  */
-import { mkdirSync } from 'node:fs'
 import type { BrowserWindow } from 'electron'
 import type { FlowMapImportResult, FlowMapSetAlertsResult } from '../shared/flow-maps-api'
-import { deleteFlowMap, importFlowMapFiles, readFlowMapFiles, setFlowMapAlerts } from './flow-maps'
+import { deleteFlowMap, importFlowMapFiles, readFlowMapFiles, setFlowMapAlerts, type FlowMapRows } from './flow-maps'
 import type { IpcRegistrar } from './ipc-guard'
 
 export interface FlowMapsIpcDeps {
-  dir: string
+  maps: FlowMapRows
   /** Asks for JSON files; empty when cancelled. */
   pickFiles(): Promise<string[]>
-  showItemInFolder(path: string): void
   createWindow(hash: string, title: string): BrowserWindow
   mainWindow(): BrowserWindow | null
   /** Puts a PNG data URL on the clipboard; false when it is not an image. */
@@ -27,20 +25,14 @@ export function flowMapWindowHash(profileId: string | null, environmentId: strin
 
 export function registerFlowMapsIpc(ipc: IpcRegistrar, deps: FlowMapsIpcDeps): void {
   const windows = new Map<string, BrowserWindow>()
-  const ensureDir = () => {
-    mkdirSync(deps.dir, { recursive: true })
-    return deps.dir
-  }
-  ipc.handle('flowMaps:folder', () => ensureDir())
-  ipc.on('flowMaps:reveal', () => deps.showItemInFolder(ensureDir()))
-  ipc.handle('flowMaps:import', async (): Promise<FlowMapImportResult[]> => importFlowMapFiles(ensureDir(), await deps.pickFiles()))
-  ipc.handle('flowMaps:remove', (_e, id: unknown) => (typeof id === 'string' ? deleteFlowMap(deps.dir, id) : false))
-  ipc.handle('flowMaps:get', (_e, mapId: unknown) => (typeof mapId === 'string' ? (readFlowMapFiles(deps.dir).find((f) => f.map?.id === mapId)?.map ?? null) : null))
+  ipc.handle('flowMaps:import', async (): Promise<FlowMapImportResult[]> => importFlowMapFiles(deps.maps, await deps.pickFiles()))
+  ipc.handle('flowMaps:remove', (_e, id: unknown) => (typeof id === 'string' ? deleteFlowMap(deps.maps, id) : false))
+  ipc.handle('flowMaps:get', (_e, mapId: unknown) => (typeof mapId === 'string' ? (readFlowMapFiles(deps.maps).find((f) => f.map?.id === mapId)?.map ?? null) : null))
   ipc.handle('flowMaps:setAlerts', (_e, _profileId: unknown, mapId: unknown, alerts: unknown): FlowMapSetAlertsResult => {
     if (typeof mapId !== 'string') return { ok: false, errors: ['id: not a map id'] }
     if (alerts !== null && (typeof alerts !== 'object' || Array.isArray(alerts))) return { ok: false, errors: ['alerts: expected an object or null'] }
     // setFlowMapAlerts validates the whole map with the map schema before anything is written.
-    return setFlowMapAlerts(deps.dir, mapId, alerts as Parameters<typeof setFlowMapAlerts>[2])
+    return setFlowMapAlerts(deps.maps, mapId, alerts as Parameters<typeof setFlowMapAlerts>[2])
   })
   ipc.handle('flowMaps:copyImage', (_e, dataUrl: unknown) => (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/png;base64,') && dataUrl.length < 50_000_000 ? deps.writeImage(dataUrl) : false))
   ipc.on('flowMaps:openWindow', (_e, profileId: unknown, environmentId: unknown, mapId: unknown) => {

@@ -46,19 +46,20 @@ export interface HealthView {
 export type HealthDetail = ServiceErrorDetails | PodDetails | FlowDetails
 export type HealthDetailResult<T extends HealthDetail = HealthDetail> = { ok: true; value: T } | { ok: false; error: string }
 
-/** One flow-map file of the data folder, as the list shows it. */
+/** One stored flow map, as the list shows it. */
 export interface FlowMapSummary {
   id: string
   name: string
   description?: string
   /** The heading the map is listed under. */
   group?: string
-  /** The environment the map measures itself on, when the file names one. */
+  /** The environment the map measures itself on, when the map names one. */
   environmentId?: string
+  /** A display name, `<id>.json` (maps are stored in the database, not as files). */
   file: string
   nodes: number
   edges: number
-  /** The file could not be parsed: the reason. */
+  /** The stored map could not be parsed: the reason. */
   error?: string
 }
 
@@ -82,7 +83,7 @@ export interface HealthApi {
   flowTrace(profileId: string | null, environmentId: string, mapId: string, traceId: string): Promise<FlowTraceResult>
   /** The APM errors and log lines of one execution, oldest first. */
   flowTraceLogs(profileId: string | null, environmentId: string, mapId: string, traceId: string): Promise<FlowTraceLogsResult>
-  /** The flow maps of the data folder (`flow-maps/*.json`), bad files included with their error. */
+  /** The stored flow maps, invalid ones included with their error. */
   flowMaps(profileId: string | null): Promise<FlowMapSummary[]>
   /** The state of every map of an environment, by map id, from what is stored (never reads the cluster). */
   flowMapStates(profileId: string | null, environmentId: string): Promise<Record<string, FlowMapState>>

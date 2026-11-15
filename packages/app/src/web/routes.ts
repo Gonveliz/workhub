@@ -16,6 +16,8 @@ export type Route =
   | { screen: 'newItem' }
   | { screen: 'milestone'; id: string }
   | { screen: 'settings' }
+  /** Search of past sessions (History). */
+  | { screen: 'history' }
   /** A pairing link (`#pair=<offer>`): the screen reads the offer from the hash itself. */
   | { screen: 'pair' }
 
@@ -46,6 +48,7 @@ export function parseRoute(hash: string): Route {
   if (h === 'prs' || h === 'pullRequests') return { screen: 'pullRequests' }
   if (h === 'alerts') return { screen: 'alerts' }
   if (h === 'settings') return { screen: 'settings' }
+  if (h === 'history') return { screen: 'history' }
   if (h === 'plan') return { screen: 'plan', tab: 'tasks' }
   const plan = /^plan\/([^/?#]+)/.exec(h)
   if (plan) return { screen: 'plan', tab: isPlanTab(plan[1]!) ? plan[1]! : 'tasks' }
@@ -98,6 +101,8 @@ export function routeHash(route: Route): string {
       return `#milestone/${encodeURIComponent(route.id)}`
     case 'settings':
       return '#settings'
+    case 'history':
+      return '#history'
     case 'pair':
       return '#'
   }

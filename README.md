@@ -88,7 +88,7 @@ Then follow [Getting started](docs/user-guide/getting-started.md).
 **App**
 - Profiles with folders, a default folder, per-folder options, the browser or Chrome profile (or a
   custom command) that opens their links, and per-profile session environment; a settings modal
-  with a save bar; menu bar / tray popover; setup check and welcome windows; Workhub 1 import (macOS).
+  with a save bar; menu bar / tray popover; setup check and welcome windows.
 - A rotated log of errors, stalls and slow calls (Help > Reveal Logs).
 - Light/dark and 485 terminal color schemes; English and Spanish.
 - Flows from Workhub 1 are intentionally not ported.
@@ -138,7 +138,7 @@ bundle without quitting).
 
 Sessions reach Workhub's local control endpoint through Workhub's MCP server, which every session
 gets (Settings → Agents → Workhub tools), and through the `skills/workhub-plan`,
-`skills/workhub-flow-map` and `skills/workhub-automations` skills, which teach when and how to use
+`skills/workhub-flow-map`, `skills/workhub-automations` and `skills/workhub-analytics` skills, which teach when and how to use
 it. **Install** in that same section copies the skills into each Claude Code folder; you can also
 copy or symlink them into `~/.claude/skills/` or a project's `.claude/skills/`. See
 [Plan](docs/user-guide/plan.md#the-workhub-plan-skill).
@@ -163,9 +163,6 @@ Elsewhere (the `.deb`, or a macOS app outside a writable folder) it opens the re
    environments. Secrets typed here (API tokens) go to `secrets.json`, encrypted with Electron
    `safeStorage` (macOS Keychain, Windows DPAPI, Linux libsecret/kwallet). If OS encryption is
    unavailable Workhub refuses to store a secret.
-5. Optional: **Import from Workhub 1** (Settings > Advanced > Data, macOS, shown only when Workhub 1
-   settings exist) previews and imports profiles, folders, accounts, connections and more. It never
-   writes to Workhub 1 and copies no secrets; connections that need one are marked "re-enter".
 
 ## Using it
 
@@ -235,6 +232,7 @@ Other environment variables, all for development, demos and smoke runs:
 |---|---|
 | `WORKHUB_DEMO_TICKETS=1`, `WORKHUB_DEMO_CODEHOST=1`, `WORKHUB_DEMO_SLACK=1`, `WORKHUB_DEMO_HEALTH=1`, `WORKHUB_DEMO_USAGE=1`, `WORKHUB_DEMO_CALENDAR=1` | Serve synthetic tickets, pull requests, Slack channels, Health data, usage or meetings instead of a real service |
 | `WORKHUB_DEMO_SCENARIO=team-lead` | With the demo variables above and an empty data folder: seeds the "team lead" profile, calendar, milestones, inbox and metric alerts (`npm run demo` sets it) |
+| `WORKHUB_KIRO_USAGE=1` | Read Kiro plan usage in a development or test run. Off by default outside a packaged app, because each read starts `kiro-cli acp` and refreshes the Kiro sign-in token |
 | `WORKHUB_KIRO_DIR` | Read Kiro's files from another folder |
 | `WORKHUB_NOTIFICATION_LOG`, `WORKHUB_TRAY_LOG` | Write notifications / the tray menu to a file, for smoke runs |
 | `WORKHUB_TRAY_POPOVER_PIN=1` | Keep the tray popover open (screenshots) |
@@ -288,7 +286,7 @@ packages/
   protocol/   Workhub Remote wire protocol: identities, pairing, end-to-end encryption, message schemas
   relay/      Workhub Remote relay server (WebSocket rooms, Web Push, serves the web client); ships as a container
   adapters/   Port implementations on Node/Electron:
-                config-json, secrets-electron, pr-events-json   storage (JSON files, safeStorage)
+                config-json, secrets-electron, sqlite-store   storage (config JSON, safeStorage, SQLite state)
                 agent-claude-native   Claude through the Agent SDK bridge (MCP, hooks, permissions, usage)
                 agent-acp             Agent Client Protocol: Kiro, OpenCode, Codex, Gemini CLI, Claude
                 agent-terminal        any CLI over a PTY (node-pty)
@@ -296,7 +294,7 @@ packages/
                 codehost-github / -gitlab   pull requests through gh / glab
                 tracker-jira / -linear / -demo   tickets
                 calendar-ics          calendars from a private ICS address (and the demo calendar)
-                chat-slack, health-elastic, git-review, token-spend, workhub1-import
+                chat-slack, health-elastic, git-review, token-spend
   app/        Electron shell: main process, preload bridge, React renderer (Tailwind + Radix, en/es)
 scripts/      Build, release, icons and install scripts
 spike/        P0 spike, historical (not part of the workspaces)
@@ -309,8 +307,9 @@ there is no separate build step for `core` or `adapters`.
 ## Privacy
 
 No telemetry. Workhub makes network calls only to services you configure (your code host, tracker,
-Elastic, calendars, agents) and to GitHub when you turn on update checks. Configuration stays on your machine;
-`config.json` holds only `secretRef` keys, never secrets. Agents run with their own configuration
+Elastic, calendars, agents) and to GitHub when you turn on update checks. Configuration and state stay on your machine;
+`config.json` holds only `secretRef` keys, never secrets, and the app's state (sessions, watcher memory, spend, Plan,
+flow maps) is in a local SQLite file, `workhub.db`, with daily copies in `backups/`; neither holds credentials. Earlier versions' JSON state files are imported once and kept as `*.migrated`. Agents run with their own configuration
 (MCP servers, hooks, permission defaults). See [SECURITY.md](SECURITY.md) for what is stored where.
 
 ## Contributing

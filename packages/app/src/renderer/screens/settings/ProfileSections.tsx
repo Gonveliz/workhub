@@ -105,7 +105,7 @@ export function ProfileEditor({ snap, run, profileId, copyOf, tab, tabBar, child
     if (!profile.linkChromeProfile?.trim()) delete profile.linkChromeProfile
     if (!profile.linkCommand?.trim()) delete profile.linkCommand
     else profile.linkCommand = profile.linkCommand.trim()
-    // Off stays saved as off: a switch the user set is never filled from Workhub 1 again.
+    // Off stays saved as off, distinct from unset (the default).
     if (profile.ownsOutside === undefined) delete profile.ownsOutside
     const folderOptions = prunedFolderOptions(profile.folderOptions, profile.folders)
     if (folderOptions) profile.folderOptions = folderOptions

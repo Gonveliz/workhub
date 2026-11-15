@@ -63,3 +63,15 @@ export async function worktreeAliases(paths: Iterable<string>, cache: Map<string
   }
   return out
 }
+
+/** The nearest folder at or above `path` holding `.git` (a repository or a worktree's root); null when there is none. */
+export async function repoRootOf(path: string): Promise<string | null> {
+  let dir = resolve(path)
+  for (let i = 0; i < MAX_DEPTH; i++) {
+    if (await stat(resolve(dir, '.git')).then(() => true, () => false)) return dir
+    const parent = dirname(dir)
+    if (parent === dir) return null
+    dir = parent
+  }
+  return null
+}

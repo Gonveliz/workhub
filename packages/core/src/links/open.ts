@@ -216,23 +216,3 @@ export function chromeDataDirName(app: string | undefined): string | null {
   const name = (app?.trim() || DEFAULT_CHROME_APP).replace(/\/+$/, '').split('/').pop()!.replace(/\.app$/i, '').replace(/^Google /, '')
   return name && !name.startsWith('.') && !/[\0]/.test(name) ? name : null
 }
-
-/**
- * What Workhub 1's `linkOpener` becomes: `open -a X` is the browser app X; any other command stays a
- * command. Workhub 1 ran the opener through a shell, so one with arguments (`firefox -P work`) is
- * split into words and stored as a quoted command line (`"firefox" -P work`) that `linkLaunch`
- * passes word by word.
- */
-export function importedLinkOpener(opener: string | undefined): { linkBrowser: string } | { linkCommand: string } | null {
-  const text = opener?.trim()
-  if (!text) return null
-  const app = /^open\s+-a\s+(?:"([^"]+)"|'([^']+)'|([^\s"']+))$/.exec(text)
-  const name = app?.[1] ?? app?.[2] ?? app?.[3]
-  if (name) return { linkBrowser: name }
-  const words = splitCommandLine(text)
-  if (!words?.length || !words[0]) return { linkCommand: text }
-  const [executable, ...args] = words as [string, ...string[]]
-  // A single unquoted word keeps the plain form a person would type in Settings.
-  if (!args.length && !/[\s"']/.test(executable)) return { linkCommand: executable }
-  return { linkCommand: joinCommandLine(executable, args) }
-}

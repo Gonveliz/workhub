@@ -40,6 +40,18 @@
   --wh-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
   --wh-shadow-md: 0 4px 16px rgb(0 0 0 / 0.35), 0 1px 2px rgb(0 0 0 / 0.4);
   --wh-shadow-lg: 0 18px 48px rgb(0 0 0 / 0.5), 0 2px 6px rgb(0 0 0 / 0.4);
+  /* Chart series (usage reports): eight categorical hues in a fixed order (one green only), each at
+     least 3:1 against this theme's surface, adjacent pairs checked for color-vision deficiency
+     (deutan, protan, tritan); "other" is a neutral gray, also 3:1. */
+  --wh-series-1: #3987e5;
+  --wh-series-2: #d95926;
+  --wh-series-3: #1797b3;
+  --wh-series-4: #c98500;
+  --wh-series-5: #d55181;
+  --wh-series-6: #0ca30c;
+  --wh-series-7: #9085e9;
+  --wh-series-8: #e66767;
+  --wh-series-other: #737b8a;
 }
 
 :root[data-theme='light'] {
@@ -71,6 +83,15 @@
   --wh-shadow-sm: 0 1px 2px rgb(16 24 40 / 0.06);
   --wh-shadow-md: 0 4px 14px rgb(16 24 40 / 0.08), 0 1px 2px rgb(16 24 40 / 0.06);
   --wh-shadow-lg: 0 18px 44px rgb(16 24 40 / 0.16), 0 2px 6px rgb(16 24 40 / 0.08);
+  --wh-series-1: #2a78d6;
+  --wh-series-2: #d4582a;
+  --wh-series-3: #0a84a3;
+  --wh-series-4: #a87300;
+  --wh-series-5: #c74b82;
+  --wh-series-6: #2f8a1f;
+  --wh-series-7: #6250d6;
+  --wh-series-8: #d63c3b;
+  --wh-series-other: #7c8491;
 }
 
 @theme {

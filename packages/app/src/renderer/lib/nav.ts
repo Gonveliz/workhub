@@ -9,6 +9,7 @@ export type Route =
   | 'slack'
   | 'automations'
   | 'history'
+  | 'usage'
   | 'flowMaps'
   | 'health'
   | 'plan'
@@ -17,12 +18,13 @@ export type Route =
 
 export interface NavItem {
   route: Route
-  shortcut: Shortcut
+  /** CmdOrCtrl key; none for screens past ⌘9 (Usage and reports). */
+  shortcut?: Shortcut
   /** The optional module that must be on in the active profile for the item to show. */
   module?: OptionalModule
 }
 
-/** Main navigation, in Workhub 1's order and with its keys (⌘1-⌘8; ⌘7, once Flows, is Flow maps), then Plan (⌘9). */
+/** Main navigation, in Workhub 1's order and with its keys (⌘1-⌘8; ⌘7, once Flows, is Flow maps), then Plan (⌘9) and Usage and reports (no key). */
 export const NAV_ITEMS: readonly NavItem[] = [
   { route: 'home', shortcut: { key: '1' } },
   { route: 'pullRequests', shortcut: { key: '2' } },
@@ -32,11 +34,12 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { route: 'history', shortcut: { key: '6' } },
   { route: 'flowMaps', shortcut: { key: '7' }, module: 'flowMaps' },
   { route: 'health', shortcut: { key: '8' }, module: 'health' },
-  { route: 'plan', shortcut: { key: '9' }, module: 'planner' }
+  { route: 'plan', shortcut: { key: '9' }, module: 'planner' },
+  { route: 'usage' }
 ]
 
-export const SESSIONS_ITEM: NavItem = { route: 'sessions', shortcut: { key: '0' } }
-export const SETTINGS_ITEM: NavItem = { route: 'settings', shortcut: { key: ',' } }
+export const SESSIONS_ITEM: NavItem & { shortcut: Shortcut } = { route: 'sessions', shortcut: { key: '0' } }
+export const SETTINGS_ITEM: NavItem & { shortcut: Shortcut } = { route: 'settings', shortcut: { key: ',' } }
 /** Workhub 1's "new session" key. */
 export const NEW_SESSION_SHORTCUT: Shortcut = { key: 't' }
 /** Shows or hides the left sidebar. Not Option: on macOS it changes the key the event carries. */

@@ -8,22 +8,27 @@ import type { ChatItem } from '../src/renderer/store'
 
 describe('navigation', () => {
   it('hides module screens while their module is off', () => {
-    expect(visibleNavItems(undefined).map((i) => i.route)).toEqual(['home', 'pullRequests', 'tickets', 'history'])
-    expect(visibleNavItems({ ...NO_MODULES, chatWatcher: true }).map((i) => i.route)).toEqual(['home', 'pullRequests', 'tickets', 'slack', 'history'])
+    expect(visibleNavItems(undefined).map((i) => i.route)).toEqual(['home', 'pullRequests', 'tickets', 'history', 'usage'])
+    expect(visibleNavItems({ ...NO_MODULES, chatWatcher: true }).map((i) => i.route)).toEqual(['home', 'pullRequests', 'tickets', 'slack', 'history', 'usage'])
   })
 
   it('never shows Flows, which was dropped, even when an older config still has it on', () => {
-    expect(visibleNavItems({ ...NO_MODULES, flows: true }).map((i) => i.route)).toEqual(['home', 'pullRequests', 'tickets', 'history'])
+    expect(visibleNavItems({ ...NO_MODULES, flows: true }).map((i) => i.route)).toEqual(['home', 'pullRequests', 'tickets', 'history', 'usage'])
   })
 
   it('keeps Workhub 1 keys and adds Sessions and Settings', () => {
     const all = allNavItems({ flows: true, health: true, chatWatcher: true, automations: true, flowMaps: false, planner: false })
-    expect(all.map((i) => i.shortcut.key)).toEqual(['1', '2', '3', '4', '5', '6', '8', '0', ','])
+    expect(all.map((i) => i.shortcut?.key)).toEqual(['1', '2', '3', '4', '5', '6', '8', undefined, '0', ','])
+  })
+
+  it('lists Usage and reports last among the screens, with no key (⌘1-⌘9 are taken)', () => {
+    const all = allNavItems(undefined)
+    expect(all.find((i) => i.route === 'usage')).toEqual({ route: 'usage' })
   })
 
   it('shows Flow maps on ⌘7, next to Health, only while its module is on', () => {
-    expect(visibleNavItems({ ...NO_MODULES, flowMaps: true, planner: false }).map((i) => [i.route, i.shortcut.key])).toEqual([['home', '1'], ['pullRequests', '2'], ['tickets', '3'], ['history', '6'], ['flowMaps', '7']])
-    expect(visibleNavItems({ ...NO_MODULES, flowMaps: true, health: true }).map((i) => i.route).slice(-2)).toEqual(['flowMaps', 'health'])
+    expect(visibleNavItems({ ...NO_MODULES, flowMaps: true, planner: false }).map((i) => [i.route, i.shortcut?.key])).toEqual([['home', '1'], ['pullRequests', '2'], ['tickets', '3'], ['history', '6'], ['flowMaps', '7'], ['usage', undefined]])
+    expect(visibleNavItems({ ...NO_MODULES, flowMaps: true, health: true }).map((i) => i.route).slice(-3)).toEqual(['flowMaps', 'health', 'usage'])
   })
 })
 

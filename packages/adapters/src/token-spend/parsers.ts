@@ -20,6 +20,47 @@ export interface CostBuckets {
 
 export const emptyCosts = (): CostBuckets => ({ usd: {}, unpriced: {} })
 
+/** The longest a turn's agent time counts: a gap past it is idle time, not work. */
+export const TURN_IDLE_CAP_MS = 30 * 60_000
+
+/** One assistant message (Claude), token report (Codex) or turn (Kiro) with usage, as a row of `turns`. */
+export interface SpendTurn {
+  /** Unique within its session, so a file read again updates the row: Claude's message id, Codex's running totals, Kiro's turn index. */
+  key: string
+  /** Epoch ms. */
+  at: number
+  model?: string
+  input: number
+  output: number
+  cacheWrite: number
+  cacheRead: number
+  /** At list prices; undefined when the model has no price. */
+  usd?: number
+  /** Where the session was working (the same path the spend buckets use). */
+  cwd: string
+  /** Agent time: from the user's prompt (or the previous reply) to this one, capped at `TURN_IDLE_CAP_MS`. */
+  ms: number
+  /** A sub-agent's message (Claude `isSidechain`): its tokens count, its time runs inside the parent's turn. */
+  sidechain?: boolean
+}
+
+/** Receives the turns a parser reads; a streamed Claude message is reported once per copy (the last one wins). */
+export type TurnSink = (turn: SpendTurn) => void
+
+/** The agent time from `start` to `at`, capped; 0 without a start. */
+const turnMs = (start: number | undefined, at: number): number => (start === undefined ? 0 : Math.min(Math.max(0, at - start), TURN_IDLE_CAP_MS))
+const latest = (a: number | undefined, b: number | undefined): number | undefined => (a === undefined ? b : b === undefined ? a : Math.max(a, b))
+
+const TIMESTAMP = '"timestamp":"'
+
+/** The last top-level-looking `timestamp` of a raw line, without parsing it (a pasted prompt can be large). */
+function rawTimestamp(line: string): number | undefined {
+  const i = line.lastIndexOf(TIMESTAMP)
+  if (i < 0) return undefined
+  const end = line.indexOf('"', i + TIMESTAMP.length)
+  return end < 0 ? undefined : toMillis(line.slice(i + TIMESTAMP.length, end))
+}
+
 /** Adds a priced amount, or the tokens as unpriced when there is no price. */
 function addCost(costs: CostBuckets | undefined, at: number, agent: 'claude' | 'codex', path: string, usd: number | undefined, tokens: number): void {
   if (!costs) return
@@ -47,7 +88,12 @@ export interface ClaudeSpendState {
   /** Where the session works now: its cwd, or what its last edit or `cd` touched. */
   work?: string
   /** The message being streamed: its usage is repeated per block and the last copy counts. */
-  pending?: { id: string; at: number; work: string; tokens: number; usd?: number; all?: number; cacheRead?: number }
+  pending?: { id: string; at: number; work: string; tokens: number; usd?: number; all?: number; cacheRead?: number; start?: number }
+  /** When the user last prompted (read only when turns are wanted): a turn's agent time starts there or at the previous reply. */
+  anchor?: number
+  /** The first line's cwd and the first prompt's time (read only when turns are wanted): where and when the session started. */
+  firstCwd?: string
+  firstPromptAt?: number
 }
 
 /**
@@ -55,11 +101,23 @@ export interface ClaudeSpendState {
  * message was written: Workhub 1's rule, so a session started at a container folder counts for the
  * repository its edits and `cd`s touched. Reading files does not move the session.
  */
-export function claudeSpendLine(line: string, state: ClaudeSpendState, buckets: SpendBuckets, home = homedir(), costs?: CostBuckets, reads?: SpendBuckets): void {
+export function claudeSpendLine(line: string, state: ClaudeSpendState, buckets: SpendBuckets, home = homedir(), costs?: CostBuckets, reads?: SpendBuckets, turns?: TurnSink): void {
   const cwd = rawCwd(line)
   if (cwd && cwd !== state.cwd) {
     state.cwd = cwd
     state.work = cwd
+  }
+  if (turns && cwd && state.firstCwd === undefined) state.firstCwd = cwd
+  const sidechain = turns !== undefined && line.includes('"isSidechain":true')
+  // A prompt (a user line that is not a tool's result) starts the agent's time of the next reply.
+  if (turns && line.includes('"type":"user"') && !line.includes('"type":"tool_result"') && !line.includes('"type":"assistant"')) {
+    const at = rawTimestamp(line)
+    // A sub-agent's prompt comes from its parent's turn, not from the user.
+    if (at !== undefined && !sidechain) {
+      state.anchor = at
+      state.firstPromptAt ??= at
+    }
+    return
   }
   // Only assistant messages carry usage and tool calls; user lines (tool results) can be huge.
   if (!line.includes('"assistant"')) return
@@ -81,9 +139,14 @@ export function claudeSpendLine(line: string, state: ClaudeSpendState, buckets: 
   const cacheRead = num(usage['cache_read_input_tokens']) ?? 0
   const output = num(usage['output_tokens']) ?? 0
   const tokens = input + cacheWrite + output
-  const usd = estimateCost(str(message['model']), { input, cacheWrite, cacheRead, output }, true)?.amount
-  if (state.pending && state.pending.id !== id) commitClaude(state, buckets, costs, reads)
-  state.pending = { id, at, work: state.work, tokens, all: tokens + cacheRead, cacheRead, ...(usd !== undefined ? { usd } : {}) }
+  const model = str(message['model'])
+  const usd = estimateCost(model, { input, cacheWrite, cacheRead, output }, true)?.amount
+  const prev = state.pending
+  // The agent's time of a message runs from the prompt or the previous reply, whichever came last.
+  const start = prev?.id === id ? prev.start : latest(state.anchor, prev?.at)
+  if (prev && prev.id !== id) commitClaude(state, buckets, costs, reads)
+  state.pending = { id, at, work: state.work, tokens, all: tokens + cacheRead, cacheRead, ...(usd !== undefined ? { usd } : {}), ...(turns && start !== undefined ? { start } : {}) }
+  turns?.({ key: id, at, ...(model ? { model } : {}), input, output, cacheWrite, cacheRead, ...(usd !== undefined ? { usd } : {}), cwd: state.work, ms: sidechain ? 0 : turnMs(start, at), ...(sidechain ? { sidechain } : {}) })
 }
 
 /** Counts the message being streamed; called when the next one starts. */
@@ -122,6 +185,11 @@ export interface CodexSpendState {
   parts?: { input: number; cached: number; output: number }
   /** A ChatGPT plan's rate limits were reported: the session is not billed by API key. */
   plan?: boolean
+  /** The last prompt or token report (read only when turns are wanted): the next turn's agent time starts there. */
+  anchor?: number
+  /** The first cwd and the first prompt's time (read only when turns are wanted). */
+  firstCwd?: string
+  firstPromptAt?: number
 }
 
 /**
@@ -129,13 +197,20 @@ export interface CodexSpendState {
  * lines, which then win) carry the session's running totals, so the spend is the growth of the
  * fresh total since the previous one: a repeated total adds nothing.
  */
-export function codexSpendLine(line: string, state: CodexSpendState, buckets: SpendBuckets, costs?: CostBuckets, reads?: SpendBuckets): void {
-  if (!line.includes('session_meta') && !line.includes('turn_context') && !line.includes('token_count') && !line.includes('token_usage_record')) return
+export function codexSpendLine(line: string, state: CodexSpendState, buckets: SpendBuckets, costs?: CostBuckets, reads?: SpendBuckets, turns?: TurnSink): void {
+  const prompt = turns !== undefined && line.includes('"user_message"')
+  if (!prompt && !line.includes('session_meta') && !line.includes('turn_context') && !line.includes('token_count') && !line.includes('token_usage_record')) return
   const entry = parseLine(line)
   const payload = obj(entry?.['payload'])
   if (!entry || !payload) return
+  if (prompt && entry['type'] === 'event_msg' && payload['type'] === 'user_message') {
+    state.anchor = toMillis(entry['timestamp']) ?? state.anchor
+    state.firstPromptAt ??= state.anchor
+    return
+  }
   if (entry['type'] === 'session_meta' || entry['type'] === 'turn_context') {
     state.cwd = str(payload['cwd']) ?? state.cwd
+    if (turns && state.cwd) state.firstCwd ??= state.cwd
     if (entry['type'] === 'turn_context') state.model = str(payload['model']) ?? state.model
     return
   }
@@ -173,7 +248,10 @@ export function codexSpendLine(line: string, state: CodexSpendState, buckets: Sp
   if (reads) addSpend(reads, at, 'codex', state.cwd, Math.max(0, cached - last.cached))
   if (at !== undefined && state.cwd && delta > 0) {
     const grown = { input: Math.max(0, input - cached - (last.input - last.cached)), cached: Math.max(0, cached - last.cached), output: Math.max(0, output - last.output) }
-    addCost(costs, at, 'codex', state.cwd, openAiCost(state.model, grown, num(request?.['input_tokens'])), grown.input + grown.cached + grown.output)
+    const usd = openAiCost(state.model, grown, num(request?.['input_tokens']))
+    addCost(costs, at, 'codex', state.cwd, usd, grown.input + grown.cached + grown.output)
+    turns?.({ key: `${input}:${cached}:${output}`, at, ...(state.model ? { model: state.model } : {}), input: grown.input, output: grown.output, cacheWrite: 0, cacheRead: grown.cached, ...(usd !== undefined ? { usd } : {}), cwd: state.cwd, ms: turnMs(state.anchor, at) })
+    if (turns) state.anchor = at
   }
 }
 
@@ -182,7 +260,7 @@ export function codexSpendLine(line: string, state: CodexSpendState, buckets: Sp
  * and output, at the turn's end (the file's update time when a turn has none), in the session's
  * cwd. Kiro's chat sessions record credits but no tokens, so they add nothing here.
  */
-export function kiroSpendFile(text: string, buckets: SpendBuckets, reads?: SpendBuckets): void {
+export function kiroSpendFile(text: string, buckets: SpendBuckets, reads?: SpendBuckets, turns?: TurnSink): void {
   let raw: Obj | undefined
   try {
     raw = obj(JSON.parse(text))
@@ -191,13 +269,25 @@ export function kiroSpendFile(text: string, buckets: SpendBuckets, reads?: Spend
   }
   const cwd = str(raw?.['cwd'])
   const fallback = toMillis(raw?.['updated_at'])
-  const turns = arr(obj(obj(raw?.['session_state'])?.['conversation_metadata'])?.['user_turn_metadatas'])
-  for (const t of turns) {
+  const sessionState = obj(raw?.['session_state'])
+  const sessionModel = str(obj(obj(sessionState?.['rts_model_state'])?.['model_info'])?.['model_id'])
+  const list = arr(obj(sessionState?.['conversation_metadata'])?.['user_turn_metadatas'])
+  list.forEach((t, index) => {
     const turn = obj(t)
-    if (!turn) continue
-    const tokens = (num(turn['input_token_count']) ?? 0) + (num(turn['cache_write_input_token_count']) ?? 0) + (num(turn['output_token_count']) ?? 0)
+    if (!turn) return
+    const input = num(turn['input_token_count']) ?? 0
+    const cacheWrite = num(turn['cache_write_input_token_count']) ?? 0
+    const output = num(turn['output_token_count']) ?? 0
+    const cacheRead = num(turn['cache_read_input_token_count']) ?? 0
     const at = toMillis(turn['end_timestamp']) ?? fallback
-    addSpend(buckets, at, 'kiro', cwd, tokens)
-    if (reads) addSpend(reads, at, 'kiro', cwd, num(turn['cache_read_input_token_count']) ?? 0)
-  }
+    addSpend(buckets, at, 'kiro', cwd, input + cacheWrite + output)
+    if (reads) addSpend(reads, at, 'kiro', cwd, cacheRead)
+    if (!turns || at === undefined || !cwd) return
+    const d = obj(turn['turn_duration'])
+    const secs = num(d?.['secs'])
+    const ms = secs === undefined ? 0 : Math.min(secs * 1000 + Math.round((num(d?.['nanos']) ?? 0) / 1e6), TURN_IDLE_CAP_MS)
+    const model = str(turn['model']) ?? sessionModel
+    // The end time keeps the key stable if Kiro ever drops an earlier turn; the index tells equal times apart.
+    turns({ key: `${str(turn['end_timestamp']) ?? at}#${index}`, at, ...(model ? { model } : {}), input, output, cacheWrite, cacheRead, cwd, ms })
+  })
 }

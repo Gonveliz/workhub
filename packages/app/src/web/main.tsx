@@ -39,6 +39,8 @@ const client = new RemoteClient({
 const hub = buildHub(client.transport, platform === 'ios' ? 'mac' : 'linux')
 // Links open in the phone's browser, not through the desktop.
 hub.openExternal = (url) => void window.open(url, '_blank', 'noopener')
+// A desktop that pages its lists sends the sessions a page at a time; the client joins them.
+hub.sessions.list = () => client.listSessions() as ReturnType<typeof hub.sessions.list>
 window.hub = hub
 
 // The service worker opens pushed notifications with this identity, and shows only those the

@@ -70,7 +70,9 @@ curl --unix-socket "$WORKHUB_SOCKET" -X PATCH "http://workhub/v1/automations/<id
 ```
 
 - The list holds the automations of the session's profile and those without a profile, with their
-  state and the last 20 runs.
+  state and their last 20 runs. Every run is kept: `limit` (up to 200) sets the page size, and an
+  answer with more carries `nextBefore`, a cursor to pass back as `before` for the next page
+  (`before` also takes an ISO time).
 - A new automation belongs to the session's profile; `name` is required and the other fields take
   the defaults of **New automation**. An edit changes only the fields sent (`triggers`, `window` and
   `limits` merge into the stored ones).

@@ -1,7 +1,9 @@
 # Remote access
 
 Workhub Remote lets a phone (or any browser) see and drive the Workhub on your desktop: the
-sessions that are running, their chat, permission prompts, pull requests, automations and
+sessions that are running, their chat, permission prompts (pinned above the message box until
+answered, like on the desktop; when the agent's own console is the one asking, the phone says so
+and the answer is given on the desktop), pull requests, automations and
 alerts. The desktop keeps running everything; the phone is a second screen with a keyboard.
 
 Nothing of yours passes through a server in the clear. The desktop and the phone pair once, keep
@@ -93,11 +95,26 @@ The phone opens the relay's address in its browser: the relay serves the phone a
    else downloads; files above 8 MB stay on the desktop). An image outside the folder opens too when
    the session's agent read or wrote it, such as a screenshot you gave it; other files outside do not. Opening a session loads its latest messages;
    scrolling up loads earlier ones a page at a time (very long tool output and pasted images stay
-   on the desktop). The prompt box sends a message or stops the
+   on the desktop). Under the chat, in this order: a row that says how many of the session's
+   sub-agents are at work and names them (a tap on a name opens that sub-agent; it goes away when
+   none runs or the session stopped); a line counting the tasks the agent left running in the
+   background (a command, a watcher), which a tap opens into the desktop's notice with what each
+   does and for how long it has run; the pinned permission requests; then the prompt box. The
+   first three share at most about half the screen and scroll on their own. Sub-agents and
+   background tasks are read from the desktop each time the phone connects, so they show (and
+   finished ones stop showing as running) even when they changed while it was away. The prompt
+   box sends a message or stops the
    turn; what you send shows in the desktop's chat as your message too. *New* opens a session in one of the profile's folders, with the agent and an optional
    first message; the session appears on the desktop too.
+   The search icon at the top of Sessions (a *Search sessions* box) searches the computer's History (see
+   [History](history.md#find-and-filter)), limited to sessions run in the folders of the profile
+   the phone has picked, the same folders it may open a session in. Results come best match first
+   with the text around each match, a page at a time (*Show more*); they open on the computer, not
+   on the phone. The search runs again when the computer comes back online.
 4. **Pull requests and alerts.** The same lists the desktop shows for the profile you pick; a tap
-   opens the pull request or the alert's link in the phone's browser.
+   opens the pull request or the alert's link in the phone's browser. Both lists of pull requests
+   show at once with how many each holds; a long one comes a page at a time, with *Show more*
+   under it (it waits while the desktop is unreachable).
 5. **Plan.** With the *Plan* capability: today's and tomorrow's meetings (join the call, prepare or
    open the brief), the inbox waiting for a decision (approve, keep or discard; agents' milestone
    proposals too), the tasks you took on (done with a tap, or open one to edit it or add a note),

@@ -6,7 +6,10 @@ import { Markdown } from '../../renderer/components/molecules/Markdown'
 import { useI18n } from '../../renderer/i18n/I18nProvider'
 import { cn } from '../../renderer/lib/cn'
 import { QuestionCard } from '../../renderer/screens/sessions/QuestionCard'
+import { answerText, openRequests, type AnswerPermission, type PermissionItem } from '../../renderer/screens/sessions/PermissionCard'
 import { loadBacklog, loadEarlier, markPermission, pushUser, useSessions, type ChatItem, type SessionData } from '../../renderer/store'
+import { useNow } from '../../renderer/lib/usage'
+import { usePendingFocus } from '../../renderer/lib/pendingFocus'
 import type { RemoteFile, RemoteHistoryPage } from '../../shared/remote-api'
 import { navigate, useClient, useClientStatus } from '../app-context'
 import { takeFirstPrompt } from '../first-prompt'
@@ -14,6 +17,7 @@ import { basename, Body, Header, InlineConfirm, Screen } from '../ui'
 import { sessionTitle } from './HomeScreen'
 import { SubagentLink } from './SubagentScreen'
 import { subagentOfCall } from '../../renderer/lib/subagentView'
+import { SessionActivity } from './SessionActivity'
 
 const IMAGE = /\.(png|jpe?g|gif|webp|svg)$/i
 /** What is shown inline; anything else (SVG included: it can carry scripts) only downloads. */
@@ -70,6 +74,47 @@ export function FileChip({ sessionId, path }: { sessionId: string; path: string 
   )
 }
 
+/** A permission request or question: its buttons while open (pinned above the composer), the answer once given. */
+function PermissionCard({ item, onAnswer }: { item: PermissionItem; onAnswer: AnswerPermission }) {
+  const { t } = useI18n()
+  if (item.questions?.length) return <QuestionCard questions={item.questions} answer={item.answer} onSubmit={(answers, label) => onAnswer(item.requestId, answers ? 'allow' : 'deny', label, answers ?? undefined)} />
+  const allow = item.options.filter((o) => o.kind.startsWith('allow'))
+  const reject = item.options.filter((o) => !o.kind.startsWith('allow'))
+  return (
+    <div role="group" aria-label={t('web.session.permissionTitle')} className="flex flex-col gap-2.5 rounded-2xl border border-warning/40 bg-warning-soft p-3.5" data-testid="permission-card">
+      <div className="flex items-center gap-2 text-sm font-semibold text-warning">
+        <TriangleAlert className="size-4" aria-hidden />
+        {t('web.session.permissionTitle')}
+      </div>
+      <div className="text-chat-sm font-medium [overflow-wrap:anywhere]">{item.title}</div>
+      {item.detail && <code className="block max-h-32 overflow-auto rounded-lg bg-bg px-3 py-2 text-xs whitespace-pre">{item.detail}</code>}
+      {item.answer !== undefined ? (
+        <div className="text-sm text-muted">{answerText(item.answer, t)}</div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <div className="grid grid-cols-2 gap-2">
+            {allow[0] && (
+              <button type="button" onClick={() => onAnswer(item.requestId, allow[0]!.optionId, allow[0]!.name)} className="h-11 rounded-xl bg-accent text-sm font-semibold text-accent-fg">
+                {allow[0].name}
+              </button>
+            )}
+            {reject[0] && (
+              <button type="button" onClick={() => onAnswer(item.requestId, reject[0]!.optionId, reject[0]!.name)} className="h-11 rounded-xl border border-border-strong text-sm font-medium">
+                {reject[0].name}
+              </button>
+            )}
+          </div>
+          {[...allow.slice(1), ...reject.slice(1)].map((o) => (
+            <button key={o.optionId} type="button" onClick={() => onAnswer(item.requestId, o.optionId, o.name)} className="h-9 rounded-lg text-sm text-muted">
+              {o.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Item({ item, session, onAnswer }: { item: ChatItem; session: SessionData; onAnswer: (requestId: string, optionId: string | null, label: string, answers?: Record<string, string>) => void }) {
   const { t } = useI18n()
   switch (item.kind) {
@@ -105,44 +150,15 @@ function Item({ item, session, onAnswer }: { item: ChatItem; session: SessionDat
         </div>
       )
     }
-    case 'permission': {
-      if (item.questions) return <QuestionCard questions={item.questions} answer={item.answer} onSubmit={(answers, label) => onAnswer(item.requestId, answers ? 'allow' : 'deny', label, answers ?? undefined)} />
-      const allow = item.options.filter((o) => o.kind.startsWith('allow'))
-      const reject = item.options.filter((o) => !o.kind.startsWith('allow'))
+    case 'permission':
+      if (item.answer !== undefined) return <PermissionCard item={item} onAnswer={onAnswer} />
       return (
-        <div role="group" aria-label={t('web.session.permissionTitle')} className="flex flex-col gap-2.5 rounded-2xl border border-danger/40 bg-danger-soft p-3.5">
-          <div className="flex items-center gap-2 text-sm font-semibold text-danger">
-            <TriangleAlert className="size-4" aria-hidden />
-            {t('web.session.permissionTitle')}
-          </div>
-          <div className="text-chat-sm font-medium [overflow-wrap:anywhere]">{item.title}</div>
-          {item.detail && <code className="block overflow-x-auto rounded-lg bg-bg px-3 py-2 text-xs whitespace-pre">{item.detail}</code>}
-          {item.answer !== undefined ? (
-            <div className="text-sm text-muted">{item.answer === '—' ? t('chat.permissionWithdrawn') : t('chat.answered', { answer: item.answer })}</div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <div className="grid grid-cols-2 gap-2">
-                {allow[0] && (
-                  <button type="button" onClick={() => onAnswer(item.requestId, allow[0]!.optionId, allow[0]!.name)} className="h-11 rounded-xl bg-accent text-sm font-semibold text-accent-fg">
-                    {allow[0].name}
-                  </button>
-                )}
-                {reject[0] && (
-                  <button type="button" onClick={() => onAnswer(item.requestId, reject[0]!.optionId, reject[0]!.name)} className="h-11 rounded-xl border border-border-strong text-sm font-medium">
-                    {reject[0].name}
-                  </button>
-                )}
-              </div>
-              {[...allow.slice(1), ...reject.slice(1)].map((o) => (
-                <button key={o.optionId} type="button" onClick={() => onAnswer(item.requestId, o.optionId, o.name)} className="h-9 rounded-lg text-sm text-muted">
-                  {o.name}
-                </button>
-              ))}
-            </div>
-          )}
+        <div className="flex items-center gap-2 text-sm text-danger" data-testid="permission-marker">
+          <TriangleAlert className="size-4" aria-hidden />
+          <span className="font-semibold">{item.questions?.length ? t('chat.questionAsked') : t('web.session.permissionTitle')}</span>
+          <span className="text-muted">· {t('chat.answerPinned')}</span>
         </div>
       )
-    }
     case 'turnEnd':
       return <div className="my-1 text-center text-2xs text-subtle">{item.stopReason === 'end_turn' ? t('web.session.turnEnded') : t('web.session.stopped', { reason: item.stopReason })}</div>
     case 'exit':
@@ -163,7 +179,7 @@ function Item({ item, session, onAnswer }: { item: ChatItem; session: SessionDat
 
 /** One session's chat: messages, tool calls, permissions and questions, and the prompt box. */
 export function SessionScreen({ id }: { id: string }) {
-  const { t } = useI18n()
+  const { t, tn } = useI18n()
   const status = useClientStatus()
   const sessions = useSessions()
   const session = sessions[id]
@@ -222,6 +238,7 @@ export function SessionScreen({ id }: { id: string }) {
       setLoadingEarlier(false)
     }
   }
+  const now = useNow(15_000)
   const onTop = useRef(loadMore)
   onTop.current = loadMore
 
@@ -246,6 +263,12 @@ export function SessionScreen({ id }: { id: string }) {
     if (el && stuck.current && !touching.current) el.scrollTop = el.scrollHeight
   }, [items.length, items[items.length - 1]])
 
+  // Open requests stay pinned above the composer until answered; answering one moves the focus on.
+  const pending = openRequests(items)
+  const pendingBox = useRef<HTMLElement>(null)
+  const composer = useRef<HTMLTextAreaElement>(null)
+  const focusAfterAnswer = usePendingFocus(pending, pendingBox, composer)
+
   const send = (value: string) => {
     pushUser(id, value)
     void window.hub.sessions.prompt(id, value).catch(() => {})
@@ -258,6 +281,7 @@ export function SessionScreen({ id }: { id: string }) {
     send(value)
   }
   const answer = (requestId: string, optionId: string | null, label: string, answers?: Record<string, string>) => {
+    focusAfterAnswer(requestId)
     window.hub.sessions.respondPermission(id, requestId, optionId, answers)
     markPermission(id, requestId, label)
   }
@@ -329,8 +353,33 @@ export function SessionScreen({ id }: { id: string }) {
           )}
         </div>
       </Body>
+      {/* Sub-agents, background tasks and pinned requests share one scrolling area, so the chat keeps most of the screen. */}
+      <div data-testid="chat-dock" className="flex max-h-[45dvh] shrink-0 flex-col overflow-y-auto">
+      <SessionActivity sessionId={id} state={v.state} monitor={session.monitor} now={now} />
+      {(pending.length > 0 || v.consoleAsking) && (
+        <section ref={pendingBox} data-testid="pending-requests" aria-label={t('web.session.pendingRequests')} className="flex shrink-0 flex-col gap-2.5 border-t border-warning/30 bg-sidebar px-4 py-3">
+          {pending.length > 0 && (
+            <p role="status" className="text-xs font-medium text-warning" data-testid="pending-count">
+              {tn('chat.pendingCount', pending.length)}
+            </p>
+          )}
+          {v.consoleAsking && (
+            <div className="flex items-center gap-2 rounded-2xl border border-warning/40 bg-warning-soft p-3.5 text-sm">
+              <TriangleAlert className="size-4 shrink-0 text-warning" aria-hidden />
+              {t('web.session.consoleAsking')}
+            </div>
+          )}
+          {pending.map((item) => (
+            <div key={item.id} data-request-id={item.requestId}>
+              <PermissionCard item={item} onAnswer={answer} />
+            </div>
+          ))}
+        </section>
+      )}
+      </div>
       <form onSubmit={submit} aria-label={t('web.session.send')} className="safe-bottom flex shrink-0 items-end gap-2 border-t border-border bg-sidebar px-3 pt-2.5 pb-2.5">
         <textarea
+          ref={composer}
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder={t('web.session.placeholder')}

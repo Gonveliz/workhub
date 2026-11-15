@@ -190,8 +190,7 @@ const cleanFolders = (folders: string[] | undefined): string[] => (folders ?? []
 
 /**
  * Drops the options of folders the profile no longer lists, and the switches never set. A switch
- * turned off stays saved as off: unset means the default behaviour (see `projectChildren`), and a
- * value the user set is never filled from Workhub 1 again.
+ * turned off stays saved as off: unset means the default behaviour (see `projectChildren`).
  */
 export function prunedFolderOptions(options: Profile['folderOptions'], folders: string[] | undefined): Profile['folderOptions'] {
   const keep = new Set(cleanFolders(folders))

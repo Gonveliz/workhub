@@ -15,7 +15,8 @@ const FIXED: Record<string, MessageKey> = {
   'Deleted a file': 'monitor.tool.deletedFile',
   'Searched the code': 'monitor.tool.searchedCode',
   'Fetched a page': 'monitor.tool.fetchedPage',
-  'Started a subagent': 'monitor.tool.startedSubagent'
+  'Started a subagent': 'monitor.tool.startedSubagent',
+  'Used a tool': 'monitor.tool.usedTool'
 }
 
 // The adapters word a tool call in English ("Read README.md"); these patterns are the shapes they

@@ -4,6 +4,7 @@ import type { WorkhubConfig } from '../config/schema'
 import type { ImageInput } from './agent-runtime'
 
 export * from './agent-runtime'
+export * from './state-store'
 
 /** Which transcript to read: the agent's own session id plus where the agent keeps its files. */
 export interface TranscriptQuery {
@@ -45,6 +46,8 @@ export interface HistoryEntry {
   /** Epoch milliseconds. */
   lastModified: number
   createdAt?: number
+  /** Bytes of the session's transcript, when the agent keeps one file per session (History's index reads a session again when it changes). */
+  sizeBytes?: number
 }
 
 /** A message of a past session, enough to replay the conversation when it is resumed in the app. */
