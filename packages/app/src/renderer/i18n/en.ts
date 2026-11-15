@@ -92,7 +92,6 @@ export const en = {
   'groups.moveTo': 'Move to group',
   'groups.moveToNew': 'New group…',
   'groups.ungroup': 'Take out of group',
-  'groups.forget': 'Remove from group',
   'groups.reopen': 'Reopen',
   'groups.closed': 'Closed',
   'groups.options': 'Options for {name}',

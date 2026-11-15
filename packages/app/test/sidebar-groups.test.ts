@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { automaticProfileColor, PROFILE_COLORS, profileColor, sidebarRows, type SessionGroups } from '@workhub/core'
-import { groupSummary, historyLookupKeys, listSessions, memberOf, pastTitles, rowName } from '../src/renderer/lib/sessionGroups'
+import { deletePlan, groupSummary, historyLookupKeys, listSessions, memberOf, pastTitles, rowName, runDeletePlan } from '../src/renderer/lib/sessionGroups'
 import type { SessionData } from '../src/renderer/store'
 
 function session(id: string, fields: Partial<SessionData['view']> = {}, extra: Partial<SessionData> = {}): SessionData {
@@ -38,6 +38,59 @@ describe('a group header shows when a chat inside it needs you', () => {
     const [row] = sidebarRows(groups(true), listSessions([session('a'), session('c', { state: 'busy' })]))
     if (row?.type !== 'group') throw new Error('expected a group row')
     expect(groupSummary(row.members)).toEqual({ count: 0, level: 'working' })
+  })
+})
+
+describe('deleting a closed or stopped session from the sidebar', () => {
+  const grouped: SessionGroups = { groups: [{ id: 'g', name: 'Backend', collapsed: false, members: [member('a')] }], top: [{ kind: 'group', id: 'g' }] }
+  const loose: SessionGroups = { groups: [], top: [{ kind: 'session', key: 'a' }] }
+  const entryOf = (fields: Partial<SessionData['view']>) => listSessions([session('v1', { identity: 'a', ...fields })])[0]
+
+  it('only leaves its group when the session is closed: nothing is open to drop', () => {
+    expect(deletePlan('a', undefined, grouped)).toEqual({ key: 'a', forget: true })
+  })
+
+  it('drops a stopped session by its id, and leaves its group', () => {
+    expect(deletePlan('a', entryOf({ state: 'stopped' }), grouped)).toEqual({ key: 'a', closeId: 'v1', forget: true })
+  })
+
+  it('only drops a stopped session that sits outside any group', () => {
+    expect(deletePlan('a', entryOf({ state: 'stopped' }), loose)).toEqual({ key: 'a', closeId: 'v1', forget: false })
+  })
+
+  it('is not offered for a session that is running, starting or in error: closing it is another action', () => {
+    for (const state of ['ready', 'busy', 'starting', 'error'] as const) expect(deletePlan('a', entryOf({ state }), grouped), state).toBeNull()
+  })
+
+  it('has nothing to do for a closed session no group holds', () => {
+    expect(deletePlan('a', undefined, loose)).toBeNull()
+  })
+
+  it('drops the stopped session first and then leaves the group', async () => {
+    const calls: string[] = []
+    await runDeletePlan(
+      { key: 'a', closeId: 'v1', forget: true },
+      { close: async (id) => void calls.push(`close ${id}`), forget: async (key) => void calls.push(`forget ${key}`) }
+    )
+    expect(calls).toEqual(['close v1', 'forget a'])
+  })
+
+  it('does not touch the group when the session could not be closed, and says why', async () => {
+    const forget = vi.fn(async () => undefined)
+    const close = async () => {
+      throw new Error('busy')
+    }
+    await expect(runDeletePlan({ key: 'a', closeId: 'v1', forget: true }, { close, forget })).rejects.toThrow('busy')
+    expect(forget).not.toHaveBeenCalled()
+  })
+
+  it('asks for nothing it does not need', async () => {
+    const close = vi.fn(async () => undefined)
+    const forget = vi.fn(async () => undefined)
+    await runDeletePlan({ key: 'a', forget: true }, { close, forget })
+    await runDeletePlan({ key: 'a', closeId: 'v1', forget: false }, { close, forget })
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(forget).toHaveBeenCalledTimes(1)
   })
 })
 

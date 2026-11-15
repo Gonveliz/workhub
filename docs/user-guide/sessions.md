@@ -156,10 +156,14 @@ brings it back; its icon shows whether the panel is open.
 - **Close**: the close button on the row. A session that is working asks first (**Stop and
   close**). A session in a worktree Workhub created offers to keep or remove the worktree. The
   conversation stays in History.
+- **Delete session**: in the menu of a session that is closed or stopped, in a group or not. It
+  asks first, then takes the session out of the sidebar, and out of its group, for good. The
+  conversation stays in History and in the agent's own files; nothing is erased there. A session
+  that is running is closed first (the close button, or **Close session**).
 - **Keep my sessions in the sidebar** (**Settings → General → On open and close**, on by default):
   every session in the sidebar when Workhub quit, running or stopped, comes back in its group and
   window, **stopped**: no agent process runs and nothing is spent until you open it, which resumes
-  its conversation. Removing a session (**×**) takes it out of the sidebar for good; it stays in
+  its conversation. **Delete session** takes one out of the sidebar for good; it stays in
   History. **Start them when Workhub starts** (off by default) runs every one again right away
   instead. Nothing is sent to the agents either way.
 
@@ -181,8 +185,8 @@ be opened in a new window.
   another session to move it; drag groups to reorder them. The row menu has **Move up** and **Move
   down** (Alt+↑ and Alt+↓), **Move to group**, **Take out of group**, and for groups **Rename
   group…** and **Delete group** (its open sessions go back to the list; nothing is closed). A
-  closed session stays in its group, marked **Closed**; click it to reopen, or **Remove from group**
-  to forget it. Order within each group is kept.
+  closed session stays in its group, marked **Closed**; click it to reopen, or **Delete session**
+  to take it out of the sidebar for good. Order within each group is kept.
 - **Sub-groups**: a group's menu (right click, or its **…**) has **New session** (the New session
   dialog with that group picked), **New sub-group…**, **Move into group** and, for a sub-group,
   **Move to the top level**. Sub-groups are listed inside their group, before its sessions, and

@@ -8,6 +8,7 @@ import {
   resolveSessionName,
   sessionIdentity,
   GROUP_NAME_MAX,
+  groupOf,
   groupPath,
   groupTree,
   type AttentionSummary,
@@ -205,6 +206,36 @@ export function updateGroups(change: (state: SessionGroups) => SessionGroups, li
   }
   writes = writes.then(run, run)
   return writes as Promise<void>
+}
+
+/** What deleting a sidebar row takes out: the stopped session still in memory, and its place in a group. */
+export interface DeletePlan {
+  key: string
+  /** The stopped session to drop from memory and from the open sessions; absent for a closed member. */
+  closeId?: string
+  /** Whether a group still lists it. */
+  forget: boolean
+}
+
+/**
+ * What "Delete session" does for a row, or null when it does not apply: only a closed session (a
+ * group still lists it) or a stopped one can be deleted; a session that runs, starts or failed is
+ * closed first. Deleting never touches the agent's conversation: it stays in the history.
+ */
+export function deletePlan(key: string, entry: ListedSession | undefined, groups: SessionGroups): DeletePlan | null {
+  if (entry && entry.data.view.state !== 'stopped') return null
+  const forget = groupOf(groups, key) !== undefined
+  if (!entry && !forget) return null
+  return { key, ...(entry ? { closeId: entry.data.view.id } : {}), forget }
+}
+
+/**
+ * Carries a plan out: the stopped session goes first, and only when it is gone does its group let
+ * it go, so a session that could not be closed stays where it was. Rejects with the close error.
+ */
+export async function runDeletePlan(plan: DeletePlan, deps: { close: (id: string) => Promise<unknown>; forget: (key: string) => Promise<void> }): Promise<void> {
+  if (plan.closeId !== undefined) await deps.close(plan.closeId)
+  if (plan.forget) await deps.forget(plan.key)
 }
 
 /** A new group id; unique enough for one machine's config. */

@@ -91,7 +91,6 @@ export const es: Record<keyof typeof en, string> = {
   'groups.moveTo': 'Mover a un grupo',
   'groups.moveToNew': 'Nuevo grupo…',
   'groups.ungroup': 'Sacar del grupo',
-  'groups.forget': 'Quitar del grupo',
   'groups.reopen': 'Reabrir',
   'groups.closed': 'Cerrada',
   'groups.options': 'Opciones de {name}',

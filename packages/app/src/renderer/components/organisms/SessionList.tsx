@@ -41,7 +41,7 @@ import { LEVEL_LABEL, LEVEL_TONE } from '../../lib/attention'
 import { waitingTasks } from '../../lib/backgroundTasks'
 import { cn } from '../../lib/cn'
 import { folderName } from '../../lib/home'
-import { groupSummary, listSessions, memberOf, newGroupId, rowName, summarize, updateGroups, type ListedSession } from '../../lib/sessionGroups'
+import { deletePlan, groupSummary, listSessions, memberOf, newGroupId, rowName, runDeletePlan, summarize, updateGroups, type ListedSession } from '../../lib/sessionGroups'
 import { openSubagent, visibleSubagents } from '../../lib/subagentView'
 import { useNow } from '../../lib/usage'
 import { usePlatform } from '../../lib/platform'
@@ -56,6 +56,7 @@ import { Input } from '../atoms/Input'
 import { Tooltip } from '../atoms/Tooltip'
 import { STATE_TONE, StateDot } from '../atoms/StateDot'
 import { StatusGlyph } from '../atoms/StatusGlyph'
+import { ConfirmDeleteDialog } from '../molecules/ConfirmDeleteDialog'
 import { Dialog } from '../molecules/Dialog'
 import { SlackBadge } from '../molecules/SlackBadge'
 import { useSessionSlack } from '../../lib/slackLinks'
@@ -182,6 +183,8 @@ export function SessionList({ sessions, groups, selectedId, active, onSelect, on
   const [dialog, setDialog] = useState<Dialogs>(null)
   const [over, setOver] = useState<string | null>(null)
   const [closing, setClosing] = useState<SessionData | null>(null)
+  // The closed or stopped session whose "Delete session" waits for a confirmation.
+  const [deleting, setDeleting] = useState<{ key: string; name: string } | null>(null)
   // Sessions whose sub-agents are listed under them; the clock lets ended ones drop out.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const now = useNow(15_000)
@@ -199,6 +202,17 @@ export function SessionList({ sessions, groups, selectedId, active, onSelect, on
     void window.hub.sessions.close(data.view.id).catch((e: unknown) => pushItem(data.view.id, 'error', t('sessions.closeFailed', { message: errorText(e) })))
   /** Stops the session and drops it from the open sessions; a working one, or one in a worktree, asks first. */
   const requestClose = (data: SessionData) => (closeAsks(data.view, isWorking(data), currentConfig()?.config.profiles ?? []) ? setClosing(data) : closeNow(data))
+  /** Takes a closed or stopped session out of the sidebar for good (and out of its group); the conversation stays in History. */
+  const deleteNow = (key: string) => {
+    const entry = listed.find((l) => l.key === key)
+    const plan = deletePlan(key, entry, state)
+    if (!plan) return
+    const others = liveKeys.filter((k) => k !== key)
+    void runDeletePlan(plan, {
+      close: (id) => window.hub.sessions.close(id),
+      forget: (k) => updateGroups((s) => removeMember(s, k), others)
+    }).catch((e: unknown) => entry && pushItem(entry.data.view.id, 'error', t('sessions.closeFailed', { message: errorText(e) })))
+  }
 
   // The menu reads the per-session read-aloud switches; a change re-renders it.
   useReadAloudVersion()
@@ -229,11 +243,11 @@ export function SessionList({ sessions, groups, selectedId, active, onSelect, on
         ]
       }
     )
-    if (inGroup) {
-      items.push({ separator: true })
-      if (isLive) items.push({ label: t('groups.ungroup'), onSelect: () => act((s) => ungroup(s, member.key)) })
-      if (!entry || entry.data.view.state === 'stopped') items.push({ label: t('groups.forget'), onSelect: () => act((s) => removeMember(s, member.key)) })
-    }
+    // A stopped session, grouped or not, and a closed member are the ones that stay listed until they are deleted.
+    const deletable = deletePlan(member.key, entry, state) !== null
+    if (inGroup || deletable) items.push({ separator: true })
+    if (inGroup && isLive) items.push({ label: t('groups.ungroup'), onSelect: () => act((s) => ungroup(s, member.key)) })
+    if (deletable) items.push({ label: t('sessions.delete'), onSelect: () => setDeleting({ key: member.key, name: rowName(entry, member, pastTitles?.get(member.key)) }) })
     return items
   }
 
@@ -416,6 +430,16 @@ export function SessionList({ sessions, groups, selectedId, active, onSelect, on
         {t('groups.new')}
       </Button>
       {closing && <CloseSessionDialog session={closing} working={isWorking(closing)} onDone={() => setClosing(null)} onError={(message) => pushItem(closing.view.id, 'error', message)} />}
+      {deleting && (
+        <ConfirmDeleteDialog
+          open
+          name={deleting.name}
+          title={t('sessions.deleteTitle', { name: deleting.name })}
+          description={t('sessions.deleteBody')}
+          onOpenChange={(o) => !o && setDeleting(null)}
+          onConfirm={() => deleteNow(deleting.key)}
+        />
+      )}
       <GroupDialog
         dialog={dialog}
         closedLost={dialog?.kind === 'delete' ? dialog.group.members.filter((m) => !live.has(m.key)).length : 0}
