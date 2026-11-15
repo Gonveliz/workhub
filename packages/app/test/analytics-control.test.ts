@@ -123,7 +123,7 @@ describe.skipIf(!RUNTIME)('analytics schema', () => {
 describe.skipIf(!RUNTIME)('the workhub-analytics skill', () => {
   it('only shows queries that run and return something', async () => {
     const { control } = setup()
-    const text = readFileSync(resolve(__dirname, '../../../skills/workhub-analytics/SKILL.md'), 'utf8')
+    const text = readFileSync(resolve(__dirname, '../../../skills/workhub-analytics/SKILL.md'), 'utf8').replace(/\r\n/g, '\n')
     const blocks = [...text.matchAll(/```sql\n([\s\S]*?)```/g)].map((m) => m[1]!)
     expect(blocks.length).toBeGreaterThanOrEqual(6)
     for (const sql of blocks) {

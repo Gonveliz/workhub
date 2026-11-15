@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { emptyConfig, type AgentEvent, type PrEventState, type PullRequest, type WorkhubConfig } from '@workhub/core'
 import { SessionRecords, Timelines, WorkhubDb } from '@workhub/adapters/sqlite-store'
@@ -247,7 +247,8 @@ describe('demo usage history', () => {
     expect(count('session_links')).toBeGreaterThan(count('sessions'))
     expect(count('automation_runs')).toBeGreaterThanOrEqual(15)
     expect(rows(db, 'SELECT SUM(active_ms) AS a FROM sessions')[0]!['a']).toBe(rows(db, 'SELECT SUM(turn_ms) AS a FROM turns')[0]!['a'])
-    expect(rows(db, "SELECT COUNT(*) AS n FROM turns WHERE project NOT LIKE '/demo/%'")[0]!['n']).toBe(0)
+    // Projects live under the demo folder, in the platform's path form.
+    expect((db.raw.prepare('SELECT COUNT(*) AS n FROM turns WHERE project NOT LIKE ?').get(`${join('/demo')}${sep}%`) as { n: number }).n).toBe(0)
     expect(seedScenarioAnalytics(db, '/demo', now)).toBe(false)
     db.close()
   })

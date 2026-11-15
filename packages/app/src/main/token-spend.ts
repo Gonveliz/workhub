@@ -1,7 +1,7 @@
 import { readdir } from 'node:fs/promises'
 import { performance } from 'node:perf_hooks'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, normalize, resolve } from 'node:path'
 import { emptySpendCache, repoRootOf, TokenSpendScanner, worktreeAliases, type SpendCache, type SpendFileEntry, type SpendSources, type WorktreeLink } from '@workhub/adapters/token-spend'
 import { UNKNOWN_ACCOUNT, type ProjectResolver } from '@workhub/adapters/sqlite-store'
 import { aliasPath, attributeFolder, folderSpend, owningProfile, ownsFolder, parseSpendKey, profileFolderPaths, SPEND_DAYS, spendWindowStart, startOfLocalDay, type SpendBuckets, type WorkhubConfig } from '@workhub/core'
@@ -214,7 +214,8 @@ export async function turnProjects(config: WorkhubConfig, home: string, cache: M
     for (const p of paths) {
       const moved = aliasPath(p, aliases)
       const place = attributeFolder(moved, folders, children)
-      out[p] = place ? place.path : ((await repoRootOf(moved)) ?? p)
+      // Aliases and folder children are kept with forward slashes; the stored project keeps the platform's form, as `cwd` does.
+      out[p] = normalize(place ? place.path : ((await repoRootOf(moved)) ?? p))
     }
     return out
   }
