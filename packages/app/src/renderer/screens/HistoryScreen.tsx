@@ -1,11 +1,13 @@
 import { ChevronRight, CircleAlert, Folder, History, MessagesSquare, Search, Settings, SquareTerminal, UserRound } from 'lucide-react'
 import { AgentIcon } from '../components/atoms/AgentIcon'
 import { ContextMenu } from 'radix-ui'
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
-import { groupAutomationHistory, groupHistory, historyId, historyInProfile, isThrowawayFolder, owningProfile, type FolderProfile, type Profile } from '@workhub/core'
-import type { HistoryItem, HistoryResult, SessionView } from '@shared/api'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { groupAutomationHistory, groupHistory, historyId, historyInProfile, listedInHistory, owningProfile, type FolderProfile, type Profile } from '@workhub/core'
+import type { HistoryIndexProgress, HistoryItem, HistoryMatch, HistoryResult, SessionView } from '@shared/api'
 import { Badge, Button, IconButton, Input, Select, Spinner } from '../components/atoms'
-import { EmptyState, useToast, RefreshButton } from '../components/molecules'
+import { Dialog, EmptyState, useToast, RefreshButton } from '../components/molecules'
+import { TagsEditor } from '../components/molecules/TagsEditor'
+import { HistoryIndexingNote, HistorySnippet, titleSnippetFits } from '../components/molecules/HistorySnippet'
 import { useI18n } from '../i18n/I18nProvider'
 import { useSessions } from '../store'
 import { folderName } from '../lib/home'
@@ -20,6 +22,8 @@ export interface HistoryScreenProps {
   onOpened: (sessionId: string) => void
   /** False while another screen shows; the list reloads in the background when History comes back. */
   visible?: boolean
+  /** Show one session (Usage and reports asked): its id goes in the search and the other filters clear. */
+  focus?: { query: string } | null
 }
 
 export interface HistoryFilter {
@@ -33,13 +37,15 @@ export interface HistoryFilter {
   profiles?: readonly FolderProfile[]
   /** Expands `~` in the profiles' folders. */
   home?: string
+  /** The search box: a session's exact id lists it even from a throwaway folder (Usage opens History so). */
+  query?: string
 }
 
-/** The entries History lists: never throwaway runs in temporary folders, then the agent, account and profile filters. */
+/** The entries History lists: no throwaway runs in temporary folders (unless the search is the session's id), then the agent, account and profile filters. */
 export function visibleHistory(entries: readonly HistoryItem[], filter: HistoryFilter): HistoryItem[] {
   return entries.filter(
     (e) =>
-      !isThrowawayFolder(e.cwd) &&
+      listedInHistory(e, filter.query) &&
       (filter.agent === ALL || e.agentId === filter.agent) &&
       (filter.account === ALL || (e.accountId ?? '') === filter.account) &&
       (!filter.profile || historyInProfile(e, filter.profile, { profiles: filter.profiles, home: filter.home }))
@@ -73,7 +79,7 @@ export function historyAgents(entries: HistoryItem[]): { id: string; name: strin
 const ALL = '*'
 
 /** Every session of every agent that keeps a history, searchable, filterable by agent, grouped by folder. */
-export function HistoryScreen({ profileId, profiles = [], onOpened, visible = true }: HistoryScreenProps) {
+export function HistoryScreen({ profileId, profiles = [], onOpened, visible = true, focus }: HistoryScreenProps) {
   const { t, tn, formatDate } = useI18n()
   const toast = useToast()
   const sessionMap = useSessions()
@@ -90,6 +96,7 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
   const [agent, setAgent] = useState(ALL)
   const [error, setError] = useState('')
   const [opening, setOpening] = useState<string | null>(null)
+  const [tagging, setTagging] = useState<HistoryItem | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -111,12 +118,20 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
     void window.hub.getDefaultCwd().then(setHome, () => setHome(undefined))
   }, [])
   const filterProfile = profiles.length > 1 ? profiles.find((p) => p.id === profileFilter) : undefined
-  const entries = useMemo(() => visibleHistory(result?.entries ?? [], { agent, account, profile: filterProfile, profiles, home }), [result, agent, account, filterProfile, profiles, home])
   // An automation's runs collapse into one row per automation; the other sessions group by folder.
   const [hideAutomations, setHideAutomations] = useState(false)
+  useEffect(() => {
+    if (!focus) return
+    setQuery(focus.query)
+    setAgent(ALL)
+    setAccount(ALL)
+    setProfileFilter(ALL)
+    setHideAutomations(false)
+  }, [focus])
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
-  const byAutomation = useMemo(() => groupAutomationHistory(entries, deferredQuery), [entries, deferredQuery])
-  const groups = useMemo(() => groupHistory(byAutomation.rest, deferredQuery), [byAutomation, deferredQuery])
+  const entries = useMemo(() => visibleHistory(result?.entries ?? [], { agent, account, profile: filterProfile, profiles, home, query: deferredQuery }), [result, agent, account, filterProfile, profiles, home, deferredQuery])
+  const byAutomation = useMemo(() => groupAutomationHistory(entries, ''), [entries])
+  const groups = useMemo(() => groupHistory(byAutomation.rest, ''), [byAutomation])
   const automationGroups = hideAutomations ? [] : byAutomation.groups
   const toggleAutomation = (id: string) =>
     setExpanded((prev) => {
@@ -130,6 +145,58 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
   const [limit, setLimit] = useState(HISTORY_PAGE)
   useEffect(() => setLimit(HISTORY_PAGE), [deferredQuery, agent, account, profileFilter, hideAutomations])
   const page = useMemo(() => pageGroups(groups, limit), [groups, limit])
+
+  // Search: the main process ranks the index (conversations included) and adds the plain matches,
+  // within the sessions the filters leave (sent as keys, so filtering happens before paging).
+  const searching = query.trim() !== ''
+  const searchText = useDebounced(query.trim(), SEARCH_DEBOUNCE_MS)
+  const scopeKeys = useMemo(() => searchScope(entries, hideAutomations), [entries, hideAutomations])
+  const [search, setSearch] = useState<HistorySearchState | null>(null)
+  const [moreLoading, setMoreLoading] = useState(false)
+  const [progress, setProgress] = useState<HistoryIndexProgress | null>(null)
+  const [rerun, setRerun] = useState(0)
+  const lastRun = useRef<HistoryIndexProgress | null>(null)
+  useEffect(() => {
+    void window.hub.history.indexProgress().then(setProgress, () => undefined)
+    return window.hub.history.onIndexProgress(setProgress)
+  }, [])
+  // The index finished, or grew a good deal since the last search: search again.
+  useEffect(() => {
+    if (progress && shouldSearchAgain(lastRun.current, progress)) setRerun((n) => n + 1)
+  }, [progress])
+  useEffect(() => {
+    if (!searchText || !visible || !result) return
+    let current = true
+    window.hub.history.search(searchText, { keys: scopeKeys, limit: HISTORY_PAGE }).then(
+      (r) => {
+        if (!current) return
+        lastRun.current = r.progress
+        setSearch({ query: searchText, scope: scopeKeys, entries: r.entries, total: r.total, nextCursor: r.nextCursor })
+        setProgress(r.progress)
+      },
+      (e) => current && setError(errorText(e))
+    )
+    return () => {
+      current = false
+    }
+  }, [searchText, scopeKeys, visible, result, rerun])
+  const searched = search && search.query === searchText && search.scope === scopeKeys ? search : null
+  const matches = useMemo(() => new Map((searched?.entries ?? []).map((m) => [historyId(m), m])), [searched])
+  // Until the search answers, the plain match of the listing shows (newest first).
+  const plainMatches = useMemo(() => (searching && !searched ? groupHistory(entries.filter((e) => !hideAutomations || !e.automationId), deferredQuery).flatMap((g) => g.entries).sort((x, y) => y.lastModified - x.lastModified) : []), [searching, searched, entries, hideAutomations, deferredQuery])
+  const found: HistoryItem[] = searched ? searched.entries : plainMatches.slice(0, HISTORY_PAGE)
+  const loadMore = async () => {
+    if (!searched?.nextCursor || moreLoading) return
+    setMoreLoading(true)
+    try {
+      const r = await window.hub.history.search(searched.query, { keys: searched.scope, limit: HISTORY_PAGE, cursor: searched.nextCursor })
+      setSearch((prev) => (prev === searched ? { ...prev, entries: [...prev.entries, ...r.entries], total: r.total, nextCursor: r.nextCursor } : prev))
+    } catch (e) {
+      setError(errorText(e))
+    } finally {
+      setMoreLoading(false)
+    }
+  }
 
   const resume = async (e: HistoryItem, mode: 'app' | 'console') => {
     // One start at a time: the context menu has no disabled state, so the guard lives here.
@@ -166,6 +233,7 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
   /** One past session: its row, its resume buttons and its menu. */
   const renderEntry = (e: HistoryItem) => {
     const accountName = e.accountName
+    const match: HistoryMatch | undefined = matches.get(historyId(e))
     return (
       <ContextMenu.Root key={`${e.agentId}:${e.agentSessionId}`}>
         <ContextMenu.Trigger asChild>
@@ -176,7 +244,7 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
           >
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-2">
-                <span className="truncate text-base">{e.title || t('history.untitled')}</span>
+                <span className="truncate text-base">{titleSnippetFits(match?.titleSnippet, e.title) ? <HistorySnippet text={match.titleSnippet} /> : e.title || t('history.untitled')}</span>
                 {open.has(historyId(e)) && (
                   <Badge tone="success" className="h-4 shrink-0" title={t('history.openHint')} data-testid="history-open">
                     {t('history.open')}
@@ -185,6 +253,11 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
               </div>
               <div className="flex items-center gap-2 text-xs text-subtle">
                 <span>{formatDate(e.lastModified, { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                {searching && e.cwd && (
+                  <span className="truncate font-mono" title={e.cwd}>
+                    {folderName(e.cwd)}
+                  </span>
+                )}
                 {e.gitBranch && e.gitBranch !== 'HEAD' && <span className="truncate font-mono">{e.gitBranch}</span>}
                 <Badge icon={<AgentIcon agentId={e.agentId} className="size-4 rounded-sm text-[9px]" />} className="h-5" data-testid="history-agent">
                   {e.agentName}
@@ -195,6 +268,7 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
                   </Badge>
                 )}
               </div>
+              {match?.snippet && <HistorySnippet text={match.snippet} className="mt-1 line-clamp-2 text-xs text-muted" />}
             </div>
             {e.resumable && (
               <>
@@ -237,6 +311,9 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
             )}
             <ContextMenu.Item className={MENU_ITEM} onSelect={() => void copyId(e.agentSessionId)}>
               {t('history.copyId')}
+            </ContextMenu.Item>
+            <ContextMenu.Item className={MENU_ITEM} onSelect={() => setTagging(e)} data-testid="history-tags">
+              {t('tags.edit')}
             </ContextMenu.Item>
           </ContextMenu.Content>
         </ContextMenu.Portal>
@@ -288,6 +365,7 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
         )}
         <RefreshButton size="md" iconClassName="size-4" label={t('history.refresh')} loading={loading} onRefresh={load} />
       </div>
+      <HistoryIndexingNote progress={progress} className="-mt-2" />
       {error && (
         <p role="alert" className="flex items-center gap-2 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
           <CircleAlert className="size-4 shrink-0" aria-hidden />
@@ -305,12 +383,29 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
           {t('history.loading')}
         </div>
       )}
-      {result && groups.length === 0 && automationGroups.length === 0 && (
+      {result && searching && (
+        <section aria-label={t('history.results')} className="flex flex-col gap-1.5" data-testid="history-results">
+          <p className="text-xs text-subtle">{searched ? tn('history.resultsNote', searched.total) : t('history.resultsPending')}</p>
+          {found.length === 0 && searched ? (
+            <div className="py-12">
+              <EmptyState icon={<History className="size-6" aria-hidden />} title={t('history.noMatch')} description={t('history.emptyDescription')} />
+            </div>
+          ) : (
+            found.length > 0 && <ul className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface">{found.map(renderEntry)}</ul>
+          )}
+          {searched?.nextCursor && (
+            <Button variant="secondary" className="self-center" disabled={moreLoading} onClick={() => void loadMore()} data-testid="history-search-more">
+              {tn('history.showMore', searched.total - searched.entries.length)}
+            </Button>
+          )}
+        </section>
+      )}
+      {result && !searching && groups.length === 0 && automationGroups.length === 0 && (
         <div className="py-12">
           <EmptyState icon={<History className="size-6" aria-hidden />} title={query || agent !== ALL || account !== ALL || hideAutomations || filterProfile ? t('history.noMatch') : t('history.empty')} description={t('history.emptyDescription')} />
         </div>
       )}
-      {automationGroups.length > 0 && (
+      {!searching && automationGroups.length > 0 && (
         <section aria-label={t('history.automations')} className="flex flex-col gap-1.5" data-testid="history-automations">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-muted">
             <Settings className="size-3.5 text-subtle" aria-hidden />
@@ -343,7 +438,7 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
           </ul>
         </section>
       )}
-      {page.groups.map((g) => (
+      {!searching && page.groups.map((g) => (
         <section key={g.folder} aria-label={g.folder || t('history.noFolder')} className="flex flex-col gap-1.5">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-muted" title={g.folder}>
             <Folder className="size-3.5 text-subtle" aria-hidden />
@@ -356,12 +451,25 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
           </ul>
         </section>
       ))}
-      {page.hidden > 0 && (
+      {!searching && page.hidden > 0 && (
         <Button variant="secondary" className="self-center" onClick={() => setLimit((n) => n + HISTORY_PAGE)} data-testid="history-show-more">
-          {t('history.showMore', { hidden: page.hidden })}
+          {tn('history.showMore', page.hidden)}
         </Button>
       )}
-      {result && groups.length > 0 && <p className="text-xs text-subtle">{t('history.doubleClick')}</p>}
+      {result && (searching ? found.length > 0 : groups.length > 0) && <p className="text-xs text-subtle">{t('history.doubleClick')}</p>}
+      <Dialog
+        open={tagging !== null}
+        onOpenChange={(open) => !open && setTagging(null)}
+        title={tagging?.title ? `${t('tags.dialogTitle')} · ${tagging.title}` : t('tags.dialogTitle')}
+        description={t('tags.dialogHint')}
+        footer={
+          <Button variant="primary" onClick={() => setTagging(null)}>
+            {t('tags.done')}
+          </Button>
+        }
+      >
+        {tagging && <TagsEditor sessionId={tagging.agentSessionId} />}
+      </Dialog>
     </div>
   )
 }
@@ -371,6 +479,40 @@ function startOfToday(): number {
   const d = new Date()
   d.setHours(0, 0, 0, 0)
   return d.getTime()
+}
+
+/** Typing pauses this long before the full-text search runs. */
+const SEARCH_DEBOUNCE_MS = 200
+
+interface HistorySearchState {
+  query: string
+  /** The keys the search was limited to (the filters at the time). */
+  scope: string[]
+  entries: HistoryMatch[]
+  total: number
+  nextCursor?: string
+}
+
+/** The sessions a search may return: the ones the filters leave, by `agentId:agentSessionId`. */
+export function searchScope(entries: readonly HistoryItem[], hideAutomations: boolean): string[] {
+  return [...new Set(entries.filter((e) => !hideAutomations || !e.automationId).map((e) => `${e.agentId}:${e.agentSessionId}`))]
+}
+
+/** Whether the search should run again for the index's progress: it finished, or indexed a tenth more (at least 20 sessions). */
+export function shouldSearchAgain(last: HistoryIndexProgress | null, now: HistoryIndexProgress): boolean {
+  if (!last) return false
+  if (last.indexing && !now.indexing) return true
+  return now.indexed - last.indexed >= Math.max(20, Math.ceil(now.total / 10))
+}
+
+/** `value` once it stopped changing for `delayMs`. */
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [settled, setSettled] = useState(value)
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), delayMs)
+    return () => clearTimeout(timer)
+  }, [value, delayMs])
+  return settled
 }
 
 /** Rows shown before "Show more". */

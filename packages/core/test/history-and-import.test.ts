@@ -1,21 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addImported,
   appOptions,
   BUILTIN_AGENTS,
   CONFIG_VERSION,
   consoleCommand,
   launchArgs,
   groupHistory,
+  listedInHistory,
+  namesSession,
   parseConfig,
-  planWorkhub1Import,
   setOptions,
   slugId,
   visibleMonitorFields,
-  type HistoryEntry,
-  type Workhub1Settings
+  type HistoryEntry
 } from '../src'
-import { config, github, profile } from './fixtures'
+import { config } from './fixtures'
 
 const entry = (over: Partial<HistoryEntry>): HistoryEntry => ({
   agentId: 'claude',
@@ -45,6 +44,23 @@ describe('groupHistory', () => {
     expect(groupHistory(entries, 'release').map((g) => g.folder)).toEqual(['/w/api'])
     expect(groupHistory(entries, 'web login').flatMap((g) => g.entries.map((e) => e.agentSessionId))).toEqual(['a'])
     expect(groupHistory(entries, 'nothing-like-this')).toEqual([])
+  })
+})
+
+describe('throwaway folders in History', () => {
+  const scratch = entry({ agentSessionId: '0b7c9e2a-1111-4222-8333-944455556666', cwd: '/tmp/acme-scratch' })
+  it('leaves a session in a temporary folder out of a plain listing or a loose search', () => {
+    expect(listedInHistory(scratch)).toBe(false)
+    expect(listedInHistory(scratch, '')).toBe(false)
+    expect(listedInHistory(scratch, '0b7c9e2a')).toBe(false)
+    expect(listedInHistory(entry({ cwd: '/work/acme' }))).toBe(true)
+  })
+
+  it('lists it when the search is its exact session id, as Usage asks', () => {
+    expect(namesSession(scratch, ' 0B7C9E2A-1111-4222-8333-944455556666 ')).toBe(true)
+    expect(listedInHistory(scratch, '0b7c9e2a-1111-4222-8333-944455556666')).toBe(true)
+    expect(listedInHistory(entry({ agentSessionId: 'other', cwd: '/tmp/x' }), '0b7c9e2a-1111-4222-8333-944455556666')).toBe(false)
+    expect(namesSession(entry({ agentSessionId: '' }), '')).toBe(false)
   })
 })
 
@@ -119,77 +135,7 @@ describe('config version 2', () => {
   })
 })
 
-describe('planWorkhub1Import', () => {
-  const home = '/Users/acme'
-  const v1: Workhub1Settings = {
-    mainAccount: { name: '  Personal   account ', configDirectory: '~/.claude' },
-    secondAccount: { name: 'Work', configDirectory: '~/.claude-work/', command: 'claude-work' },
-    profiles: [
-      {
-        id: 'acme',
-        name: 'Acme',
-        folders: [{ path: '~/acme' }, { path: '/opt/shared/' }],
-        githubScope: 'org:acme',
-        ticketPrefixes: ['abc', 'DEF'],
-        sessionEnvironment: [{ name: 'ACME_PROJECT', value: '${FOLDER}' }]
-      },
-      { id: 'Side Projects', name: 'Side' }
-    ],
-    jira: { acme: { site: 'acme.example.com/', keychainService: 'workhub-jira-acme', ignoredStatuses: ['Done'] } }
-  }
-
-  it('maps accounts, profiles with folders, and GitHub and Jira connections without secrets', () => {
-    const plan = planWorkhub1Import(v1, config(), home)
-    expect(plan.accounts).toEqual([
-      { id: 'claude-personal-account', agentId: 'claude', name: 'Personal account' },
-      { id: 'claude-work', agentId: 'claude', name: 'Work', configDir: '/Users/acme/.claude-work' }
-    ])
-    expect(plan.profiles.map((p) => p.id)).toEqual(['acme', 'side-projects'])
-    expect(plan.profiles[0]).toMatchObject({
-      folders: ['/Users/acme/acme', '/opt/shared'],
-      accountIds: ['claude-personal-account', 'claude-work'],
-      connections: { codeHost: 'github-acme', tracker: 'jira-acme' }
-    })
-    expect(plan.connections.find((c) => c.id === 'jira-acme')).toMatchObject({
-      endpoint: 'https://acme.example.com',
-      settings: { projectKeys: 'ABC,DEF', ignoredStatuses: 'Done' }
-    })
-    expect(plan.connections.every((c) => c.secretRef === undefined)).toBe(true)
-    expect(plan.notes).toEqual(
-      expect.arrayContaining([
-        { code: 'reenterSecret', path: 'connections.jira-acme' },
-        { code: 'notSupported', path: 'accounts.claude-work', detail: 'command' },
-        { code: 'notSupported', path: 'profiles.acme', detail: 'sessionEnvironment' }
-      ])
-    )
-    // GitHub reads through the `gh` login: no secret to enter again.
-    expect(plan.notes.some((n) => n.path === 'connections.github-acme')).toBe(false)
-    // The Keychain item name is never carried over.
-    expect(JSON.stringify(plan)).not.toContain('workhub-jira-acme')
-  })
-
-  it('leaves out ids that already exist, with their connections', () => {
-    const plan = planWorkhub1Import(v1, config({ profiles: [profile({ id: 'acme' })] }), home)
-    expect(plan.profiles.map((p) => p.id)).toEqual(['side-projects'])
-    expect(plan.connections).toEqual([])
-    expect(plan.notes).toContainEqual({ code: 'exists', path: 'profiles.acme' })
-  })
-
-  it('adds the plan even though the imported connections have no secret yet', () => {
-    const plan = planWorkhub1Import(v1, config(), home)
-    const r = addImported(config(), plan)
-    expect(r.ok).toBe(true)
-    if (r.ok) {
-      expect(r.value.activeProfileId).toBe('acme')
-      expect(r.value.connections).toHaveLength(2)
-    }
-  })
-
-  it('still refuses problems other than a missing secret', () => {
-    const r = addImported(config({ connections: [github] }), { profiles: [], accounts: [], connections: [{ ...github }] })
-    expect(r.ok).toBe(false)
-  })
-
+describe('slugId', () => {
   it('makes ids from any name', () => {
     expect(slugId('Ñandú Trabajo', 'x')).toBe('nandu-trabajo')
     expect(slugId('***', 'fallback')).toBe('fallback')

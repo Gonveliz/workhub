@@ -64,6 +64,20 @@ export function isThrowawayFolder(cwd: string | undefined): boolean {
 }
 
 /**
+ * Whether a search box holds exactly this session's id (as Usage and reports asks when it shows one
+ * session). Such a search lists the session even from a throwaway folder: the person asked for it.
+ */
+export function namesSession(entry: Pick<HistoryEntry, 'agentSessionId'>, query: string | undefined): boolean {
+  const id = query?.trim().toLowerCase()
+  return !!id && !!entry.agentSessionId && entry.agentSessionId.toLowerCase() === id
+}
+
+/** Whether History lists a session: never one from a throwaway folder unless the search names it. */
+export function listedInHistory(entry: Pick<HistoryEntry, 'cwd' | 'agentSessionId'>, query?: string): boolean {
+  return !isThrowawayFolder(entry.cwd) || namesSession(entry, query)
+}
+
+/**
  * Whether a past session belongs to a profile: it ran in a folder the profile owns (`owningProfile`:
  * its deepest folder holding the session's folder, else the profile that also owns everything
  * outside every profile's folders), or, in a folder no profile owns, with one of its accounts. Pass every profile
@@ -98,4 +112,73 @@ export function sessionsOfFolder<T extends HistoryEntry>(entries: readonly T[], 
  */
 export function historyOfSessions<T extends HistoryEntry>(entries: readonly T[], keys: ReadonlySet<string>): T[] {
   return entries.filter((e) => keys.has(e.agentSessionId))
+}
+
+/**
+ * The markers a History search snippet wraps its matches in: private-use characters, which never
+ * appear in indexed text (the index strips them), so text that itself contains `<mark>` stays text.
+ * The control endpoint turns them into `<mark>`…`</mark>` (`snippetHtmlMarks`).
+ */
+export const HISTORY_MARK = { open: '', close: '' } as const
+
+export interface SnippetPart {
+  text: string
+  marked: boolean
+}
+
+/**
+ * A search snippet split into plain and marked parts, so a screen renders the matches as elements
+ * and the rest as text, never as HTML. A marker left open marks the rest of the text.
+ */
+export function snippetParts(snippet: string): SnippetPart[] {
+  const parts: SnippetPart[] = []
+  let marked = false
+  let text = ''
+  const flush = () => {
+    if (text) parts.push({ text, marked })
+    text = ''
+  }
+  for (const ch of snippet) {
+    if (ch === HISTORY_MARK.open || ch === HISTORY_MARK.close) {
+      flush()
+      marked = ch === HISTORY_MARK.open
+    } else text += ch
+  }
+  flush()
+  return parts
+}
+
+/** Parts back into a snippet with the private markers. */
+export function joinSnippetParts(parts: readonly SnippetPart[]): string {
+  return parts.map((p) => (p.marked ? `${HISTORY_MARK.open}${p.text}${HISTORY_MARK.close}` : p.text)).join('')
+}
+
+/**
+ * A snippet shortened to at most `max` characters of text (markers not counted), cut between
+ * parts or inside one, never inside a marker; every marked part stays closed. `…` ends a cut one.
+ */
+export function cutSnippet(snippet: string, max: number): string {
+  const parts = snippetParts(snippet)
+  if (parts.reduce((n, p) => n + [...p.text].length, 0) <= max) return joinSnippetParts(parts)
+  const out: SnippetPart[] = []
+  let left = Math.max(0, max - 1)
+  for (const p of parts) {
+    const chars = [...p.text]
+    if (chars.length <= left) {
+      out.push(p)
+      left -= chars.length
+      continue
+    }
+    if (left > 0) out.push({ text: chars.slice(0, left).join(''), marked: p.marked })
+    break
+  }
+  out.push({ text: '…', marked: false })
+  return joinSnippetParts(out)
+}
+
+/** A snippet with `<mark>`…`</mark>` around the matches, for answers read as text (control endpoint, MCP). */
+export function snippetHtmlMarks(snippet: string): string {
+  return snippetParts(snippet)
+    .map((p) => (p.marked ? `<mark>${p.text}</mark>` : p.text))
+    .join('')
 }
