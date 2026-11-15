@@ -91,8 +91,11 @@ The phone opens the relay's address in its browser: the relay serves the phone a
    its sub-agent too. Leaving a chat brings the list back where it was, and a chat always opens at
    its latest message.
    A session shows the chat as the desktop does: replies, tool calls, permission prompts (with the
-   same options) and questions, and files the agent read or wrote in the session's folder (images preview inline, anything
-   else downloads; files above 8 MB stay on the desktop). An image outside the folder opens too when
+   same options) and questions, and files the agent read or wrote in the session's folder. **Open** on a
+   file fetches it from the computer and shows it in the chat: an image, a Markdown document with its
+   formatting, or any other text (a log, source code, JSON) as it is, in a box that scrolls until you
+   tap **Expand**. Text longer than 256 KB, and anything that is not text or an image (a PDF, an
+   archive), only downloads; files above 8 MB stay on the desktop. An image outside the folder opens too when
    the session's agent read or wrote it, such as a screenshot you gave it; other files outside do not. Opening a session loads its latest messages;
    scrolling up loads earlier ones a page at a time (very long tool output and pasted images stay
    on the desktop). Under the chat, in this order: a row that says how many of the session's
