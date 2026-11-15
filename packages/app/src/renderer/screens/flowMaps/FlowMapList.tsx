@@ -47,7 +47,7 @@ export interface FlowMapListProps {
   onOpen: (id: string) => void
 }
 
-/** The side list of the Flow maps screen: a search box and the maps under their headings, each with its state and how many parts are over their limits. */
+/** The side list of the Flow maps screen: a search box and the maps under their headings, each with its state (no dot while nothing fresh is known) and how many parts are over their limits. */
 export function FlowMapList({ maps, states, alerts = {}, opened, query, onQuery, onOpen }: FlowMapListProps) {
   const { t, tn } = useI18n()
   const groups = groupFlowMaps(maps, query)
@@ -79,7 +79,7 @@ export function FlowMapList({ maps, states, alerts = {}, opened, query, onQuery,
                         m.error ? 'text-danger' : opened === m.id ? 'bg-accent-soft font-medium' : 'hover:bg-surface-hover'
                       )}
                     >
-                      <StateDot tone={m.error ? 'danger' : STATE_TONE[state]} />
+                      {m.error || state !== 'unknown' ? <StateDot tone={m.error ? 'danger' : STATE_TONE[state]} /> : <span aria-hidden className="inline-flex size-2 shrink-0" data-testid="flow-map-no-state" />}
                       <span className="min-w-0 flex-1 truncate">{m.name}</span>
                       {over > 0 && (
                         <span className="shrink-0 rounded-full bg-danger-soft px-1.5 text-[11px] font-medium tabular-nums text-danger" title={tn('flowMaps.list.over', over)} data-testid="flow-map-over">
