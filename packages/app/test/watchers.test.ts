@@ -97,3 +97,28 @@ describe('watchers stop', () => {
     expect([health.flushed, flow.flushed, store.flushed]).toEqual([1, 1, 1])
   })
 })
+
+describe('ticket watcher interval', () => {
+  it("reads the active profile at its tracker connection's interval, 5 minutes when unset", async () => {
+    for (const [interval, due] of [[undefined, 5 * 60_000], [async () => 2 * 60_000, 2 * 60_000]] as const) {
+      let now = 1
+      let reads = 0
+      const w = new TicketWatcher({
+        activeProfileId: async () => 'p',
+        enabled: async () => true,
+        list: async () => (reads++, { ok: true as const, value: [] }),
+        store: memoryStore({ profiles: {} }),
+        announce: () => undefined,
+        ...(interval ? { intervalMs: interval } : {}),
+        now: () => now
+      })
+      await w.tick()
+      now += due - 1
+      await w.tick()
+      expect(reads).toBe(1)
+      now += 1
+      await w.tick()
+      expect(reads).toBe(2)
+    }
+  })
+})

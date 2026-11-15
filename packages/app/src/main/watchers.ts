@@ -4,7 +4,7 @@ import type { TicketsResult } from '../shared/tickets-api'
 
 /** How often the watchers look; Health itself only reads again once its refresh interval passed. */
 export const WATCH_INTERVAL_MS = 60_000
-/** Assigned tickets are read at most this often. */
+/** Assigned tickets are read at most this often unless the profile's tracker connection says otherwise. */
 export const TICKET_INTERVAL_MS = 5 * 60_000
 
 /** When each alert subject last fired, kept in the data folder; `flush` writes a delayed save now. */
@@ -234,6 +234,8 @@ export interface TicketWatcherDeps {
   announceSummary?: (profileId: string, changes: TicketChange[]) => void
   /** Appends the changes seen to the ticket timeline, announced or not; a failure is ignored. */
   record?: (profileId: string, changes: readonly TicketChange[], at: number) => void
+  /** Milliseconds between reads for a profile (its tracker connection's interval); `TICKET_INTERVAL_MS` when unset. */
+  intervalMs?: (profileId: string) => Promise<number>
   now?: () => number
 }
 
@@ -273,10 +275,11 @@ export class TicketWatcher {
 
   async tick(force = false): Promise<void> {
     const now = (this.deps.now ?? Date.now)()
-    if (!force && now - this.lastRead < TICKET_INTERVAL_MS && this.lastRead !== 0) return
     try {
       const profileId = await this.deps.activeProfileId()
       if (!profileId) return
+      const interval = this.deps.intervalMs ? await this.deps.intervalMs(profileId) : TICKET_INTERVAL_MS
+      if (!force && this.lastRead !== 0 && now - this.lastRead < interval) return
       if (!(await this.deps.enabled())) {
         // Turned on again later, the first read only records (no burst of old changes).
         if (this.known[profileId]) {

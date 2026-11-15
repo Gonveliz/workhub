@@ -1,11 +1,11 @@
 import type { TimelinePrEvent } from '@workhub/adapters/sqlite-store'
-import { detectPrEvents, EMPTY_PR_EVENT_STATE, type PrEventState, type PrEventStore, type PullRequest, type WorkhubConfig } from '@workhub/core'
+import { detectPrEvents, EMPTY_PR_EVENT_STATE, profileRefreshMs, type PrEventState, type PrEventStore, type PullRequest, type WorkhubConfig } from '@workhub/core'
 import type { CodeHostLists } from '../shared/codehost-api'
 import type { PrEventBatch, PrNotification } from '../shared/pr-events-api'
 import type { IpcRegistrar } from './ipc-guard'
 
-/** Workhub 1 synced every 180 seconds. */
-export const PR_SYNC_MS = 180_000
+/** How often the service checks which profiles are due; each profile syncs at its code host connection's interval (3 minutes by default, as Workhub 1). */
+export const PR_SYNC_TICK_MS = 30_000
 
 /** `owner/repo#12` (lower case) of a pull or merge request URL, as the detector's event ids start; the URL itself otherwise. */
 export function prSlug(url: string): string {
@@ -49,6 +49,8 @@ export class PrEventService {
   private listening = false
   private buffered: PrEventBatch[] = []
   private readonly now: () => number
+  /** When each profile last synced, so each one follows its own connection's interval. */
+  private readonly syncedAt = new Map<string, number>()
 
   constructor(private readonly deps: PrEventServiceDeps) {
     this.now = deps.now ?? Date.now
@@ -57,7 +59,7 @@ export class PrEventService {
   start(): void {
     if (this.timer) return
     void this.sync()
-    this.timer = setInterval(() => void this.sync(), PR_SYNC_MS)
+    this.timer = setInterval(() => void this.syncDue(), PR_SYNC_TICK_MS)
   }
 
   stop(): void {
@@ -80,11 +82,17 @@ export class PrEventService {
 
   /** One sync of every profile with a code host; calls made while one runs share it. */
   sync(): Promise<void> {
-    this.running ??= this.syncAll().finally(() => (this.running = undefined))
+    this.running ??= this.syncAll(false).finally(() => (this.running = undefined))
     return this.running
   }
 
-  private async syncAll(): Promise<void> {
+  /** Syncs only the profiles whose code host interval has passed since their last sync. */
+  syncDue(): Promise<void> {
+    this.running ??= this.syncAll(true).finally(() => (this.running = undefined))
+    return this.running
+  }
+
+  private async syncAll(onlyDue: boolean): Promise<void> {
     if (!this.loaded) {
       this.state = await this.deps.store.load().catch(() => ({ ...EMPTY_PR_EVENT_STATE, profiles: {} }))
       this.loaded = true
@@ -92,6 +100,9 @@ export class PrEventService {
     const config = await this.deps.config()
     const profiles = config.profiles.filter((p) => (this.deps.demo ? p.id === config.activeProfileId : Boolean(p.connections.codeHost)))
     for (const profile of profiles) {
+      const last = this.syncedAt.get(profile.id)
+      if (onlyDue && last !== undefined && this.now() - last < profileRefreshMs(config, profile.id, 'codeHost')) continue
+      this.syncedAt.set(profile.id, this.now())
       try {
         await this.syncProfile(profile.id)
       } catch {
