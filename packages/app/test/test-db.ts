@@ -10,7 +10,9 @@ const opened: { db: WorkhubDb; dir: string }[] = []
 afterEach(() => {
   for (const { db, dir } of opened.splice(0)) {
     db.close()
-    rmSync(dir, { recursive: true, force: true })
+    // Windows keeps the files locked for a moment after a process that had them open is killed
+    // (the analytics query worker): retry instead of failing the test on EPERM or EBUSY.
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }
 })
 
