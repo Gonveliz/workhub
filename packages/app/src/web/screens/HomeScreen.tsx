@@ -1,4 +1,4 @@
-import { Bot, ChevronRight, FolderClosed, FolderOpen, Plus, RotateCcw, X } from 'lucide-react'
+import { Bot, ChevronRight, FolderClosed, FolderOpen, Plus, RotateCcw, Search, X } from 'lucide-react'
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { accountColor, EMPTY_SESSION_GROUPS, memberAgentId, profileColor, sidebarRows, statusLevel, subtreeMembers, type GroupMember, type GroupRow, type StatusLevel, type SubagentSummary } from '@workhub/core'
 import { useI18n } from '../../renderer/i18n/I18nProvider'
@@ -298,10 +298,15 @@ export function HomeScreen() {
         title={t('web.home.title')}
         subtitle={status.desktops.length > 1 ? <DesktopPicker /> : status.state === 'online' ? t('web.state.online', { desktop }) : t('web.home.offlineCache')}
         right={
-          <button type="button" onClick={() => navigate({ screen: 'new' })} className="flex h-9 items-center gap-1 rounded-full bg-accent pr-3.5 pl-2.5 text-sm font-semibold text-accent-fg">
-            <Plus className="size-4" aria-hidden />
-            {t('web.home.new')}
-          </button>
+          <>
+            <button type="button" aria-label={t('web.history.open')} onClick={() => navigate({ screen: 'history' })} className="flex size-9 items-center justify-center rounded-full text-muted active:bg-surface-hover" data-testid="web-history-open">
+              <Search className="size-5" aria-hidden />
+            </button>
+            <button type="button" onClick={() => navigate({ screen: 'new' })} className="flex h-9 items-center gap-1 rounded-full bg-accent pr-3.5 pl-2.5 text-sm font-semibold text-accent-fg">
+              <Plus className="size-4" aria-hidden />
+              {t('web.home.new')}
+            </button>
+          </>
         }
       />
       <Body>

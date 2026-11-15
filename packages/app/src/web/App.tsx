@@ -1,12 +1,14 @@
 import { Component, useEffect, useState, type ReactElement, type ReactNode } from 'react'
 import { TooltipProvider } from '../renderer/components/atoms'
 import { I18nProvider, useI18n } from '../renderer/i18n/I18nProvider'
-import { getSessions, onRemoved, startupList } from '../renderer/store'
+import { getSessions, onEvent, onRemoved, startupList } from '../renderer/store'
+import { refreshActivity } from './activity'
 import type { PushPayload } from '@workhub/protocol'
 import { WebAppProvider, navigate, useClient, useClientStatus, useRoute, type WebApp } from './app-context'
 import { NOTIFY_ASKED_KEY } from './device'
 import { parseRoute, routeHash } from './routes'
 import { AlertsScreen } from './screens/AlertsScreen'
+import { HistoryScreen } from './screens/HistoryScreen'
 import { HomeScreen } from './screens/HomeScreen'
 import { NewSessionScreen } from './screens/NewSessionScreen'
 import { NotifyScreen } from './screens/NotifyScreen'
@@ -70,11 +72,14 @@ function Shell({ defaultName }: { defaultName: string }) {
   useEffect(() => {
     if (status.state !== 'online') return
     const before = new Set(Object.keys(getSessions()))
+    let ids: string[] = []
     void startupList(async () => {
       const views = await window.hub.sessions.list()
-      for (const id of before) if (!views.some((v) => v.id === id)) onRemoved(id)
+      ids = views.map((v) => v.id)
+      // A list read in pages while it changed, or cut short, says nothing about the sessions it lacks.
+      if (client.sessionsListComplete()) for (const id of before) if (!views.some((v) => v.id === id)) onRemoved(id)
       return views
-    })
+    }).then(() => refreshActivity(client, ids, onEvent))
   }, [status.state])
 
   useEffect(() => {
@@ -124,6 +129,9 @@ function Shell({ defaultName }: { defaultName: string }) {
       break
     case 'settings':
       screen = <SettingsScreen />
+      break
+    case 'history':
+      screen = capabilities.includes('sessions') ? <HistoryScreen /> : <NotAllowed what={t('web.capability.sessions')} />
       break
     default:
       screen = capabilities.includes('sessions') ? <HomeScreen /> : <SettingsScreen />

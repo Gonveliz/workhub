@@ -522,4 +522,65 @@ describe('RemoteClient', () => {
     await expect(p.client.transport.invoke('sessions:list', 'x'.repeat(600_000))).rejects.toThrow('too large')
     await expect(p.hub.sessions.list()).resolves.toHaveLength(1)
   })
+
+  it('reads a long sessions list a page at a time from a desktop that pages, and keeps it for offline use', async () => {
+    const { d, p } = await paired()
+    expect(p.client.supports('paging')).toBe(true)
+    expect(p.client.supports('activity')).toBe(true)
+    const frames: number[] = []
+    const receive = d.core.receive.bind(d.core)
+    d.core.receive = (peer, raw) => {
+      frames.push(typeof raw === 'string' ? raw.length : raw.byteLength)
+      receive(peer, raw)
+    }
+    // Together far over one frame; each alone well under it.
+    for (let i = 0; i < 12; i++) d.views.push({ id: `big${i}`, name: 'x'.repeat(100_000), cwd: '/work/api' })
+    await expect(p.hub.sessions.list()).rejects.toThrow('too large')
+    const views = (await p.client.listSessions()) as { id: string }[]
+    expect(views.map((v) => v.id)).toEqual(['s1', ...Array.from({ length: 12 }, (_, i) => `big${i}`)])
+    expect(Math.max(...frames)).toBeLessThan(MAX_FRAME_BYTES)
+    ;(p.sockets.at(-1) as FakeSocket).drop(1006, '')
+    await settle()
+    await expect(p.client.listSessions()).resolves.toHaveLength(13)
+  })
+
+  it('asks a desktop that does not page for the whole list, as before', async () => {
+    const { p } = await paired()
+    ;(p.client as unknown as { desktop: { features?: string[] } }).desktop.features = ['away']
+    expect(p.client.supports('paging')).toBe(false)
+    await expect(p.client.listSessions()).resolves.toEqual([{ id: 's1', name: 'Fix tests', cwd: '/work/api' }])
+  })
+
+  it('falls back to the last whole list when a page fails, and infers nothing from it', async () => {
+    const { p } = await paired()
+    await p.client.listSessions()
+    expect(p.client.sessionsListComplete()).toBe(true)
+    const spy = vi.spyOn(p.client as unknown as { invoke: (c: string, a: unknown[]) => Promise<unknown> }, 'invoke').mockRejectedValueOnce(new Error('disconnected'))
+    await expect(p.client.listSessions()).resolves.toEqual([{ id: 's1', name: 'Fix tests', cwd: '/work/api' }])
+    expect(p.client.sessionsListComplete()).toBe(false)
+    spy.mockRestore()
+  })
+
+  it('neither keeps nor trusts a list cut short or changed between pages', async () => {
+    const { p } = await paired()
+    const keyOf = () => [...p.storage.map.keys()].find((k) => k.includes(':sessions:list:'))
+    const spy = vi.spyOn(p.client as unknown as { invoke: (c: string, a: unknown[]) => Promise<unknown> }, 'invoke')
+    // Every page says there is more: the read stops at its page cap.
+    let n = 0
+    spy.mockImplementation(async () => ({ items: [{ id: `v${n++}` }], nextCursor: 'more', total: 1000 }))
+    const cut = await p.client.listSessions()
+    expect(cut.length).toBeGreaterThan(1)
+    expect(p.client.sessionsListComplete()).toBe(false)
+    expect(keyOf()).toBeUndefined()
+    // The total moved between two pages.
+    let page = 0
+    spy.mockImplementation(async () => (page++ === 0 ? { items: [{ id: 'a' }], nextCursor: 'c', total: 2 } : { items: [{ id: 'b' }], nextCursor: null, total: 3 }))
+    await expect(p.client.listSessions()).resolves.toEqual([{ id: 'a' }, { id: 'b' }])
+    expect(p.client.sessionsListComplete()).toBe(false)
+    expect(keyOf()).toBeUndefined()
+    spy.mockRestore()
+    await p.client.listSessions()
+    expect(p.client.sessionsListComplete()).toBe(true)
+    expect(keyOf()).toBeDefined()
+  })
 })

@@ -33,7 +33,7 @@ import {
   fitsFrame
 } from '@workhub/protocol'
 import type { HubTransport } from '../shared/hub-client'
-import type { RemoteCapability } from '../shared/remote-api'
+import { REMOTE_FEATURES, type RemoteCapability, type RemotePage } from '../shared/remote-api'
 
 export interface ClientStorage {
   get(key: string): string | null
@@ -59,6 +59,8 @@ export interface PairedDesktop {
   /** The relay's WebSocket URL. */
   relay: string
   capabilities: RemoteCapability[]
+  /** What the desktop said it understands at its last `ready` (paged lists, session activity). */
+  features?: string[]
 }
 
 interface Persisted {
@@ -120,9 +122,15 @@ export const HIDDEN_GRACE_MS = 30_000
 export const LIVENESS_MS = 20_000
 /** How long a ping waits for any answer before the socket is treated as dead. */
 export const PONG_TIMEOUT_MS = 10_000
+/** The error of a call the desktop left unanswered past `invokeTimeoutMs`; screens match it to say so. */
+export const NO_ANSWER_ERROR = 'the desktop did not answer'
+
+/** Sessions per page when the desktop pages the list, and the most pages read (a list never needs this many). */
+const SESSION_PAGE_LIMIT = 50
+const MAX_SESSION_PAGES = 100
 
 /** Calls whose last answer the phone keeps, so it has something to show without network. */
-export const CACHED_CHANNELS: ReadonlySet<string> = new Set(['remote:history', 'sessions:list', 'config:get', 'config:effectiveAgents', 'hub:profileFolders', 'agents:availability', 'codeHost:lists', 'metricAlerts:list', 'automations:get', 'health:get', 'plan:get', 'planner:get'])
+export const CACHED_CHANNELS: ReadonlySet<string> = new Set(['remote:history', 'remote:pullRequests', 'sessions:list', 'config:get', 'config:effectiveAgents', 'hub:profileFolders', 'agents:availability', 'codeHost:lists', 'metricAlerts:list', 'automations:get', 'health:get', 'plan:get', 'planner:get'])
 
 export class RemoteClient {
   readonly identity: Identity
@@ -152,6 +160,8 @@ export class RemoteClient {
   /** One cache key per desktop, derived from the seed; entries of one desktop never open as another's. */
   private readonly cacheKeys = new Map<string, Uint8Array>()
   private pushSubscription: unknown | null = null
+  /** Whether the last sessions list was read whole (see listSessions). */
+  private sessionsComplete = true
   /** The page is in the background: no socket, so the desktop pushes notifications instead. */
   private suspended = false
   private readonly now: () => number
@@ -268,6 +278,60 @@ export class RemoteClient {
   onStatus(cb: (status: ClientStatus) => void): () => void {
     this.statusListeners.add(cb)
     return () => void this.statusListeners.delete(cb)
+  }
+
+  /** Whether the active desktop named this feature at its last `ready` (an older desktop names fewer). */
+  supports(feature: string): boolean {
+    return this.desktop?.features?.includes(feature) ?? false
+  }
+
+  /**
+   * The desktop's sessions. A desktop that pages lists sends them a page at a time (each page under
+   * the relay's frame, whatever the sessions carry); the pages are joined here and kept as the
+   * `sessions:list` answer, so the list still shows without network. An older desktop answers in one.
+   */
+  async listSessions(): Promise<unknown[]> {
+    if (!this.ready || !this.supports(REMOTE_FEATURES.paging)) {
+      this.sessionsComplete = true
+      return (await this.invoke('sessions:list', [])) as unknown[]
+    }
+    const all: unknown[] = []
+    const seen = new Set<unknown>()
+    let cursor: string | null = null
+    let total: number | null = null
+    let moved = false
+    try {
+      for (let i = 0; i < MAX_SESSION_PAGES; i++) {
+        const page = (await this.invoke('remote:sessions', [cursor ? { limit: SESSION_PAGE_LIMIT, cursor } : { limit: SESSION_PAGE_LIMIT }])) as RemotePage<{ id?: unknown }>
+        if (total !== null && page?.total !== total) moved = true
+        total = page?.total ?? null
+        for (const view of page?.items ?? []) {
+          if (seen.has(view?.id)) continue
+          seen.add(view?.id)
+          all.push(view)
+        }
+        cursor = typeof page?.nextCursor === 'string' ? page.nextCursor : null
+        if (!cursor) break
+      }
+    } catch (err) {
+      // A page failed (the link dropped, a refusal): the last whole list, when there is one.
+      this.sessionsComplete = false
+      const cached = this.cached<unknown[]>('sessions:list', [])
+      if (cached) return cached
+      throw err
+    }
+    // Cut short (too many pages) or changed between pages: shown, but neither kept nor used to forget anything.
+    this.sessionsComplete = cursor === null && !moved
+    if (this.sessionsComplete) {
+      this.remember('sessions:list', [], all)
+      this.forgetClosedHistories(all)
+    }
+    return all
+  }
+
+  /** Whether the last `listSessions()` read the whole list at one moment: only then may a session it lacks be taken as closed. */
+  sessionsListComplete(): boolean {
+    return this.sessionsComplete
   }
 
   /** The capabilities the desktop granted, as of the last `ready`. */
@@ -643,6 +707,7 @@ export class RemoteClient {
         this.error = undefined
         const desktop = this.desktop
         if (desktop) {
+          desktop.features = message.features ?? []
           if (message.capabilities) desktop.capabilities = message.capabilities
           if (message.desktop) desktop.name = message.desktop
           this.savePersisted()
@@ -705,7 +770,7 @@ export class RemoteClient {
     const id = this.nextId++
     return new Promise((resolve, reject) => {
       const cancel = this.schedule(() => {
-        if (this.pending.delete(id)) reject(new Error('the desktop did not answer'))
+        if (this.pending.delete(id)) reject(new Error(NO_ANSWER_ERROR))
       }, this.deps.invokeTimeoutMs ?? 30_000)
       this.pending.set(id, {
         resolve: (value) => {
@@ -821,9 +886,11 @@ export class RemoteClient {
   }
 }
 
-/** Whether this call's answer is kept for offline use: of a chat's history, only its last page. */
+/** Whether this call's answer is kept for offline use: of a chat's history, only its last page; of a paged list, its first. */
 export function isCachedCall(channel: string, args: unknown[]): boolean {
   if (!CACHED_CHANNELS.has(channel)) return false
+  // Of a paged list, only the first page (no cursor): the phone opens on it.
+  if (channel === 'remote:pullRequests') return !(args[1] as { cursor?: unknown } | undefined)?.cursor
   return channel !== 'remote:history' || args.length === 1
 }
 

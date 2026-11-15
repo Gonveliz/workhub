@@ -130,16 +130,18 @@ export function useProfileId(config: ConfigSnapshot | null): [string | null, (id
 }
 
 /** Runs `load` when the desktop is reachable and whenever `deps` change; keeps the last answer (or the cached one) meanwhile. */
-export function useRemoteData<T>(cacheChannel: string | null, cacheArgs: unknown[], load: () => Promise<T>, deps: unknown[]): { data: T | null; error: string | null; loading: boolean; reload: () => void } {
+export function useRemoteData<T>(cacheChannel: string | null, cacheArgs: unknown[], load: () => Promise<T>, deps: unknown[], fromCache?: () => T | null): { data: T | null; error: string | null; loading: boolean; reload: () => void } {
   const client = useClient()
   const status = useClientStatus()
-  const [data, setData] = useState<T | null>(() => (cacheChannel ? client.cached<T>(cacheChannel, cacheArgs) : null))
+  // `fromCache` reads the cache itself (an answer kept under another channel by an older desktop).
+  const readCache = () => (fromCache ? fromCache() : cacheChannel ? client.cached<T>(cacheChannel, cacheArgs) : null)
+  const [data, setData] = useState<T | null>(readCache)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [tick, setTick] = useState(0)
   const reload = useCallback(() => setTick((n) => n + 1), [])
   useEffect(() => {
-    if (cacheChannel) setData(client.cached<T>(cacheChannel, cacheArgs))
+    if (cacheChannel || fromCache) setData(readCache())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
   useEffect(() => {
