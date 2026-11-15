@@ -33,15 +33,22 @@ export function needsCmdShell(file: string): boolean {
 export function quoteCmdArgument(arg: string): string {
   let out = arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1')
   out = `"${out}"`
-  const caret = (s: string): string => s.replace(/[()%!^"`<>&|;, \[\]]/g, '^$&')
-  return caret(caret(out))
+  return caretEscape(caretEscape(out))
+}
+
+/** Caret-escapes every cmd metacharacter, spaces included, so cmd.exe reads `s` as one literal word. */
+function caretEscape(s: string): string {
+  return s.replace(/[()%!^"`<>&|;, \[\]]/g, '^$&')
 }
 
 /** The spawn call for `file` (already resolved to a full path on Windows) and its arguments. */
 export function planSpawn(file: string, args: readonly string[], platform: NodeJS.Platform = process.platform): SpawnPlan {
   const detached = platform !== 'win32'
   if (platform !== 'win32' || !needsCmdShell(file)) return { command: file, args: [...args], windowsVerbatimArguments: false, detached }
-  const line = [file, ...args].map((part) => quoteCmdArgument(part)).join(' ')
+  // cmd.exe parses the program path a single time, so it is caret-escaped once and left unquoted
+  // (quotes or a second escaping become part of the name it looks for); only the arguments,
+  // re-parsed by the shim's `%*`, get the double escaping.
+  const line = [caretEscape(file), ...args.map((part) => quoteCmdArgument(part))].join(' ')
   return { command: process.env['ComSpec'] ?? win32.join(process.env['SystemRoot'] ?? 'C:\\Windows', 'System32', 'cmd.exe'), args: ['/d', '/s', '/c', `"${line}"`], windowsVerbatimArguments: true, detached }
 }
 

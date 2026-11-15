@@ -65,6 +65,22 @@ describe('JsonConfigStore', () => {
     await expect(new JsonConfigStore(path).load()).rejects.toBeInstanceOf(ConfigVersionError)
   })
 
+  it('expands a leading ~ in account folders to the home folder on load', async () => {
+    const path = join(dir, 'config.json')
+    const home = join(dir, 'home')
+    const accounts = [
+      { id: 'a', agentId: 'claude', name: 'A', configDir: '~/.claude-work' },
+      { id: 'b', agentId: 'claude', name: 'B', configDir: '~\\.claude-alt' },
+      { id: 'c', agentId: 'claude', name: 'C', configDir: '~' },
+      { id: 'd', agentId: 'claude', name: 'D', configDir: '/w/acme/.claude' },
+      { id: 'e', agentId: 'claude', name: 'E', configDir: '~other/.claude' },
+      { id: 'f', agentId: 'claude', name: 'F' }
+    ]
+    await writeFile(path, JSON.stringify({ ...sample, accounts }))
+    const loaded = await new JsonConfigStore(path, { home }).load()
+    expect(loaded.accounts.map((a) => a.configDir)).toEqual([join(home, '.claude-work'), join(home, '.claude-alt'), home, '/w/acme/.claude', '~other/.claude', undefined])
+  })
+
   it('refuses to save a config with a bad shape', async () => {
     const store = new JsonConfigStore(join(dir, 'config.json'))
     await expect(store.save({ ...sample, profiles: [{ ...sample.profiles[0]!, id: 'Bad Id' }] })).rejects.toThrow()

@@ -1,3 +1,7 @@
+import { spawnSync } from 'node:child_process'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { killProcessTree, needsCmdShell, planSpawn, quoteCmdArgument } from '../src/agent-acp/spawn-plan'
 
@@ -17,6 +21,26 @@ describe('planSpawn', () => {
     expect(plan.windowsVerbatimArguments).toBe(true)
     expect(plan.args[3]).toMatch(/^".*"$/)
     expect(plan.args[3]).not.toMatch(/[^^]&/)
+  })
+
+  it('escapes the .cmd path once, since cmd.exe reads the program name a single time', () => {
+    const plan = planSpawn('C:\\Program Files\\npm (x)\\npx.cmd', ['-y'], 'win32')
+    expect(plan.args[3]).toBe(`"C:\\Program^ Files\\npm^ ^(x^)\\npx.cmd ${quoteCmdArgument('-y')}"`)
+  })
+
+  it.skipIf(process.platform !== 'win32')('starts a real .cmd shim and hands it every argument intact', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wh spawn (x)&y '))
+    try {
+      const shim = join(dir, 'echo-args.cmd')
+      await writeFile(shim, `@echo off\r\n"${process.execPath}" -e "console.log(JSON.stringify(process.argv.slice(1)))" -- %*\r\n`)
+      const args = ['-y', 'a b', 'x&y', '50%', 'q"t', '@scope/pkg@1.0', 'c:\\dir\\']
+      const plan = planSpawn(shim, args, 'win32')
+      const out = spawnSync(plan.command, plan.args, { windowsVerbatimArguments: plan.windowsVerbatimArguments, encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+      expect(out.status, out.stderr).toBe(0)
+      expect(JSON.parse(out.stdout.trim())).toEqual(args)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 })
 
