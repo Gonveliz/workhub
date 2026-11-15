@@ -4,6 +4,31 @@ All notable changes to Workhub 2 are listed here. Entries from 2.0.0-alpha.2 on 
 [release-please](https://github.com/googleapis/release-please) from the Conventional Commits on
 `main`; see the release process in [CONTRIBUTING.md](CONTRIBUTING.md#releases).
 
+## [2.0.0-alpha.32](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.31...v2.0.0-alpha.32) (2026-11-15)
+
+
+### Features
+
+* **analytics:** add a read-only query endpoint, MCP tools and a skill ([de1e7df](https://github.com/SoldierIced/workhub/commit/de1e7dff6810aaece5d751f85ab5dcd3c5afbba4))
+* **analytics:** record agent turns, session links and tags in the database ([556a837](https://github.com/SoldierIced/workhub/commit/556a837fef8f07b044790f67f64ea7694bc9979d))
+* **connections:** let each code host and tracker set how often it is read ([b5e2b1c](https://github.com/SoldierIced/workhub/commit/b5e2b1c4c3799977491d1f3d5b0e61207c000ddf))
+* **connections:** let each code host and tracker set how often it is read ([5f95261](https://github.com/SoldierIced/workhub/commit/5f95261da7b3ad50e7098da9ae07503b4c0878fc))
+* **history:** search past sessions by full text with highlighted snippets ([96a462d](https://github.com/SoldierIced/workhub/commit/96a462d47ee1ea1167953ec78fa2b0587e40e67d))
+* **remote:** page long lists and show activity and pending requests on the phone ([e019348](https://github.com/SoldierIced/workhub/commit/e0193484971d1d9378388a22f30fdf51cface6ac))
+* **sessions:** pin permission requests above the composer and remind about them ([44cf0ea](https://github.com/SoldierIced/workhub/commit/44cf0ea74f5b58bd56d7640e680a57b9b0a072c1))
+* **settings:** remove the Workhub 1 import ([c7aa948](https://github.com/SoldierIced/workhub/commit/c7aa94877fb15fb0eedec3668942bc72a29d4f16))
+* SQLite state, per-turn usage analytics, History search, analytics endpoint and phone updates ([e2bd907](https://github.com/SoldierIced/workhub/commit/e2bd90718695b7f94bf90ce47523db9ad9ea144b))
+* **storage:** keep app state in one SQLite database instead of JSON files ([5e3e5fe](https://github.com/SoldierIced/workhub/commit/5e3e5feda0758c6894dc9d6d25d2112586458fc3))
+* **usage:** add the Usage and reports screen ([d7084e3](https://github.com/SoldierIced/workhub/commit/d7084e35af793aea0ecef8a19bffd8f824e9e6cc))
+
+
+### Bug Fixes
+
+* **analytics:** keep project paths in the platform's form and read the skill with CRLF ([033b7ce](https://github.com/SoldierIced/workhub/commit/033b7cebb12a9d6a47afcd8f9513a4db370d90db))
+* **flow-maps:** show no state for a map without a fresh reading ([55dedbd](https://github.com/SoldierIced/workhub/commit/55dedbd3d8e1d1f9a76781dafb58a5d88ba97477))
+* **usage:** keep the filter menus visible with one value and the Tag menu while empty ([d079d48](https://github.com/SoldierIced/workhub/commit/d079d48e0cfcc0eac8b2434d2b97d92e862ad72d))
+* **usage:** skip the Kiro plan-usage probe in development ([70fb187](https://github.com/SoldierIced/workhub/commit/70fb1873be009081d5e14fc8a9a55784c12de328))
+
 ## [2.0.0-alpha.31](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.30...v2.0.0-alpha.31) (2026-11-15)
 
 
