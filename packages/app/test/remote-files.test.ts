@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -56,6 +56,17 @@ describe('remote files', () => {
     const alias = join(base, 'alias')
     await symlink(folder, alias)
     await expect(readRemoteFile(alias, 'out/chart.png')).resolves.toMatchObject({ name: 'chart.png' })
+  })
+
+  it('accepts a file named by the real path of a folder reached through a symlink, and still refuses its secrets and what is outside', async () => {
+    const alias = join(base, 'alias-real')
+    await symlink(folder, alias)
+    const real = await realpath(folder)
+    await writeFile(join(folder, 'out', 'notes.md'), '# notes')
+    await expect(readRemoteFile(alias, join(real, 'out', 'notes.md'))).resolves.toMatchObject({ name: 'notes.md', mime: 'text/markdown' })
+    await expect(readRemoteFile(alias, join(real, '.env'))).rejects.toThrow(/not available remotely/)
+    await expect(readRemoteFile(alias, join(real, 'link.txt'))).rejects.toThrow(/not in the session folder/)
+    await expect(readRemoteFile(alias, join(await realpath(outside), 'secret.txt'))).rejects.toThrow(/not in the session folder/)
   })
 
   it('refuses dotfiles, dot-folders and key-like names', async () => {
