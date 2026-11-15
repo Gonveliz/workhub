@@ -4,6 +4,19 @@ All notable changes to Workhub 2 are listed here. Entries from 2.0.0-alpha.2 on 
 [release-please](https://github.com/googleapis/release-please) from the Conventional Commits on
 `main`; see the release process in [CONTRIBUTING.md](CONTRIBUTING.md#releases).
 
+## [2.0.0-alpha.33](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.32...v2.0.0-alpha.33) (2026-11-15)
+
+
+### Features
+
+* **remote:** preview Markdown and text files in the phone chat ([1b9bc44](https://github.com/SoldierIced/workhub/commit/1b9bc442f08c376e6d8cfbfffafb6cf88331d768))
+* **remote:** preview Markdown and text files in the phone chat ([21cf52e](https://github.com/SoldierIced/workhub/commit/21cf52ecf4eb6284345cbae531899f4ef2f2a26b))
+
+
+### Bug Fixes
+
+* **remote:** open a file named by the real path of a symlinked session folder ([f15b196](https://github.com/SoldierIced/workhub/commit/f15b19674ab59908dd04ebf1e0f0985b4c0b5b4c))
+
 ## [2.0.0-alpha.32](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.31...v2.0.0-alpha.32) (2026-11-15)
 
 
