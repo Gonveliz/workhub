@@ -25,7 +25,7 @@ const CWD = process.env.WORKHUB_CWD || process.cwd();
 const TIMEOUT_MS = 30_000;
 
 const INSTRUCTIONS = [
-  "Workhub runs this session. These tools read and change the user's Workhub: Plan (meetings, inbox, milestones, people), automations, the history of past sessions, the human review of your changes and flow maps.",
+  "Workhub runs this session. These tools read and change the user's Workhub: Plan (meetings, inbox, milestones, people), automations, the history of past sessions, the human review of your changes and flow maps; and they read the user's usage data (analytics_*, usage_report), read-only.",
   "Rules: propose inbox items, never file tracker tickets; leave pending items to the user. An automation you add or edit is saved off: tell the user to turn it on in Automations. Ask before changing anything the user did not ask for. Never put secrets in what you send.",
 ].join(" ");
 
@@ -144,9 +144,12 @@ const TOOLS = [
   },
   {
     name: "automations_list",
-    description: "The user's automations (prompt, agent, folder, triggers, window, limits, state) and their last runs.",
-    inputSchema: obj({}),
-    call: () => ["GET", "/v1/automations"],
+    description: "The user's automations (prompt, agent, folder, triggers, window, limits, state) and their runs, newest first; pass `nextBefore` as `before` for older runs.",
+    inputSchema: obj({
+      limit: { ...int, maximum: 200, description: "Runs to return (default 20)" },
+      before: { type: "string", description: "The previous answer's nextBefore (an opaque cursor) for the next page, or an ISO time" },
+    }),
+    call: (a) => ["GET", "/v1/automations", a],
   },
   {
     name: "automation_save",
@@ -182,9 +185,10 @@ const TOOLS = [
   },
   {
     name: "history_search",
-    description: "Past sessions of every agent, newest first: title, first prompt, folder, branch, automation.",
+    description:
+      "Past sessions of every agent: title, first prompt, folder, branch, automation. Without q, newest first; with q, a local search, best match first: titles, prompts, folders, branches and ids of every session, plus the conversations of Claude Code sessions (not Kiro, OpenCode or Codex), each match with `snippet` (and `titleSnippet`) marking the words between <mark> and </mark>; `total` counts every match.",
     inputSchema: obj({
-      q: { type: "string", description: "Words in title, prompt, folder or branch" },
+      q: { type: "string", description: "Words to find (all of them; the last one also as a prefix) in titles, prompts, folders, branches, ids and Claude Code conversations" },
       agent: str,
       automation: { type: "string", description: "An automation id" },
       folder: { type: "string", description: "Sessions in this folder or below" },
@@ -197,6 +201,55 @@ const TOOLS = [
     description: "The last messages of one past session (user and agent text shortened, tool titles only).",
     inputSchema: obj({ agentId: str, agentSessionId: str, account: str, limit: { ...int, maximum: 500 } }, ["agentId", "agentSessionId"]),
     call: ({ agentId, agentSessionId, ...rest }) => ["GET", `/v1/history/${encodeURIComponent(agentId)}/${encodeURIComponent(agentSessionId)}`, rest],
+  },
+  {
+    name: "analytics_schema",
+    description:
+      "Describes the user's usage database (Workhub's own SQLite on this computer), read-only: tables (sessions, turns, session_links, session_tags, automation_runs, pr_events, ticket_events, flow_maps, flow_history_measures, flow_history_hours; never app state, file bookkeeping or the History index), columns with types, units and what null means, how to query and example queries. Call it before analytics_query.",
+    inputSchema: obj({}),
+    call: () => ["GET", "/v1/analytics/schema"],
+  },
+  {
+    name: "analytics_query",
+    description:
+      "Runs ONE read-only SQL query (SELECT or WITH, SQLite) on the user's usage database and returns {columns, rows, rowCount, truncated, timedOut}. Values go in `params` (? or :name), never in the text. Times are epoch ms; cwd/project columns are folders on this computer. At most 2000 rows; a query running over 5 s is stopped (timedOut: true, no rows): aggregate in SQL. kv_state and schema_migrations cannot be read. Reads every profile.",
+    inputSchema: obj(
+      {
+        sql: { type: "string", maxLength: 20480, description: "One SELECT or WITH statement; at most 20 KB counted in UTF-8 bytes" },
+        params: {
+          anyOf: [
+            { type: "array", maxItems: 100, items: { type: ["string", "number", "null"] } },
+            { type: "object", additionalProperties: { type: ["string", "number", "null"] } },
+          ],
+          description: "Bound values: an array for ?, an object for :name",
+        },
+        limit: { ...int, maximum: 2000, description: "Rows to return (default 500)" },
+      },
+      ["sql"],
+    ),
+    call: (a) => ["POST", "/v1/analytics/query", a],
+  },
+  {
+    name: "usage_report",
+    description:
+      "Spend from the user's usage database, read-only: dollars (list prices), tokens (`tokens` = input + output + cache writes, as Home and the Usage screen count them; cache reads apart), agent time and sessions per project, ticket, tag or agent over a span (per day or week), with totals that count each turn once (ticket and tag groups can overlap); or `weekly`: one week's time, dollars and tokens per project, PRs and tickets worked on, PRs opened/merged/reviewed, ticket moves. `weekly` takes only since and profile.",
+    inputSchema: obj(
+      {
+        kind: { type: "string", enum: ["spend_by_project", "spend_by_ticket", "spend_by_tag", "spend_by_agent", "weekly"] },
+        since: { type: "string", description: "ISO date (2026-11-01) or date-time, or epoch ms (13 digits). Default 30 days ago; for weekly, any day of the week (default this week)" },
+        until: { type: "string", description: "Exclusive end, same formats (default now)" },
+        profile: { type: "string", description: "current (default: this session's profile), all, or a profile id" },
+        tag: { type: "string", description: "Only sessions with this tag" },
+        folder: { type: "string", description: "Only turns in this folder or below" },
+        pr: { type: "string", description: "Only sessions linked to this pull request URL" },
+        ticket: { type: "string", description: "Only sessions linked to this ticket key" },
+        model: str,
+        agent: { type: "string", description: "claude, codex, kiro…" },
+        bucket: { type: "string", enum: ["day", "week"] },
+      },
+      ["kind"],
+    ),
+    call: (a) => ["GET", "/v1/analytics/report", a],
   },
   {
     name: "review_open",

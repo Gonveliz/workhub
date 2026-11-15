@@ -78,6 +78,46 @@ describe.skipIf(process.platform === 'win32')('workhub MCP server', () => {
     }
   })
 
+  it('offers the read-only analytics tools and maps them to the analytics routes', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wh-mcp-'))
+    dirs.push(dir)
+    const socket = controlSocketPath(dir)
+    const seen: { what: string; params?: string; body?: unknown }[] = []
+    const server = await startControlServer(socket, {
+      openReview: () => ({ ok: true }),
+      analytics: {
+        schema: async (p) => (seen.push({ what: 'schema', params: p.toString() }), { status: 200, body: { ok: true, tables: [] } }),
+        query: async (b) => (seen.push({ what: 'query', body: b }), { status: 400, body: { ok: false, error: 'only SELECT or WITH queries are allowed' } }),
+        report: async (p) => (seen.push({ what: 'report', params: p.toString() }), { status: 200, body: { ok: true, rows: [] } })
+      }
+    })
+    const client = mcp({ WORKHUB_SOCKET: socket, WORKHUB_SESSION: 'sess-1', WORKHUB_CWD: '/w/acme' })
+    try {
+      const list = (await client.rpc('tools/list'))['result'] as { tools: { name: string; description: string; inputSchema: { type: string; properties: Record<string, { enum?: string[] }>; required: string[] } }[] }
+      const tool = (name: string) => list.tools.find((t) => t.name === name)!
+      expect(tool('analytics_schema').inputSchema).toMatchObject({ type: 'object', properties: {}, required: [] })
+      expect(tool('analytics_query').inputSchema).toMatchObject({ type: 'object', required: ['sql'] })
+      expect(Object.keys(tool('analytics_query').inputSchema.properties)).toEqual(['sql', 'params', 'limit'])
+      expect(tool('usage_report').inputSchema.required).toEqual(['kind'])
+      expect(tool('usage_report').inputSchema.properties['kind']!.enum).toEqual(['spend_by_project', 'spend_by_ticket', 'spend_by_tag', 'spend_by_agent', 'weekly'])
+      for (const name of ['analytics_schema', 'analytics_query', 'usage_report']) expect(tool(name).description).toMatch(/read-only/)
+
+      const call = async (name: string, args: unknown) => (await client.rpc('tools/call', { name, arguments: args }))['result'] as { isError: boolean; content: { text: string }[] }
+      expect((await call('analytics_schema', {})).isError).toBe(false)
+      const refused = await call('analytics_query', { sql: 'PRAGMA user_version', params: [1, null], limit: 10 })
+      expect(refused).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('only SELECT') }] })
+      expect((await call('usage_report', { kind: 'weekly', since: '2026-11-09' })).isError).toBe(false)
+      expect(seen).toEqual([
+        { what: 'schema', params: 'session=sess-1&cwd=%2Fw%2Facme' },
+        { what: 'query', body: { sql: 'PRAGMA user_version', params: [1, null], limit: 10, session: 'sess-1', cwd: '/w/acme' } },
+        { what: 'report', params: 'kind=weekly&since=2026-11-09&session=sess-1&cwd=%2Fw%2Facme' }
+      ])
+    } finally {
+      client.close()
+      server?.close()
+    }
+  })
+
   it('says it is not in a Workhub session when no endpoint is set', async () => {
     const client = mcp({})
     try {

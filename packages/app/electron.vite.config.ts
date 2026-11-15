@@ -17,7 +17,11 @@ export default defineConfig(async () => {
   const { BRAND } = (await import(new URL('../../scripts/brand.mjs', import.meta.url).href)) as { BRAND: Brand }
   return {
     main: {
-      build: { externalizeDeps: { exclude: bundled } },
+      build: {
+        externalizeDeps: { exclude: bundled },
+        // The analytics worker runs in its own utility process (out/main/analytics-worker.js).
+        rollupOptions: { input: { index: resolve('src/main/index.ts'), 'analytics-worker': resolve('src/main/analytics-worker.ts') } }
+      },
       define: { __WORKHUB_RELEASE_REPO__: JSON.stringify(`${BRAND.repo.owner}/${BRAND.repo.name}`), __WORKHUB_DEFAULT_RELAY__: JSON.stringify(BRAND.relay) }
     },
     preload: {},
