@@ -1,11 +1,11 @@
 import { useEffect, useSyncExternalStore } from 'react'
-import type { Ticket } from '@workhub/core'
+import { profileRefreshMs, type Ticket } from '@workhub/core'
 import type { ConfigSnapshot } from '@shared/api'
 import type { TicketsStatus } from '@shared/tickets-api'
-import { useConfig } from './configStore'
+import { currentConfig, useConfig } from './configStore'
 import { errorText } from './lib/errorText'
 
-/** The tickets of each profile, shared by Home and the Tickets screen, refreshed every five minutes (Workhub 1's loop). */
+/** The tickets of each profile, shared by Home and the Tickets screen, refreshed at the tracker connection's interval (five minutes by default, Workhub 1's loop). */
 export interface ProfileTickets {
   status?: TicketsStatus
   tickets: Ticket[]
@@ -16,7 +16,16 @@ export interface ProfileTickets {
   fetchedAt?: number
 }
 
-const REFRESH_MS = 300_000
+/** How often the timer checks which profiles are due. */
+const TICK_MS = 15_000
+/** When each profile's last load started, so each one follows its own tracker connection's interval. */
+const loadedAt = new Map<string, number>()
+
+/** Milliseconds between loads of a profile's tickets: its tracker connection's interval. */
+export function ticketsIntervalMs(profileId: string): number {
+  const snap = currentConfig()
+  return profileRefreshMs(snap?.config ?? { profiles: [], connections: [] }, profileId, 'tracker')
+}
 const EMPTY: ProfileTickets = { tickets: [], loading: false }
 
 let state: Record<string, ProfileTickets> = {}
@@ -34,6 +43,7 @@ function set(profileId: string, patch: Partial<ProfileTickets>): void {
 export function loadTickets(profileId: string): Promise<void> {
   const running = inFlight.get(profileId)
   if (running) return running
+  loadedAt.set(profileId, Date.now())
   const run = (async () => {
     set(profileId, { loading: true })
     try {
@@ -58,8 +68,10 @@ function start(): void {
   subscribed = true
   window.hub.tickets.onChanged(() => Object.keys(state).forEach((id) => void loadTickets(id)))
   timer = setInterval(() => {
-    if (!document.hidden) Object.keys(state).forEach((id) => void loadTickets(id))
-  }, REFRESH_MS)
+    if (document.hidden) return
+    const now = Date.now()
+    for (const id of Object.keys(state)) if (now - (loadedAt.get(id) ?? 0) >= ticketsIntervalMs(id)) void loadTickets(id)
+  }, TICK_MS)
 }
 
 /** Stops the polling (tests). */
