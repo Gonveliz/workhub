@@ -61,7 +61,7 @@ import type { InboxAddResult, InboxEdit, MilestoneView, PlannerResult, PlannerVi
 export const MILESTONE_REFRESH_MS = 30 * 60_000
 const FIRST_DELAY_MS = 20_000
 
-/** One profile's milestones, their last counts and its inbox (`planner-state.json`). */
+/** One profile's milestones, their last counts and its inbox (the `planner-state` key of `kv_state`). */
 export interface PlannerProfileState {
   milestones: Milestone[]
   /** Last good count per milestone id. */

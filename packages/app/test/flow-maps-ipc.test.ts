@@ -1,9 +1,11 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { SqliteFlowMaps } from '@workhub/adapters/sqlite-store'
 import { deleteFlowMap, importFlowMapFiles, saveFlowMap } from '../src/main/flow-maps'
+import { openTestDb } from './test-db'
 import { flowMapWindowHash, registerFlowMapsIpc, type FlowMapsIpcDeps } from '../src/main/flow-maps-ipc'
 import { parseFlowMapHash } from '../src/renderer/screens/flowMaps/FlowMapWindow'
 
@@ -18,29 +20,37 @@ const tmp = () => {
 }
 const checkout = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'docs', 'examples', 'flow-maps', 'checkout.json'), 'utf8')) as Record<string, unknown>
 
-describe('flow map files from Settings', () => {
+describe('flow maps from Settings', () => {
   it('imports the valid files picked and reports the rest with their errors', () => {
-    const dir = join(tmp(), 'flow-maps')
+    const maps = new SqliteFlowMaps(openTestDb())
     const src = tmp()
     writeFileSync(join(src, 'good.json'), JSON.stringify(checkout))
     writeFileSync(join(src, 'broken.json'), '{ nope')
     writeFileSync(join(src, 'refs.json'), JSON.stringify({ ...checkout, id: 'refs', edges: [{ from: 'bff', to: 'nowhere' }] }))
-    const results = importFlowMapFiles(dir, [join(src, 'good.json'), join(src, 'broken.json'), join(src, 'refs.json')])
+    const results = importFlowMapFiles(maps, [join(src, 'good.json'), join(src, 'broken.json'), join(src, 'refs.json')])
     expect(results[0]).toEqual({ file: join(src, 'good.json'), ok: true, id: 'checkout' })
     expect(results[1]).toMatchObject({ ok: false, errors: [expect.stringContaining('JSON')] })
     expect(results[2]).toMatchObject({ ok: false, errors: [expect.stringContaining('nowhere')] })
-    expect(existsSync(join(dir, 'checkout.json'))).toBe(true)
-    expect(existsSync(join(dir, 'refs.json'))).toBe(false)
+    expect(maps.get('checkout')).not.toBeNull()
+    expect(maps.get('refs')).toBeNull()
   })
 
   it('deletes a map by id and refuses anything that is not an id', () => {
-    const dir = join(tmp(), 'flow-maps')
-    saveFlowMap(dir, checkout)
-    expect(deleteFlowMap(dir, '../checkout')).toBe(false)
-    expect(deleteFlowMap(dir, 'checkout/..')).toBe(false)
-    expect(deleteFlowMap(dir, 'missing')).toBe(false)
-    expect(deleteFlowMap(dir, 'checkout')).toBe(true)
-    expect(existsSync(join(dir, 'checkout.json'))).toBe(false)
+    const maps = new SqliteFlowMaps(openTestDb())
+    saveFlowMap(maps, checkout)
+    expect(deleteFlowMap(maps, '../checkout')).toBe(false)
+    expect(deleteFlowMap(maps, 'checkout/..')).toBe(false)
+    expect(deleteFlowMap(maps, 'missing')).toBe(false)
+    expect(deleteFlowMap(maps, 'checkout')).toBe(true)
+    expect(maps.get('checkout')).toBeNull()
+  })
+
+  it('deletes an invalid map whose stored id is not a map id (kept from an old file name)', () => {
+    const maps = new SqliteFlowMaps(openTestDb())
+    maps.put('Checkout Flow', '{"version":1}')
+    expect(deleteFlowMap(maps, 'Checkout Flow')).toBe(true)
+    expect(maps.list()).toEqual([])
+    expect(deleteFlowMap(maps, 'a/b')).toBe(false)
   })
 })
 
@@ -62,9 +72,8 @@ describe('flow maps IPC', () => {
     const listeners = new Map<string, Listener>()
     const win = { isDestroyed: () => false, isMinimized: () => false, restore: vi.fn(), focus: vi.fn(), on: vi.fn(), webContents: { send: vi.fn() } }
     const deps: FlowMapsIpcDeps = {
-      dir: join(tmp(), 'flow-maps'),
+      maps: new SqliteFlowMaps(openTestDb()),
       pickFiles: async () => [],
-      showItemInFolder: vi.fn(),
       createWindow: vi.fn(() => win as never),
       mainWindow: () => win as never,
       writeImage: vi.fn(async () => true),
@@ -75,12 +84,13 @@ describe('flow maps IPC', () => {
     return { deps, win, invoke: (c: string, ...a: unknown[]) => handlers.get(c)!(event, ...a), send: (c: string, ...a: unknown[]) => listeners.get(c)!(event as never, ...a) }
   }
 
-  it('creates the folder when asked for it or revealed', async () => {
-    const { deps, invoke, send } = setup()
-    expect(await invoke('flowMaps:folder')).toBe(deps.dir)
-    expect(existsSync(deps.dir)).toBe(true)
-    send('flowMaps:reveal')
-    expect(deps.showItemInFolder).toHaveBeenCalledWith(deps.dir)
+  it('serves a stored map by id and no longer offers a maps folder', async () => {
+    const { deps, invoke } = setup()
+    saveFlowMap(deps.maps, checkout)
+    expect(await invoke('flowMaps:get', 'checkout')).toMatchObject({ id: 'checkout', name: 'Checkout' })
+    expect(await invoke('flowMaps:get', 'missing')).toBeNull()
+    expect(await invoke('flowMaps:remove', 'checkout')).toBe(true)
+    expect(await invoke('flowMaps:get', 'checkout')).toBeNull()
   })
 
   it('opens one window per map and brings an open one to the front', () => {

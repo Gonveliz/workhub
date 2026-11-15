@@ -47,7 +47,7 @@ adapter, not by reaching into a service from the UI.
 | Calendar source (`CalendarSource`; ICS parsing, recurrence and rules are pure code in `core/calendar`) | `calendar-ics` (private ICS address over https, 20 s timeout, 5 MB cap; also the demo source) |
 | `MetricSource` (daily samples for metric alerts) | Health's own read (`HealthMetricSource` in the main process), synthetic history in the Health demo |
 | Config and secrets | `config-json`, `secrets-electron` (Electron `safeStorage`) |
-| Other | `pr-events-json`, `git-review`, `git-worktree`, `token-spend`, `workhub1-import` |
+| Other | `pr-events-json`, `git-review`, `git-worktree`, `token-spend` |
 
 Trackers declare optional capabilities too. `searchByQuery` (Jira: JQL through
 `/rest/api/3/search/jql`, paged up to a cap; Linear: a project, or a team key and a label) counts
@@ -57,7 +57,7 @@ generic priority from 1 (highest) to 4 that each adapter maps to its own scale. 
 tickets by key in one request (Jira: a `key in (…)` JQL search, key by key when Jira refuses the
 batch for an unknown key; Linear: one issues query filtered by team key and number): Plan's
 service reads the tickets of milestone pieces and of inbox items that follow a ticket with it, in
-the same 30-minute cycle as the milestone counts, keeps their state in `planner-state.json` and
+the same 30-minute cycle as the milestone counts, keeps their state in the database (`planner-state`) and
 marks an item done when its ticket turns done. A tracker without these hides those features (a
 ticket it cannot read stays in an unknown state, never counted as done).
 
@@ -92,6 +92,17 @@ never breaks the session.
   listed. A new session may only start in a folder the profile lists. Handlers that answer their
   sender (`sessions:promptStarted`) see the device as a sender of its own, with an id no window
   can have. The config snapshot reaches a device without the data folder path.
+  Every answer must fit one relay frame (520 KB): long lists a device reads page by page
+  (`remote:sessions`, `remote:pullRequests` per list, `remote:automations`,
+  `remote:automationRuns`, each `{ limit, cursor }` → `{ items, nextCursor, total }`,
+  `main/remote/paging.ts`), on top of the same handler and redaction as the unpaged call; a
+  session too large for a page on its own goes as a stub (id, label, state). The desktop names
+  what it understands in its `ready` (`features`: `away`, `paging`, `activity`); a phone asks for
+  pages only when `paging` is named, so an older desktop and an older phone keep working.
+  Sub-agents and background tasks leave the desktop without their model, tokens or cost and with
+  their text cut, both in live `session:event` monitor updates and in `remote:activity` (one
+  session, or a list after a reconnect; `main/remote/activity.ts`); a waiting permission
+  request's title and detail are cut too.
 - Windows stay on the app's renderer: navigations and redirects away from it are refused (web links
   go to the default browser through the link service instead), `window.open` is denied and
   `<webview>` never attaches. This keeps a window that rendered untrusted Markdown (a pull request,
@@ -130,12 +141,32 @@ never breaks the session.
   /v1/milestones/:id`. With the profile's `agentMilestones: ask` (the default) they answer 202 with
   `pending: true` and wait as proposals on the Milestones tab; with `allow` they answer 200 with
   `applied: true`. Changes go through the same services as the UI, which push change events to open windows. Agents learn
-  them from the skills in `skills/` (`workhub-flow-map`, `workhub-plan`, `workhub-automations`).
+  them from the skills in `skills/` (`workhub-flow-map`, `workhub-plan`, `workhub-automations`, `workhub-analytics`).
 - Automations and History for agents (`automation-control.ts`): `GET /v1/automations`, `POST
   /v1/automations` and `PATCH /v1/automations/:id` save through the same service as the
   Automations screen, but always leave the automation off (`enabled: true` is refused), so an agent
   cannot start unattended runs on its own; there is no delete. `GET /v1/history` and `GET
-  /v1/history/:agent/:session` read the History listing and a transcript, capped, without tool output.
+  /v1/history/:agent/:session` read the History listing and a transcript, capped, without tool output;
+  `q` searches the History index and adds `snippet` fields (see below).
+- Analytics for agents (`analytics-control.ts`), all read-only, open to reviewer sessions too and
+  not scoped to the caller's profile (like History): `GET /v1/analytics/schema` (tables, columns,
+  how to query, examples), `POST /v1/analytics/query` (`{sql, params, limit}` → `{columns, rows,
+  rowCount, truncated, timedOut, elapsedMs}`) and `GET /v1/analytics/report?kind=spend_by_project|
+  spend_by_ticket|spend_by_tag|spend_by_agent|weekly` (`spendGroups`/`spendSeries`/`weeklySummary`
+  over the usage database; the caller's profile by default; every answer carries `tokens`, input +
+  output + cache writes as on Home and Usage). A query passes `checkReadOnlySql`
+  (`sqlite-store/read-query.ts`: a tokenizer that reads strings, names, comments, numbers and
+  parameters as SQLite does, then refuses anything but one `SELECT`/`WITH`, write, schema and
+  transaction keywords, `PRAGMA`/`ATTACH`, file, extension and blob functions, and the tables off
+  `ANALYTICS_TABLES`, named as a word, a quoted name or a single-quoted string; `turn_files`,
+  `history_index` and `kv_state` are off it), then runs in a utility process (`analytics-worker.ts`, started by
+  `analytics-queries.ts`, one query at a time) on a connection opened read-only with `PRAGMA
+  query_only = 1` and an SQLite authorizer (Electron's Node has `setAuthorizer`; without it the
+  worker reports so and every query is refused with 503 "read-only guard unavailable") that denies everything but reads of tables off the denied lists, the allowed functions
+  and recursive CTEs. A query that runs past 5 seconds gets the process killed (`timedOut`, no
+  rows) and the next one starts a new process, so no query can freeze the app. Values are bound
+  only; at most 2000 rows. Each query's text and outcome (not its values) is logged, cut to 300
+  characters. Not offered to paired devices.
 
 ### Agent tools: MCP and skills
 
@@ -168,6 +199,40 @@ the MCP costs a tool-search turn and calls with checked arguments. Not measured:
 - Agents run with their own permission modes and MCP servers and can execute code on the machine.
   The effective permission mode of each session is shown in its header.
 
+### History search index
+
+History's search runs on a full-text index in `workhub.db` (and so in its backups):
+`history_index` (one row per past session: agent, account, folder, branch, title, first prompt,
+times, and a stamp of transcript time, size and listed title) and `history_fts` (SQLite FTS5,
+`unicode61` with diacritics removed, prefix indexes `2 3`, columns folder, title, branch, session id
+and content). Content is the user and agent text of the conversation, never tool output, capped at
+about 2 MB per session and stored in rows of about 64 KB (rowid = session doc id × 1024 + chunk),
+so a snippet never reads more than one chunk. Only Claude's history source returns messages today;
+Kiro, OpenCode and Codex sessions are indexed by title, prompt, folder, branch and id. The tables
+are created by `ensureHistoryIndex` (`adapters/sqlite-store/history-index.ts`), not by a numbered
+migration, and dropped and rebuilt when `history_meta.version` differs: the index is a cache the
+agents' own files can rebuild. It is about twice the size of the text it holds.
+
+`HistoryIndexer` (`main/history-indexer.ts`) runs at start, every 5 minutes and 5 s after a session
+stops (then with a listing at most 3 s old): it reads again only the sessions whose stamp changed
+(a session with neither time nor size every round), through each agent's
+`SessionHistorySource.messages`, writes at most about 1 MB of text per transaction with a macrotask
+between transactions, skips a session it could not read until its stamp changes, drops the sessions
+of fully listed accounts that are gone and of accounts no longer configured, and reports
+`indexed/total` on `history:indexProgress`. A search builds its `MATCH` from quoted words only (the
+last as a prefix from two characters; control characters dropped; one-character queries skip the
+index), applies agent, account, folders, session keys and time inside the query, ranks every
+matching session by its best chunk's `bm25` (title weighs more) without snippets, then computes
+`snippet()` for the page's sessions only. The sessions the plain
+substring match finds (title, prompt, folder, branch, id) follow the index matches, one row per
+session, so `total` and paging cover both. Snippets mark matches with private-use characters
+(U+E000/U+E001, stripped from indexed text); the renderer splits on them, and only the control
+endpoint turns them into `<mark>`. Measured on synthetic transcripts (300 sessions × 100 KB, 30 ×
+2 MB): a search takes 20–50 ms on the main process and a write transaction about 40 ms, so the index
+stays on the main process. The History screen, paired devices (`history:search`, limited to the
+profile's folders, trimmed to 200 KB with a cursor to the first match left out) and
+`GET /v1/history?q=` all go through it.
+
 ## Data folder
 
 The data folder is, in order of precedence: `WORKHUB_DATA_DIR`; `packages/app/.dev-data/` in a
@@ -181,10 +246,13 @@ running app.
 | `secrets.json` | Tokens, encrypted with `safeStorage`. |
 | `control.sock` | The control endpoint's socket (macOS and Linux only; a temp folder when the data folder's path is too long. On Windows the endpoint is a loopback port and has no file). |
 | `logs/` | `main.log` and rotated copies; see [Troubleshooting](troubleshooting.md#logs). |
-| State files (`*.json`) | Open sessions, session names and windows, agent options, token spend, usage alerts and budgets (including per-session), API spend ledger, Slack state, automation state, pull request events, health alerts, metric alerts (`metric-alerts.json`: daily series and alerts per profile), ticket watch, Plan (`calendar-state.json`: reminders already fired and meeting briefs started, pruned after a few days; `planner-state.json`: milestones, their last tracker counts, the last known state of the tickets of milestone pieces and linked inbox items, and the inbox per profile, closed inbox items pruned after 7 days unless a milestone is made of them). Written through a small `StateFile` helper. They can hold session titles, repository names and Slack message text, and no credentials. |
-| `ai-review/` | Read-only checkouts used by the review loop; its state is in `ai-review-state.json`. |
+| `workhub.db` | The app's state in one SQLite database (`node:sqlite`, a second instance never opens it, WAL mode; `-wal` and `-shm` files sit next to it while the app runs; on quit the analytics worker's process exits first, then the close checkpoints the log with `wal_checkpoint(TRUNCATE)`, so no `-wal` is left behind). `kv_state` holds one JSON value per piece of state, keyed by the name of the file it replaced: open sessions, session names and windows, agent options, token spend, usage alerts and budgets (including per-session), API spend ledger, Slack state, automation state, pull request events, health and flow alerts, metric alerts (daily series and alerts per profile), ticket watch, Plan (`calendar-state`: reminders already fired and meeting briefs started, pruned after a few days; `planner-state`: milestones, their last tracker counts, the last known state of the tickets of milestone pieces and linked inbox items, and the inbox per profile, closed inbox items pruned after 7 days unless a milestone is made of them). `flow_maps` holds the flow maps, `flow_history_measures` and `flow_history_hours` the hourly flow-map aggregates (kept 90 days). Services see the `StateStore` port of `core`; the adapter is `adapters/sqlite-store`, and schema changes are numbered migrations recorded in `schema_migrations`. It can hold session titles, repository names and Slack message text, and no credentials. Only a file SQLite reports as damaged (`SQLITE_CORRUPT`, `SQLITE_NOTADB`) is renamed to `workhub.db.corrupt-<timestamp>`, recorded under `storage/recovered` (shown in Settings → Advanced, in Diagnostics and Data) and replaced with a fresh database; any other failure (locked, full disk, no access) leaves the file alone and the app quits with an error. |
+| `workhub.db` (usage data) | Schema version 2 adds what the usage reports read. `turns`: one row per assistant message with usage (a Codex token report, a Kiro turn): time, model, input/output/cache tokens, list-price `usd` (null when unpriced), the folder it worked in (`cwd`), its `project` (the deepest profile project folder holding it, a worktree counted for its repository, else the repository root, else the folder: Home's roll-up), `turn_ms` (from the prompt or previous reply, capped at 30 minutes) and `sidechain` (sub-agent messages: tokens count, time 0). `TurnIngest` writes them after each token spend scan with the same parsers, keyed by (session, message key), a Claude message id once across sessions (forks), so reading a file again never counts twice; `turn_files` keeps per-file offsets and a hash of the first 4 KB (a rewritten file is read again), the first scan reads every transcript, and demo modes skip it. `sessions`: one row per agent session; the scan owns `work_path`, `project` and `last_model` (from the latest turn) and fills transcript-only rows, and `AnalyticsRecorder` marks the ones run in Workhub (`source = 'workhub'`, agent family, account, profile, title, the first stop time in `ended_at`), moving early rows to the agent's session id once known. `session_links` (pull request URL, ticket key, branch, worktree, from the monitor and the session's worktree) and `session_tags` (`analytics:tags`/`analytics:setTags`; not offered to paired devices). `automation_runs`: every run the engine logs, without its 50-run cap (`AutomationRunLog`; `GET /v1/automations` pages it with a cursor). `pr_events` (the sync's events, plus `opened` when one of yours is first seen and `reviewed` when one leaves your review queue) and `ticket_events` (the ticket watcher's changes; a repeat within 10 minutes is dropped). Queries are in `sqlite-store/analytics.ts` (`spendSeries`, `spendTotals`, `sessionsTable`, `weeklySummary`, `filterValues`, `schemaDescription`, `ANALYTICS_TABLES`); `main/analytics-ipc.ts` serves them and the tags to the Usage and reports screen (`analytics:spend`, `:totals`, `:sessions`, `:weekly`, `:filters`, `:tags`, `:setTags`, and `:refresh`, which runs the token spend scan and then the turn scan now and waits for it up to about 20 s, since turns otherwise arrive with the 10-minute scan; every argument validated; none in the remote allowlist). The demo scenario seeds a few weeks of synthetic rows. |
+| `backups/` | Copies of the database (folder `0700`, files `0600` on macOS and Linux): `workhub-YYYY-MM-DD.db` made about 30 s after start and then every 24 hours (skipped when the day has one), and `workhub-YYYY-MM-DD-HHmm.db` made by **Back up now**. Backups are listed newest first by the time in the name (an automatic copy counts as 00:00 of its day, so that day's manual copies come before it), then by modification time. The newest 7 automatic and the newest 7 manual copies are kept; nothing is pruned while a `workhub.db.corrupt-*` file is next to the database, and the newest copy older than the last move-aside is never pruned. |
+| Legacy state files (`*.json`) | Earlier versions kept the state above in one JSON file each (plus `flow-maps/` and `flow-history/`). The import runs once per data folder (`kv_state` key `storage/import-done`): what the database has nothing for is stored in one transaction, the write-ahead log is checkpointed, and only then are the files renamed, never deleted: `<name>.json.migrated` (imported), `<name>.json.skipped` (key already stored, or not an object), `<name>.json.corrupt` (not JSON); the folders become `flow-maps.migrated/` and `flow-history.migrated/` (a duplicate map id keeps `<id>.json`, the other file is left as `.skipped`). A legacy file that appears later (an older version run on the same folder) is not read and is renamed to `.skipped`. The summary goes to the main log. |
+| `ai-review/` | Read-only checkouts used by the review loop; its state is in the database (`ai-review-state`). |
 | `pasted-images/` | Images pasted into prompts. |
-| `slack-hook/`, `kiro-usage/` | Support folders for the Slack tracking hook and the Kiro usage probe. |
+| `slack-hook/`, `kiro-usage/` | Support folders for the Slack tracking hook (JSON lines an outside process writes, read and emptied at once) and the Kiro usage probe. These stay files, as do `config.json`, `secrets.json`, `logs/` and `pasted-images/`. |
 
 ## How agents run
 
@@ -230,3 +298,5 @@ the Finder or a desktop launcher inherits a bare one.
   [README](../README.md#development)). `npm run demo` (`scripts/demo.mjs`) sets them all plus
   `WORKHUB_DEMO_SCENARIO=team-lead`: `core/scenario` holds the synthetic "team lead" day as pure
   functions of `now`, and the main process seeds it into an isolated data folder (`demo-scenario.ts`).
+  Outside a packaged app the Kiro plan usage reader is not created (each read starts `kiro-cli acp`,
+  which refreshes the Kiro sign-in token) unless `WORKHUB_KIRO_USAGE=1` (`kiro-usage-probe.ts`).

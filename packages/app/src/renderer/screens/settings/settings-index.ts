@@ -34,13 +34,11 @@ export interface SettingsIndexEntry {
   text?: string;
   /** The row to point at when this one sits behind a closed "Adjust…" (its label is not on screen). */
   focus?: MessageKey;
-  /** Only on some computers: `workhub1` while the Workhub 1 import shows. */
-  only?: "workhub1";
 }
 
 type Row = readonly [label: MessageKey, hint?: MessageKey, help?: MessageKey];
 type Extra = Partial<
-  Pick<SettingsIndexEntry, "tab" | "screen" | "focus" | "only">
+  Pick<SettingsIndexEntry, "tab" | "screen" | "focus">
 >;
 
 const rows = (
@@ -304,9 +302,9 @@ export const SETTINGS_INDEX: readonly SettingsIndexEntry[] = [
   ),
   ...profileRows(
     "screens",
-    "flowMaps.settings.folder",
+    "flowMaps.settings.add",
     [
-      ["flowMaps.settings.folder", "flowMaps.settings.folderHint"],
+      ["flowMaps.settings.add", "flowMaps.settings.addHint"],
       ["flowMaps.settings.import", "flowMaps.settings.format"],
     ],
     "flowMaps",
@@ -450,13 +448,10 @@ export const SETTINGS_INDEX: readonly SettingsIndexEntry[] = [
       "settingsV2.advanced.dataDirHint",
       "help.general.storage",
     ],
+    ["storage.database", "storage.databaseHint"],
+    ["storage.backupNow"],
+    ["storage.revealBackups"],
   ]),
-  ...rows(
-    "advanced",
-    "settingsV2.advanced.data",
-    [["import.migrate", "import.migrateHint", "help.general.import"]],
-    { only: "workhub1" },
-  ),
 ];
 
 /** Lower case without accents, so "notificacion" finds "Notificación". */
@@ -477,8 +472,6 @@ export interface SearchOptions {
   t: (key: MessageKey) => string;
   /** The translated heading of a navigation group. */
   groupLabel: (group: SettingsNavGroup) => string;
-  /** Rows that do not show on this computer (the Workhub 1 import outside macOS) are left out. */
-  visible?: (entry: SettingsIndexEntry) => boolean;
   limit?: number;
 }
 
@@ -511,13 +504,12 @@ export function entryBreadcrumb(
 export function searchSettings(
   index: readonly SettingsIndexEntry[],
   query: string,
-  { t, groupLabel, visible, limit = 40 }: SearchOptions,
+  { t, groupLabel, limit = 40 }: SearchOptions,
 ): SettingsHit[] {
   const words = foldText(query).split(/\s+/).filter(Boolean);
   if (!words.length) return [];
   const scored: { hit: SettingsHit; score: number; order: number }[] = [];
   index.forEach((entry, order) => {
-    if (visible && !visible(entry)) return;
     const breadcrumb = entryBreadcrumb(entry, { t, groupLabel });
     if (!breadcrumb) return;
     const label = entry.text ?? t(entry.label);

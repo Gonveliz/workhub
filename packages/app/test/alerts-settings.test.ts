@@ -11,7 +11,9 @@ vi.mock('electron', () => ({ Menu: {}, nativeImage: {}, Tray: class {} }))
 import { TooltipProvider } from '../src/renderer/components/atoms'
 import { Notifier, type NotificationLike } from '../src/main/notifier'
 import { HealthWatcher } from '../src/main/watchers'
+import { SqliteFlowMaps } from '@workhub/adapters/sqlite-store'
 import { saveFlowMap, setFlowMapAlerts } from '../src/main/flow-maps'
+import { openTestDb } from './test-db'
 import { HealthKindsGroup, QuietHoursGroup } from '../src/renderer/screens/AlertsSettings'
 import { FlowMapLimitsTable } from '../src/renderer/screens/alerts/FlowLimits'
 import { flowLimitsToForm, formToFlowAlerts, mapNow, saveFlowLimits } from '../src/renderer/screens/alerts/alertsForm'
@@ -146,14 +148,14 @@ describe('flow map files: setAlerts and the control endpoint', () => {
     alerts: { p95Ms: 900 }
   }
 
-  it('writes only the alerts field and keeps the rest of the file byte for byte', () => {
-    const dir = tmp()
+  it('writes only the alerts field and keeps the rest of the stored map byte for byte', () => {
+    const maps = new SqliteFlowMaps(openTestDb())
     // Four-space indent, a key order of its own: nothing Workhub would write.
     const text = `{\n    "name": "Orders",\n    "version": 1,\n    "id": "orders",\n    "lanes": [ { "id": "app", "label": "App" } ],\n    "alerts": { "p95Ms": 900 },\n    "nodes": [{"id":"bff","lane":"app","label":"shop-bff","measure":{"type":"apm.transaction","service":"shop-bff","transaction":"POST /orders"}}]\n}\n`
-    writeFileSync(join(dir, 'orders.json'), text)
-    const r = setFlowMapAlerts(dir, 'orders', { p95Ms: 1200, errorRate: 0.05, minCalls: 30, parts: { bff: { p95Ms: 800 } } })
+    maps.put('orders', text)
+    const r = setFlowMapAlerts(maps, 'orders', { p95Ms: 1200, errorRate: 0.05, minCalls: 30, parts: { bff: { p95Ms: 800 } } })
     expect(r.ok).toBe(true)
-    const after = readFileSync(join(dir, 'orders.json'), 'utf8')
+    const after = maps.get('orders')!
     const [before0, before1] = text.split('"alerts": { "p95Ms": 900 }')
     expect(after.startsWith(before0!)).toBe(true)
     expect(after.endsWith(before1!)).toBe(true)
@@ -161,28 +163,28 @@ describe('flow map files: setAlerts and the control endpoint', () => {
   })
 
   it('refuses limits on a part that does not exist and removes the field for null', () => {
-    const dir = tmp()
-    writeFileSync(join(dir, 'orders.json'), JSON.stringify(raw, null, 2))
-    const bad = setFlowMapAlerts(dir, 'orders', { parts: { nope: { p95Ms: 1 } } })
+    const maps = new SqliteFlowMaps(openTestDb())
+    maps.put('orders', JSON.stringify(raw, null, 2))
+    const bad = setFlowMapAlerts(maps, 'orders', { parts: { nope: { p95Ms: 1 } } })
     expect(bad).toEqual({ ok: false, errors: ['alerts.parts: unknown part "nope"'] })
-    expect(JSON.parse(readFileSync(join(dir, 'orders.json'), 'utf8')).alerts).toEqual({ p95Ms: 900 })
-    expect(setFlowMapAlerts(dir, 'orders', null).ok).toBe(true)
-    expect(JSON.parse(readFileSync(join(dir, 'orders.json'), 'utf8'))).not.toHaveProperty('alerts')
-    expect(setFlowMapAlerts(dir, 'missing', null).ok).toBe(false)
+    expect(JSON.parse(maps.get('orders')!).alerts).toEqual({ p95Ms: 900 })
+    expect(setFlowMapAlerts(maps, 'orders', null).ok).toBe(true)
+    expect(JSON.parse(maps.get('orders')!)).not.toHaveProperty('alerts')
+    expect(setFlowMapAlerts(maps, 'missing', null).ok).toBe(false)
   })
 
   it('keeps the stored limits when a posted map has none (control endpoint), not on import', () => {
-    const dir = tmp()
-    writeFileSync(join(dir, 'orders.json'), JSON.stringify(raw, null, 2))
+    const maps = new SqliteFlowMaps(openTestDb())
+    maps.put('orders', JSON.stringify(raw, null, 2))
     const { alerts: _none, ...posted } = raw
-    expect(saveFlowMap(dir, { ...posted, name: 'Orders v2' }, { keepAlerts: true }).ok).toBe(true)
-    const kept = JSON.parse(readFileSync(join(dir, 'orders.json'), 'utf8'))
+    expect(saveFlowMap(maps, { ...posted, name: 'Orders v2' }, { keepAlerts: true }).ok).toBe(true)
+    const kept = JSON.parse(maps.get('orders')!)
     expect(kept).toMatchObject({ name: 'Orders v2', alerts: { p95Ms: 900 } })
     // A posted map with its own alerts wins; a plain save replaces.
-    saveFlowMap(dir, { ...posted, alerts: { p95Ms: 100 } }, { keepAlerts: true })
-    expect(JSON.parse(readFileSync(join(dir, 'orders.json'), 'utf8')).alerts).toMatchObject({ p95Ms: 100 })
-    saveFlowMap(dir, posted)
-    expect(JSON.parse(readFileSync(join(dir, 'orders.json'), 'utf8'))).not.toHaveProperty('alerts')
+    saveFlowMap(maps, { ...posted, alerts: { p95Ms: 100 } }, { keepAlerts: true })
+    expect(JSON.parse(maps.get('orders')!).alerts).toMatchObject({ p95Ms: 100 })
+    saveFlowMap(maps, posted)
+    expect(JSON.parse(maps.get('orders')!)).not.toHaveProperty('alerts')
   })
 })
 

@@ -1,9 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { DemoTracker } from '@workhub/adapters/tracker-demo'
 import { JsonConfigStore } from '@workhub/adapters/config-json'
+import { DB_FILE, importLegacyJson, WorkhubDb } from '@workhub/adapters/sqlite-store'
 import { ConfigurationService, configSchema, DEFAULT_ALERT_RULES, PRODUCT_PROFILE_ID, PRODUCT_TRACKER_SECRET, validateConfig, type SecretStore } from '@workhub/core'
 import { demoScenario, METRIC_ALERTS_FILE, PLANNER_STATE_FILE, seedScenarioConfig, seedScenarioState } from '../src/main/demo-scenario'
 import { DemoMetricSource, MetricAlertService, ProductMetricSource, type MetricAlertsState } from '../src/main/metric-alerts'
@@ -75,6 +76,27 @@ describe('seedScenarioState', () => {
     writeFileSync(join(dir, PLANNER_STATE_FILE), '{"profiles":{}}')
     expect(seedScenarioState(dir, NOW)).toEqual([])
     expect(readFileSync(join(dir, PLANNER_STATE_FILE), 'utf8')).toBe('{"profiles":{}}')
+  })
+})
+
+describe('the seeded scenario in the database', () => {
+  it('is imported on start, and a second start keeps what the user changed', () => {
+    const dir = tmp()
+    const db = WorkhubDb.open(join(dir, DB_FILE), { log: () => {} })
+    expect(seedScenarioState(dir, NOW, db)).toHaveLength(2)
+    expect(importLegacyJson(db, dir, () => {}).imported.sort()).toEqual([METRIC_ALERTS_FILE, PLANNER_STATE_FILE])
+    expect(existsSync(join(dir, PLANNER_STATE_FILE))).toBe(false)
+    const planner = db.state<PlannerState>('planner-state', 0)
+    expect(planner.load({ profiles: {} }).profiles[PRODUCT_PROFILE_ID]?.milestones).toHaveLength(7)
+    planner.save({ profiles: {} })
+    planner.flush()
+    // The next start writes no files (the import ran), so nothing ends up renamed .skipped.
+    expect(seedScenarioState(dir, NOW, db)).toEqual([])
+    expect(importLegacyJson(db, dir, () => {}).skipped).toEqual([])
+    expect(planner.load({ profiles: {} })).toEqual({ profiles: {} })
+    expect(readdirSync(dir).filter((n) => n.endsWith('.skipped'))).toEqual([])
+    expect(existsSync(join(dir, PLANNER_STATE_FILE))).toBe(false)
+    db.close()
   })
 })
 

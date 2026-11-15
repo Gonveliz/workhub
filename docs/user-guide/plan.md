@@ -206,7 +206,7 @@ has a different one. The dialog says what goes before you confirm, and the miles
 its new profile.
 
 The list is ordered by status (late first), then by end date. A failed count keeps the last good
-one and says why. Milestones are stored per profile in `planner-state.json` in the data folder, not
+one and says why. Milestones are stored per profile in the database (`workhub.db`) in the data folder, not
 in the settings. A counted or pieces milestone shows 100 % only when it is done.
 
 ### Pieces

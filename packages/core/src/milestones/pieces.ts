@@ -1,7 +1,7 @@
 /**
  * Pieces of a milestone: the tracker tickets, local tasks (Plan inbox items) and plain links it is
  * made of, each with a weight. Progress is the weight of the done pieces over the weight of all of
- * them. Pure: the main process reads the tickets' states and keeps them (`planner-state.json`).
+ * them. Pure: the main process reads the tickets' states and keeps them (the `planner-state` key of `kv_state`).
  */
 import type { InboxItem } from '../inbox/types'
 import type { StatusCategory } from '../tickets/types'
@@ -98,7 +98,7 @@ export function pieceShares(pieces: readonly Pick<MilestonePiece, 'weight'>[]): 
   return pieces.map((p) => (total > 0 ? Math.round((p.weight / total) * 100) : 0))
 }
 
-/** What the tracker last said about a ticket, and when (`planner-state.json`, by `ticketStateKey`). */
+/** What the tracker last said about a ticket, and when (the `planner-state` key of `kv_state`, by `ticketStateKey`). */
 export interface TrackedTicket {
   key: string
   title?: string

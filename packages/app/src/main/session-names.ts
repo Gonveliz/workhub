@@ -1,4 +1,4 @@
-import { StateFile } from './state-file'
+import type { StateStore } from '@workhub/core'
 
 /** Longest name kept; a longer one is cut. */
 export const MAX_SESSION_NAME = 120
@@ -27,7 +27,7 @@ interface NamesFile {
 export class SessionNames implements SessionNameStore {
   private readonly names: Map<string, string>
 
-  constructor(private readonly file: StateFile<NamesFile>) {
+  constructor(private readonly file: StateStore<NamesFile>) {
     const stored = file.load({ names: {} }).names
     this.names = new Map(Object.entries(stored && typeof stored === 'object' ? stored : {}).filter((e): e is [string, string] => typeof e[1] === 'string'))
   }

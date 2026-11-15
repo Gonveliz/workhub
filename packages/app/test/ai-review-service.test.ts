@@ -7,7 +7,8 @@ import type { RepoProbe } from '@workhub/adapters/git-review'
 import type { SessionView, StartSessionInput } from '../src/shared/api'
 import type { AiReviewNotice } from '../src/shared/ai-review-api'
 import { AiReviewService, reviewBudgetGate, type AiReviewDeps } from '../src/main/ai-review'
-import { StateFile } from '../src/main/state-file'
+import { KvState } from '@workhub/adapters/sqlite-store'
+import { openTestDb } from './test-db'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -110,7 +111,7 @@ function setup(opts: { budget?: BudgetStatus; reply?: string; modelIgnored?: boo
       checkout: async () => undefined,
       remove: async () => undefined
     },
-    state: new StateFile<AiReviewState>(join(dir, 'state.json'), 1),
+    state: new KvState<AiReviewState>(openTestDb(), 'ai-review-state', 1),
     workDir: join(dir, 'ai-review'),
     emit: () => undefined,
     notice: (n) => void notices.push(n),

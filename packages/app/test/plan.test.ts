@@ -1,6 +1,3 @@
-import { mkdtempSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   briefKey,
@@ -23,7 +20,9 @@ import { CalendarService, PLAN_MIN_GAP_MS } from '../src/main/calendar-service'
 import { CalendarStateStore, CalendarWatcher } from '../src/main/calendar-watcher'
 import { BriefService, type BriefServiceDeps } from '../src/main/plan-briefs'
 import { meetingReminderWords } from '../src/main/plan-ipc'
-import { StateFile } from '../src/main/state-file'
+import { KvState } from '@workhub/adapters/sqlite-store'
+import type { StateStore } from '@workhub/core'
+import { openTestDb, storedState } from './test-db'
 import { briefLabel, clampLead, clampRefresh, formToCalendar, formToPerson, formToRule, looksLikeCalendarUrl, personId, personToForm, ruleToForm, textToList } from '../src/renderer/lib/plan'
 import type { StartSessionInput } from '../src/shared/api'
 
@@ -79,7 +78,7 @@ function calendarService(opts: { profile?: Profile; source: CalendarSource; secr
 
 const memoryFile = () => {
   let saved: CalendarState | null = null
-  return { file: { load: (fallback: CalendarState) => saved ?? fallback, save: (v: CalendarState) => (saved = v), flush: () => {} } as unknown as StateFile<CalendarState>, saved: () => saved }
+  return { file: { load: (fallback: CalendarState) => saved ?? fallback, save: (v: CalendarState) => (saved = v), flush: () => {} } as StateStore<CalendarState>, saved: () => saved }
 }
 
 describe('Plan renderer helpers', () => {
@@ -172,12 +171,11 @@ describe('CalendarService', () => {
 
 describe('CalendarWatcher', () => {
   it('fires each reminder once, persists it, and survives a restart without repeating', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'plan-watch-'))
-    const path = join(dir, 'calendar-state.json')
+    const db = openTestDb()
     let now = NOW + 21 * MIN // the default 10 min reminder of a meeting at +30 is due
     const reminded: string[] = []
     const make = () => {
-      const store = new CalendarStateStore(new StateFile<CalendarState>(path, 0), () => now)
+      const store = new CalendarStateStore(new KvState<CalendarState>(db, 'calendar-state', 0), () => now)
       return new CalendarWatcher({
         profiles: async () => [{ id: 'work' }],
         read: async () => ({ events: [event()], settings: DEFAULT_PLANNER_SETTINGS }),
@@ -192,7 +190,7 @@ describe('CalendarWatcher', () => {
     await w.tick()
     expect(reminded).toEqual([`remind|default|${event().id}`])
     w.stop()
-    expect(Object.keys((JSON.parse(readFileSync(path, 'utf8')) as CalendarState).fired)).toEqual([`work|remind|default|${event().id}`])
+    expect(Object.keys((storedState(db, 'calendar-state') as CalendarState).fired)).toEqual([`work|remind|default|${event().id}`])
     now += MIN
     await make().tick()
     expect(reminded).toHaveLength(1)

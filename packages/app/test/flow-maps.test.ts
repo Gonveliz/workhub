@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { controlSocketPath, startControlServer } from '../src/main/control-server'
+import { SqliteFlowMaps } from '@workhub/adapters/sqlite-store'
 import { flowMapSummaries, readFlowMapFiles, saveFlowMap } from '../src/main/flow-maps'
+import { openTestDb } from './test-db'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -18,41 +20,47 @@ const tmp = () => {
 
 const checkout = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'docs', 'examples', 'flow-maps', 'checkout.json'), 'utf8')) as Record<string, unknown>
 
-describe('flow-map files', () => {
-  it('lists every json of the folder, the bad ones with their error, and none without a folder', () => {
-    const dir = tmp()
-    writeFileSync(join(dir, 'checkout.json'), JSON.stringify(checkout))
-    writeFileSync(join(dir, 'broken.json'), '{ not json')
-    writeFileSync(join(dir, 'refs.json'), JSON.stringify({ ...checkout, id: 'refs', edges: [{ from: 'bff', to: 'nowhere' }] }))
-    writeFileSync(join(dir, 'notes.txt'), 'ignored')
-    const files = readFlowMapFiles(dir)
-    expect(files.map((f) => [basename(f.file), Boolean(f.map)])).toEqual([['broken.json', false], ['checkout.json', true], ['refs.json', false]])
+describe('stored flow maps', () => {
+  it('lists every stored map, the bad ones with their error', () => {
+    const maps = new SqliteFlowMaps(openTestDb())
+    expect(readFlowMapFiles(maps)).toEqual([])
+    maps.put('checkout', JSON.stringify(checkout))
+    maps.put('broken', '{ not json')
+    maps.put('refs', JSON.stringify({ ...checkout, id: 'refs', edges: [{ from: 'bff', to: 'nowhere' }] }))
+    const files = readFlowMapFiles(maps)
+    expect(files.map((f) => [f.file, Boolean(f.map)])).toEqual([['broken.json', false], ['checkout.json', true], ['refs.json', false]])
     const summaries = flowMapSummaries(files)
     expect(summaries[1]).toMatchObject({ id: 'checkout', name: 'Checkout', nodes: 6, edges: 6 })
     expect(summaries[0]).toMatchObject({ id: 'broken', error: expect.stringContaining('JSON') })
     expect(summaries[2]?.error).toContain('unknown node "nowhere"')
-    expect(readFlowMapFiles(join(dir, 'missing'))).toEqual([])
+  })
+
+  it('reads nothing when the store fails', () => {
+    const failing = { list: () => { throw new Error('closed') }, get: () => null, put: () => {}, remove: () => false }
+    expect(readFlowMapFiles(failing)).toEqual([])
   })
 
   it('saves a valid map under its id and refuses an invalid one with the field errors', () => {
-    const dir = join(tmp(), 'flow-maps')
-    const saved = saveFlowMap(dir, checkout)
-    expect(saved).toMatchObject({ ok: true, id: 'checkout', file: join(dir, 'checkout.json') })
-    expect(readFlowMapFiles(dir)[0]?.map?.name).toBe('Checkout')
-    const bad = saveFlowMap(dir, { ...checkout, lanes: [] })
+    const maps = new SqliteFlowMaps(openTestDb())
+    const saved = saveFlowMap(maps, checkout)
+    expect(saved).toMatchObject({ ok: true, id: 'checkout', file: 'checkout.json' })
+    expect(readFlowMapFiles(maps)[0]?.map?.name).toBe('Checkout')
+    const bad = saveFlowMap(maps, { ...checkout, lanes: [] })
     expect(bad).toMatchObject({ ok: false, errors: [expect.stringContaining('lanes')] })
+    expect(maps.list()).toHaveLength(1)
   })
 
   it('takes a map over the control endpoint', async () => {
     const dir = tmp()
-    // A socket file next to the maps, or a named pipe on Windows.
+    const maps = new SqliteFlowMaps(openTestDb())
+    // A socket file in a temp folder, or a named pipe on Windows.
     const socket = controlSocketPath(dir)
     const stored: unknown[] = []
     const server = await startControlServer(socket, {
       openReview: () => ({ ok: true }),
       saveFlowMap: (map) => {
         stored.push(map)
-        return saveFlowMap(join(dir, 'flow-maps'), map)
+        return saveFlowMap(maps, map)
       }
     })
     expect(server).not.toBeNull()
@@ -70,7 +78,7 @@ describe('flow-map files', () => {
       const ok = await call(checkout)
       expect(ok.status).toBe(200)
       expect(ok.json).toMatchObject({ ok: true, id: 'checkout' })
-      expect(readFlowMapFiles(join(dir, 'flow-maps'))).toHaveLength(1)
+      expect(readFlowMapFiles(maps)).toHaveLength(1)
       const bad = await call({ version: 1 })
       expect(bad.status).toBe(400)
       expect(bad.json.errors).toEqual(expect.arrayContaining([expect.stringContaining('id')]))

@@ -461,7 +461,7 @@ export function folderLabel(path: string): string {
 
 /** Where a session's name can come from, strongest first. */
 export interface SessionNameSources {
-  /** The name the user gave it (Rename…, kept in session-names.json). */
+  /** The name the user gave it (Rename…, kept under the `session-names` key of `kv_state`). */
   name?: string
   /** The agent's own title for it (a custom title or generated summary from its transcript). */
   title?: string

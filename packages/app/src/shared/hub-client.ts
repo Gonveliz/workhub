@@ -2,7 +2,7 @@
 // WebSocket to the desktop in the web client. Keeps the channel names in one place, so a method
 // added here reaches both.
 import type { AgentEvent, HistoryMessage, SessionCeilings, LocalReviewDelivery } from '@workhub/core'
-import type { AccountUsage, UsageAlert, HubApi, Platform, SessionView } from './api'
+import type { AccountUsage, UsageAlert, HistoryIndexProgress, HubApi, Platform, SessionView } from './api'
 import type { UpdateStatus } from './updates-api'
 import type { PrEventBatch } from './pr-events-api'
 import type { SessionIntent } from './links-api'
@@ -44,9 +44,6 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       saveOptions: (o) => invoke('config:saveOptions', o),
       saveSessionGroups: (g) => invoke('config:saveSessionGroups', g),
       effectiveAgents: (profileId) => invoke('config:effectiveAgents', profileId),
-      previewWorkhub1Import: () => invoke('config:previewWorkhub1Import'),
-      applyWorkhub1Import: () => invoke('config:applyWorkhub1Import'),
-      importWorkhub1Secrets: () => invoke('config:importWorkhub1Secrets'),
       onChanged: (cb) => subscribe<[]>('config:changed', cb)
     },
     tickets: {
@@ -96,6 +93,9 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
     },
     history: {
       list: () => invoke('history:list'),
+      search: (query, options) => invoke('history:search', query, options),
+      indexProgress: () => invoke('history:indexProgress'),
+      onIndexProgress: (cb) => subscribe<[HistoryIndexProgress]>('history:indexProgress', cb),
       find: (keys) => invoke('history:find', keys),
       revealFolder: (path) => invoke('history:revealFolder', path)
     },
@@ -163,8 +163,6 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       test: (connection, secret, indexToProbe) => invoke('health:test', connection, secret, indexToProbe)
     },
     flowMaps: {
-      folder: () => invoke('flowMaps:folder'),
-      reveal: () => send('flowMaps:reveal'),
       importFiles: () => invoke('flowMaps:import'),
       remove: (id) => invoke('flowMaps:remove', id),
       get: (mapId) => invoke('flowMaps:get', mapId),
@@ -373,6 +371,21 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
     diagnostics: {
       report: (report) => send('diag:report', report),
       revealLogs: () => send('diag:revealLogs')
+    },
+    storage: {
+      info: () => invoke('storage:info'),
+      backup: () => invoke('storage:backup'),
+      revealBackups: () => send('storage:revealBackups')
+    },
+    analytics: {
+      tags: (sessionId) => invoke('analytics:tags', sessionId),
+      setTags: (sessionId, tags) => invoke('analytics:setTags', sessionId, tags),
+      spend: (query) => invoke('analytics:spend', query),
+      totals: (query) => invoke('analytics:totals', query),
+      sessions: (query) => invoke('analytics:sessions', query),
+      weekly: (query) => invoke('analytics:weekly', query),
+      filters: (query) => invoke('analytics:filters', query),
+      refresh: () => invoke('analytics:refresh')
     }
   }
 }

@@ -15,6 +15,20 @@ function readProfile(raw: unknown): PrProfileState | null {
 }
 
 /**
+ * What is usable of a stored pull request memory: an unknown version or shape is an empty memory
+ * (the next sync seeds again), and a malformed profile is dropped.
+ */
+export function readPrEventState(raw: unknown): PrEventState {
+  if (!isRecord(raw) || raw['version'] !== 1 || !isRecord(raw['profiles'])) return { ...EMPTY_PR_EVENT_STATE, profiles: {} }
+  const profiles: PrEventState['profiles'] = {}
+  for (const [id, value] of Object.entries(raw['profiles'])) {
+    const profile = readProfile(value)
+    if (profile) profiles[id] = profile
+  }
+  return { version: 1, profiles }
+}
+
+/**
  * The pull request sync memory on one JSON file. A missing, unreadable or newer file loads as an
  * empty memory, which makes the next sync a seeding one: it never reports the current state as new.
  */
@@ -32,13 +46,7 @@ export class JsonPrEventStore implements PrEventStore {
     } catch {
       return { ...EMPTY_PR_EVENT_STATE, profiles: {} }
     }
-    if (!isRecord(raw) || raw['version'] !== 1 || !isRecord(raw['profiles'])) return { ...EMPTY_PR_EVENT_STATE, profiles: {} }
-    const profiles: PrEventState['profiles'] = {}
-    for (const [id, value] of Object.entries(raw['profiles'])) {
-      const profile = readProfile(value)
-      if (profile) profiles[id] = profile
-    }
-    return { version: 1, profiles }
+    return readPrEventState(raw)
   }
 
   async save(state: PrEventState): Promise<void> {

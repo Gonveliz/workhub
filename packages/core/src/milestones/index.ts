@@ -1,7 +1,7 @@
 /**
  * Plan milestones: a named period of work whose progress is typed by hand, counted from a tracker
  * query, or weighed from its pieces (tickets, local tasks, links). Pure: the main process fetches
- * the counts and the tickets' states and stores the list (`planner-state.json`).
+ * the counts and the tickets' states and stores the list (the `planner-state` key of `kv_state`).
  */
 import { daysBetween, isDay } from '../alerts/days'
 import { parsePlanLinks, planLinksOk, type PlanEditor, type PlanLink } from '../inbox/links'

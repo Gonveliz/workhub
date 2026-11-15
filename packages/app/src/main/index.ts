@@ -1,5 +1,5 @@
-import { app, autoUpdater as nativeUpdater, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, safeStorage, screen, session, shell, type BrowserWindowConstructorOptions } from 'electron'
-import { existsSync } from 'node:fs'
+import { app, autoUpdater as nativeUpdater, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, safeStorage, screen, session, shell, utilityProcess, type BrowserWindowConstructorOptions } from 'electron'
+import { existsSync, mkdirSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { delimiter, isAbsolute, join, resolve } from 'node:path'
@@ -19,10 +19,9 @@ import { CodexPlanUsageReader, CodexSessionHistory, CodexTranscriptReader } from
 import { KiroPlanUsageReader, KiroSessionHistory, KiroTranscriptReader, readKiroCreditEntries } from '@workhub/adapters/transcript-kiro'
 import { GitReview, LocalChanges } from '@workhub/adapters/git-review'
 import { GitWorktrees } from '@workhub/adapters/git-worktree'
-import { JsonPrEventStore } from '@workhub/adapters/pr-events-json'
+import { AutomationRunLog, BACKUP_FOLDER, backupDatabase, DB_FILE, describeImport, importLegacyJson, listBackups, SessionRecords, SqliteFlowMaps, SqliteHistoryIndex, SqlitePrEventStore, Timelines, TurnIngest, repoProjects, WorkhubDb, type ProjectResolver } from '@workhub/adapters/sqlite-store'
 import { DemoCalendarSource, IcsCalendarSource } from '@workhub/adapters/calendar-ics'
 import { OpenCodeSessionHistory, OpenCodeTranscriptReader } from '@workhub/adapters/transcript-opencode'
-import { readKeychainItem, readWorkhub1Settings } from '@workhub/adapters/workhub1-import'
 import {
   alertRulesOf,
   appOptions,
@@ -37,14 +36,11 @@ import {
   hasUnread,
   historyOfSessions,
   isNotificationKind,
-  importWorkhub1Secrets,
-  pendingWorkhub1Secrets,
   pauseUntil,
-  planWorkhub1Import,
   fillDefaultFolders,
-  fillWorkhub1FolderFlags,
   linkAutomationHistory,
-  type Workhub1Settings,
+  type HistoryEntry,
+  type HistoryMessage,
   TRAY_ROUTES,
   resolveEffectiveAgents,
   startOfLocalDay,
@@ -60,7 +56,6 @@ import {
   type HealthDetailRequest,
   type CreditSpend,
   type Result,
-  type Workhub1SecretResult,
   type TicketChange,
   buildTrayPopover,
   parseTrayAction,
@@ -76,7 +71,7 @@ import {
   type SessionCeilings,
   type WorkhubConfig
 } from '@workhub/core'
-import type { AccountUsage, ConfigSnapshot, SessionMode, SessionNotification, StartSessionInput, ThemePreference, UsageAlert } from '../shared/api'
+import type { AccountUsage, ConfigSnapshot, HistorySearchOptions, HistorySearchResult, SessionMode, SessionNotification, StartSessionInput, ThemePreference, StorageBackupResult, StorageInfo, UsageAlert } from '../shared/api'
 import type { PrNotification } from '../shared/pr-events-api'
 import type { SlackSnapshot } from '../shared/chat-api'
 import { TRAY_POPOVER_HASH, type TrayRendererState } from '../shared/tray-api'
@@ -86,6 +81,7 @@ import { TrayService } from './tray'
 import { TrayPopover } from './tray-popover'
 import { TrayToday } from './tray-today'
 import { flowAlertWords, healthAlertWords, isLocale, metricAlertWords, trayText } from './tray-text'
+import { reminderNotifications, viewedSessions } from './permission-reminders'
 import { AppBadge, attentionBadgeCount } from './app-badge'
 import { profileWorkspaces } from './workspaces'
 import { startPlaced } from './session-placement'
@@ -106,10 +102,11 @@ import { ContinuityService, type ContinuityDeps } from './continuity'
 import { HealthService } from './health-service'
 import { guardIpc, isTrustedRendererUrl } from './ipc-guard'
 import { timeIpc } from './ipc-timing'
-import { isRemoteSender, pageHistory, promptFromDevice, recordIpc, RemoteHub, RemoteService, registerRemoteIpc, readRemoteFile, touchedPaths, type RemoteState } from './remote'
+import { isRemoteSender, pageHistory, promptFromDevice, readActivity, recordIpc, RemoteActivityLog, RemoteHub, RemoteService, registerRemoteIpc, readRemoteFile, touchedPaths, type RemoteState } from './remote'
 import { rendererReporter, startDiagnostics } from './diagnostics'
 import { permissionAllowed } from './permissions'
-import { listAllHistory } from './history'
+import { historySearchOptions, listAllHistory, searchAllHistory } from './history'
+import { HistoryIndexer } from './history-indexer'
 import { RecentCall } from './recent-call'
 import { PrEventService, registerPrEventsIpc } from './pr-events-service'
 import { SessionDriver } from './session-driver'
@@ -118,19 +115,24 @@ import { resolveChoice, SessionManager, ticketPrefixes } from './session-manager
 import { registerLinksIpc } from './links'
 import { LocalReviewService, opensAsProgram, registerLocalReviewIpc } from './local-review'
 import { CONTROL_ENV_KEYS, controlEnv, controlSocketPath, newControlToken, startControlServer, startLoopbackControlServer, usesLoopbackControl, type ControlDeps, type ControlEndpoint } from './control-server'
+import { createAnalyticsControl } from './analytics-control'
+import { kiroUsageProbeEnabled } from './kiro-usage-probe'
+import { AnalyticsQueries } from './analytics-queries'
 import { createAutomationControl } from './automation-control'
 import { createPlanControl, resolveControlProfile } from './plan-control'
-import { FLOW_HISTORY_FOLDER, FlowHistoryStore } from './flow-history'
-import { FLOW_MAPS_FOLDER, saveFlowMap } from './flow-maps'
+import { FlowHistoryStore } from './flow-history'
+import { saveFlowMap } from './flow-maps'
 import { registerFlowMapsIpc } from './flow-maps-ipc'
 import { DemoMetricSource, HealthMetricSource, MetricAlertService, ProductMetricSource, type MetricAlertsState } from './metric-alerts'
 import { registerMetricAlertsIpc } from './metric-alerts-ipc'
 import { registerFileViewerIpc } from './file-viewer'
 import { SlackWatcherService } from './slack-watcher'
-import { StateFile } from './state-file'
 import { registerTicketIpc } from './tickets'
 import { TicketService } from './tickets-service'
-import { spendSources, TokenSpendService } from './token-spend'
+import type { SpendSources, WorktreeLink } from '@workhub/adapters/token-spend'
+import { ingestsTranscripts, spendSources, TokenSpendService, turnOwners, turnProjects } from './token-spend'
+import { AnalyticsRecorder } from './analytics-recorder'
+import { registerAnalyticsIpc } from './analytics-ipc'
 import { ApiSpendService, CostLedger, spendAgentId, type CostLedgerState } from './api-spend'
 import { UpdateService } from './updates'
 import { readUpdatePromptState, shouldPromptUpdate, type UpdatePromptState } from './update-prompt'
@@ -152,7 +154,7 @@ import { registerSetupInstallIpc } from './setup-ipc'
 import { probe, SetupService } from './setup-service'
 import { CalendarService } from './calendar-service'
 import { CalendarStateStore, CalendarWatcher } from './calendar-watcher'
-import { demoScenario, seedScenarioConfig, seedScenarioState } from './demo-scenario'
+import { demoScenario, seedScenarioAnalytics, seedScenarioConfig, seedScenarioState } from './demo-scenario'
 import { BriefService } from './plan-briefs'
 import { meetingReminderWords, planView, registerPlanIpc } from './plan-ipc'
 import { PlannerService, type PlannerState } from './planner-service'
@@ -197,6 +199,76 @@ else app.on('second-instance', () => showMain())
 // Always on: a rotated log in <dataDir>/logs with errors, event-loop stalls and slow IPC (Help → Reveal Logs).
 const diagnostics = startDiagnostics(dataDir, { version: app.getVersion(), packaged: app.isPackaged })
 
+// The app's state between launches (open sessions, watcher memory, ledgers, flow maps) lives in one
+// SQLite database in the data folder; config.json and secrets.json stay files. A second instance
+// (quitting at once, see above) never touches it: it gets a throwaway in-memory database.
+function openDatabase(): WorkhubDb {
+  if (!firstInstance) return WorkhubDb.open(':memory:', { log: () => {} })
+  try {
+    return WorkhubDb.open(join(dataDir, DB_FILE), { log: (m) => diagnostics.log.error(m) })
+  } catch (err) {
+    // Locked, disk full, read-only, no access: nothing to recover automatically, and starting with
+    // empty state would hide the user's data. Say so and quit; the file is left as it is.
+    const message = err instanceof Error ? err.message : String(err)
+    diagnostics.log.error(message)
+    diagnostics.flush()
+    dialog.showErrorBox('Workhub 2 cannot open its database', `${message}\n\nThe data folder is ${dataDir}. See docs/troubleshooting.md, "The database".`)
+    process.exit(1)
+  }
+}
+const db = openDatabase()
+if (firstInstance) diagnostics.log.info(`database ${db.path} schema=${db.schemaVersion()}`)
+const recovery = db.recovered()
+if (recovery) diagnostics.log.warn(`database was moved aside to ${recovery.movedTo} at ${new Date(recovery.at).toISOString()}: ${recovery.reason}`)
+// WORKHUB_DEMO_SCENARIO=team-lead (`npm run demo`): the milestones, inbox and metric alerts of the scenario are written as
+// JSON files before the first import, which stores them (never again once it ran); its profile is saved once the app is ready (see below).
+const scenario = demoScenario()
+if (scenario && firstInstance) seedScenarioState(dataDir, Date.now(), db)
+// The JSON state files of earlier versions move into the database once and are renamed to `.migrated`.
+if (firstInstance) {
+  try {
+    const imported = importLegacyJson(db, dataDir, (m) => diagnostics.log.warn(m))
+    diagnostics.log.info(describeImport(imported) ?? 'legacy JSON import: nothing to import')
+  } catch (err) {
+    // Nothing was renamed (the files are moved only after the commit): the next start tries again.
+    diagnostics.log.error(`legacy JSON import failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+// What the usage reports read: sessions and their links and tags, every automation run, and the
+// pull request and ticket timelines (the turns come from the transcript scan, see `turnIngest`).
+const sessionRecords = new SessionRecords(db)
+const automationRuns = new AutomationRunLog(db)
+// Agents' read-only SQL (the analytics endpoint) runs in a utility process on its own read-only
+// connection to the same file; a query past its time budget gets the process killed.
+const analyticsQueries = new AnalyticsQueries({
+  path: db.path,
+  spawn: () => {
+    const child = utilityProcess.fork(join(__dirname, 'analytics-worker.js'), [], { serviceName: 'Workhub analytics', stdio: 'ignore' })
+    return {
+      post: (m) => child.postMessage(m),
+      onMessage: (fn) => child.on('message', fn),
+      onExit: (fn) => child.on('exit', (code) => fn(code)),
+      kill: () => child.kill()
+    }
+  },
+  log: (m) => diagnostics.log.warn(m)
+})
+const timelines = new Timelines(db)
+// The demo's weeks of synthetic sessions and turns, written once into an empty database.
+if (scenario && firstInstance && seedScenarioAnalytics(db, dataDir)) diagnostics.log.info('demo scenario: synthetic usage history seeded')
+
+/** A copy of the database in `<data folder>/backups`: the day's automatic one, or a new dated one when `manual`. */
+async function backupDb(manual: boolean): Promise<string | null> {
+  const path = await backupDatabase(db, join(dataDir, BACKUP_FOLDER), { manual })
+  if (path) diagnostics.log.info(`database backed up to ${path}`)
+  return path
+}
+if (firstInstance) {
+  const daily = () => void backupDb(false).catch((err: unknown) => diagnostics.log.warn(`database backup failed: ${err instanceof Error ? err.message : String(err)}`))
+  setTimeout(daily, 30_000).unref?.()
+  setInterval(daily, 24 * 3_600_000).unref?.()
+}
+
 /** Help → Reveal Logs: the log file selected in the file manager, written up to now. */
 function revealLogs(): void {
   diagnostics.flush()
@@ -205,6 +277,8 @@ function revealLogs(): void {
 
 /** Every window's handlers, reachable by a paired device too (Settings → Remote access); filled by registerIpc. */
 const recordedIpc = recordIpc(timeIpc(guardIpc(ipcMain, (url) => isTrustedRendererUrl(url, rendererOrigin)), diagnostics))
+/** The latest sub-agents and background tasks of each session, for a device that connects late. */
+const remoteActivity = new RemoteActivityLog()
 const remoteHub = new RemoteHub({
   handlers: recordedIpc.handlers,
   profileFolders: async (profileId) => {
@@ -223,10 +297,6 @@ const configChanged = () => {
 const configStore = broadcastingConfigStore(new JsonConfigStore(join(dataDir, 'config.json')), configChanged)
 const secrets = new SafeStorageSecretStore(join(dataDir, 'secrets.json'), safeStorage)
 const configuration = new ConfigurationService(configStore, secrets)
-// WORKHUB_DEMO_SCENARIO=team-lead (`npm run demo`): the milestones, inbox and metric alerts of the scenario are written before
-// the services read their state files; its profile is saved once the app is ready (see below). Files that exist are kept.
-const scenario = demoScenario()
-if (scenario) seedScenarioState(dataDir)
 let loadError: string | undefined
 // WORKHUB_DEMO_CODEHOST=1 reads synthetic pull requests instead of a real host (screenshots, demos).
 // The demo moves on one step at a time (`prEvents.demoAdvance`) so pull request events can be seen.
@@ -234,16 +304,18 @@ let demoPrStep = 0
 const codeHost = new CodeHostService(() => configuration.current(), { demo: process.env['WORKHUB_DEMO_CODEHOST'] === '1', demoStep: () => demoPrStep })
 const prEvents = new PrEventService({
   source: codeHost,
-  store: new JsonPrEventStore(join(dataDir, 'pr-events.json')),
+  store: new SqlitePrEventStore(db),
   config: () => configuration.current(),
   emit: (batch) => send('prEvents:events', batch),
+  record: (profileId, events) => void timelines.appendPrEvents(profileId, events),
   demo: process.env['WORKHUB_DEMO_CODEHOST'] === '1' ? { advance: () => ++demoPrStep } : undefined
 })
 // WORKHUB_DEMO_HEALTH=1 serves synthetic environments, so Health can be shown without a cluster.
-// Flow-map measures kept hour by hour for a week, so maps draw from disk and read only new hours.
-const flowHistory = new FlowHistoryStore(join(dataDir, FLOW_HISTORY_FOLDER))
-flowHistory.prune()
-const health = new HealthService({ configuration, secrets, demo: process.env['WORKHUB_DEMO_HEALTH'] === '1', flowMapsDir: join(dataDir, FLOW_MAPS_FOLDER), flowHistory })
+// Flow-map measures kept hour by hour (the screens read a week), so maps draw from the database and read only new hours.
+const flowHistory = new FlowHistoryStore(db, Date.now, (m) => diagnostics.log.warn(m))
+if (firstInstance) flowHistory.prune()
+const flowMaps = new SqliteFlowMaps(db)
+const health = new HealthService({ configuration, secrets, demo: process.env['WORKHUB_DEMO_HEALTH'] === '1', flowMaps, flowHistory })
 // WORKHUB_DEMO_TICKETS=1 serves synthetic tickets, so the UI can be shown without credentials.
 const ticketService = new TicketService(configuration, secrets, process.env['WORKHUB_DEMO_TICKETS'] === '1', undefined, scenario ?? undefined)
 // WORKHUB_DEMO_CALENDAR=1 serves synthetic meetings around now, so Plan can be shown without a calendar address.
@@ -269,14 +341,14 @@ const sessionWindows = new SessionWindows({
     const view = sessions.list().find((s) => s.id === id)
     return view ? sessionIdentity(view) : undefined
   },
-  store: new StateFile<SavedSessionWindows>(join(dataDir, 'session-windows.json'), 500)
+  store: db.state<SavedSessionWindows>('session-windows', 500)
 })
 // Settings in a window of its own, one at a time (⌘,, the gear button, the menu bar icon, setup fixes).
 const settingsWindow = new SettingsWindow({
   create: (hash, size, bounds) => createAuxWindow(hash, 'Workhub 2', size, bounds),
   screens: () => screen.getAllDisplays().map((d) => d.workArea),
   quitting: () => allowWindowClose,
-  store: new StateFile<SavedSettingsWindow>(join(dataDir, 'settings-window.json'), 500)
+  store: db.state<SavedSettingsWindow>('settings-window', 500)
 })
 
 // Menu bar / notification area icon (tray.ts) and what it shows that main does not keep elsewhere.
@@ -334,7 +406,7 @@ const notifier = new Notifier({
 
 /** Remote access: this desktop's identity, the relay connection and the paired devices (Settings → Remote access). */
 const remoteService = new RemoteService({
-  store: new StateFile<RemoteState>(join(dataDir, 'remote.json'), 200),
+  store: db.state<RemoteState>('remote', 200),
   secrets,
   hub: remoteHub,
   connect: (url) => new WebSocket(url),
@@ -395,7 +467,7 @@ const agentOptions = new AgentOptionsService({
   },
   // Claude Code's permission modes are known before any session: Settings and the New session dialog offer them.
   fixedModes: (agent) => (agent.adapter === 'native' ? CLAUDE_PERMISSION_MODES : undefined),
-  state: new StateFile(join(dataDir, 'agent-options.json'), 500)
+  state: db.state('agent-options', 500)
 })
 /** Kiro credits spent today and this week, read at most once a minute. */
 let kiroSpendCache: { at: number; value: CreditSpend | null } | null = null
@@ -408,7 +480,7 @@ async function kiroSpend(): Promise<CreditSpend | null> {
   return value
 }
 // The cost other agents report in their session updates, per day (API-billed agents' spend).
-const costLedger = new CostLedger(new StateFile<CostLedgerState>(join(dataDir, 'api-spend-ledger.json'), 1_000))
+const costLedger = new CostLedger(db.state<CostLedgerState>('api-spend-ledger', 1_000))
 /** A session reported its running cost: kept for the API spend of agents not read from files. */
 function recordSessionCost(sessionId: string, amount: number): void {
   const view = sessions.list().find((v) => v.id === sessionId)
@@ -416,25 +488,56 @@ function recordSessionCost(sessionId: string, amount: number): void {
   const agent = configCache ? knownAgents(configCache).find((a) => a.id === view.agentId) : undefined
   costLedger.record(spendAgentId(agent, view.agentId), view.agentSessionId ?? view.id, amount)
 }
+// Every assistant turn of every transcript (tokens, cost, agent time) for the usage reports: read
+// after each spend scan, from the same folders, only what was appended since the last one.
+// Never in a demo: the demo's history is synthetic (see `seedScenarioAnalytics`).
+let owners: ReturnType<typeof turnOwners> | null = null
+let projects: ProjectResolver | null = null
+const turnWorktrees = new Map<string, WorktreeLink | null>()
+const turnIngest = new TurnIngest(db, {
+  accountOf: (agent, dir) => owners?.accountOf(agent, dir) ?? null,
+  profileOf: (cwd) => owners?.profileOf(cwd) ?? null,
+  projects: (paths) => (projects ? projects(paths) : repoProjects(paths, turnWorktrees)),
+  log: (m) => diagnostics.log.info(m)
+})
+async function scanTurns(sources: SpendSources): Promise<void> {
+  const config = await configuration.current()
+  owners = turnOwners(config, homedir())
+  turnWorktrees.clear()
+  projects = await turnProjects(config, homedir(), turnWorktrees)
+  const started = Date.now()
+  try {
+    const r = await turnIngest.scan(sources)
+    if (r.read) diagnostics.log.info(`turn scan done in ${Date.now() - started}ms: ${r.read}/${r.files} transcripts read, ${r.turns} turns`)
+  } catch (err) {
+    diagnostics.log.warn(`turn scan failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
 // Token spend per folder for Home: scanned in the background from start-up, cached on disk.
 const tokenSpend = new TokenSpendService({
   config: () => configuration.current(),
-  store: new StateFile(join(dataDir, 'token-spend.json'), 2_000),
+  store: db.state('token-spend', 2_000),
   sources: async () => spendSources(await configuration.current(), homedir(), kiroDir),
   emit: () => send('usage:folderSpendChanged'),
   begin: (label) => diagnostics.activity.begin(label),
-  onScanned: ({ ms, files, failed }) => diagnostics.log.info(`token spend scan ${failed ? 'failed' : 'done'} in ${ms}ms, ${files} files`)
+  onScanned: ({ ms, files, failed }) => diagnostics.log.info(`token spend scan ${failed ? 'failed' : 'done'} in ${ms}ms, ${files} files`),
+  ...(ingestsTranscripts() ? { turns: scanTurns } : {})
 })
 // Spend of agents billed by API key, per agent and day (Home's usage and token spend cards).
 const apiSpend = new ApiSpendService({ config: () => configuration.current(), home: homedir(), costs: (include) => tokenSpend.costs(include), ledger: costLedger })
 // The names the user gave sessions, by identity (Rename…).
-const sessionNames = new SessionNames(new StateFile(join(dataDir, 'session-names.json'), 300))
+const sessionNames = new SessionNames(db.state('session-names', 300))
 // Tools an agent runs can ask Workhub for things (review, flow maps, Plan): a Unix socket, or on
 // Windows a loopback port with a per-launch token, known once it listens.
 const loopbackControl = usesLoopbackControl()
 const controlToken = newControlToken()
 // Set only once the endpoint listens; sessions started before (or when it cannot listen) get none.
 let controlEndpoint: ControlEndpoint | null = null
+// The sessions Workhub runs and what their monitors relate them to, for the usage reports.
+const analyticsRecorder = new AnalyticsRecorder({
+  records: sessionRecords,
+  agentOf: (v) => spendAgentId(configCache ? knownAgents(configCache).find((a) => a.id === v.agentId) : undefined, v.agentId),
+  log: (m) => diagnostics.log.warn(m) })
 const sessions = new SessionManager({
   config: configuration,
   worktrees: new GitWorktrees(),
@@ -461,17 +564,24 @@ const sessions = new SessionManager({
     continuity.onEvent(e)
     aiReview.onEvent(e)
     agentReview.onEvent(e)
+    analyticsRecorder.onEvent(e)
+    remoteActivity.onEvent(e)
     send('session:event', e)
   },
   emitChanged: (s) => {
+    // A session that stopped wrote its transcript: History's search index reads it again shortly.
+    if (s.state === 'stopped' || s.state === 'error') historyIndexer.refreshSoon()
     driver.onChanged(s)
     continuity.onChanged(s)
     aiReview.onChanged(s)
+    analyticsRecorder.sessionChanged(s)
     send('session:changed', s)
     sessionWindows.sessionChanged(s.id)
     openSessions.changed()
   },
   emitRemoved: (id) => {
+    analyticsRecorder.sessionRemoved(id)
+    remoteActivity.forget(id)
     send('session:removed', id)
     sessionWindows.closeSession(id)
     openSessions.changed()
@@ -481,7 +591,7 @@ const sessions = new SessionManager({
 })
 // The sessions open at the last quit, reopened once the main window listens (Settings → General).
 const openSessions = new OpenSessions({
-  store: new StateFile<SavedOpenSessions>(join(dataDir, 'open-sessions.json'), 500),
+  store: db.state<SavedOpenSessions>('open-sessions', 500),
   list: () => sessions.list(),
   engineOf: (id) => sessions.engineOf(id),
   start: async (input, extra) => {
@@ -507,11 +617,15 @@ const pendingUsageAlerts: UsageAlert[] = []
 // serves synthetic windows instead, so the cards, budgets and gate can be shown without accounts.
 const demoUsage = process.env['WORKHUB_DEMO_USAGE'] === '1'
 // The Kiro usage session's id (one session reused across reads, see KiroPlanUsageReader).
-const kiroUsageState = new StateFile<{ sessionId: string | null }>(join(dataDir, 'kiro-usage.json'), 200)
+const kiroUsageState = db.state<{ sessionId: string | null }>('kiro-usage', 200)
 let configCache: WorkhubConfig | null = null
 let kiroUsageReader: KiroPlanUsageReader | null = null
+// Reading Kiro plan usage starts `kiro-cli acp`, which refreshes the Kiro sign-in token: off in
+// development and test runs unless WORKHUB_KIRO_USAGE=1 (see kiro-usage-probe.ts).
+const kiroUsageProbe = kiroUsageProbeEnabled(app.isPackaged, process.env)
+if (!kiroUsageProbe && !demoUsage) diagnostics.log.info('Kiro plan usage is off in development (set WORKHUB_KIRO_USAGE=1 to read it)')
 // Each session's own usage ceilings, by session identity (set from the session's side panel).
-const sessionBudgets = new StateFile<Record<string, SessionCeilings>>(join(dataDir, 'session-budgets.json'), 200)
+const sessionBudgets = db.state<Record<string, SessionCeilings>>('session-budgets', 200)
 /** Only windows with a valid ceiling (1-100) from what the renderer sent. */
 function cleanSessionCeilings(raw: unknown): SessionCeilings {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
@@ -525,7 +639,7 @@ const usage = new AgentUsageService({
     : [
         new ClaudePlanUsageReader({ userAgent: `workhub/${app.getVersion()}` }),
         new CodexPlanUsageReader(),
-        kiroUsageReader = new KiroPlanUsageReader({
+        ...(kiroUsageProbe ? [kiroUsageReader = new KiroPlanUsageReader({
           command: () => {
             const kiro = configCache && knownAgents(configCache).find((a) => a.id === 'kiro')
             return kiro && runsKiroCli(kiro) ? kiro.command : 'kiro-cli'
@@ -537,7 +651,7 @@ const usage = new AgentUsageService({
             save: (sessionId) => kiroUsageState.save({ sessionId })
           },
           path: () => cliPath
-        })
+        })] : [])
       ],
   load: async () => {
     const config = await configuration.current()
@@ -548,7 +662,7 @@ const usage = new AgentUsageService({
     // Kiro has one sign-in per machine: a single default account.
     const kiro = knownAgents(config).some((a) => a.id === 'kiro') ? [{ agentId: 'kiro', accountId: null, name: '' }] : []
     return {
-      accounts: [...(options.claudePlanUsage ? claude : []), ...(options.codexUsage ? codex : []), ...(options.kiroUsage ? kiro : [])],
+      accounts: [...(options.claudePlanUsage ? claude : []), ...(options.codexUsage ? codex : []), ...(options.kiroUsage && (kiroUsageProbe || demoUsage) ? kiro : [])],
       budget: options.usageBudget,
       knownKeys: [...claude, ...codex, ...kiro].map((a) => usageAccountKey(a.agentId, a.accountId))
     }
@@ -558,13 +672,13 @@ const usage = new AgentUsageService({
     scheduleTray()
   },
   alert: (alerts: UsageAlert[]) => (usageAlertsReady ? send('usage:alerts', alerts) : pendingUsageAlerts.push(...alerts)),
-  alertState: new StateFile(join(dataDir, 'usage-alerts.json'), 500)
+  alertState: db.state('usage-alerts', 500)
 })
 const budgetOf = (agentId: string, accountId: string | null) => usage.budgetOf(agentId, accountId)
 
 const updates = new UpdateService((s) => send('updates:changed', s), (url) => openLink(null, url))
 // "A new version is available": after an automatic check, at most once a day, never for a skipped version.
-const updatePromptFile = new StateFile<UpdatePromptState>(join(dataDir, 'update-prompt.json'), 0)
+const updatePromptFile = db.state<UpdatePromptState>('update-prompt', 0)
 const saveUpdatePrompt = (patch: UpdatePromptState) => {
   updatePromptFile.save({ ...readUpdatePromptState(updatePromptFile.load({})), ...patch })
   updatePromptFile.flush()
@@ -598,7 +712,7 @@ const slack = new SlackWatcherService({
     sourceScript: app.isPackaged ? join(process.resourcesPath, 'chat-slack', 'slack-track-hook.mjs') : join(repoRoot, 'packages', 'adapters', 'src', 'chat-slack', 'hook', 'slack-track-hook.mjs')
   }),
   demo: demoSlack,
-  state: new StateFile(join(dataDir, 'slack-state.json'), 500),
+  state: db.state('slack-state', 500),
   driver,
   startSession: (input) => sessions.start(input),
   ownerStarts,
@@ -626,7 +740,7 @@ const automations = new AutomationService({
   driver,
   startSession: (input) => sessions.start(input),
   watcher: slack,
-  state: new StateFile(join(dataDir, 'automations-state.json'), 300),
+  state: db.state('automations-state', 300),
   home: homedir(),
   usage: () => usage.current(),
   budgetOf,
@@ -635,11 +749,12 @@ const automations = new AutomationService({
     scheduleTray()
   },
   configChanged: () => send('config:changed'),
-  notice: (n) => send('slack:notice', n)
+  notice: (n) => send('slack:notice', n),
+  recordRuns: (runs, profileOf) => void automationRuns.record(runs, profileOf)
 })
 
-// Plan: reminders and meeting briefs (calendar-state.json keeps what fired and which briefs started).
-const calendarState = new CalendarStateStore(new StateFile<CalendarState>(join(dataDir, 'calendar-state.json'), 500))
+// Plan: reminders and meeting briefs (the `calendar-state` key of `kv_state` keeps what fired and which briefs started).
+const calendarState = new CalendarStateStore(db.state<CalendarState>('calendar-state', 500))
 const briefs = new BriefService({
   config: () => configuration.current(),
   startSession: (input) => sessions.start(input),
@@ -692,7 +807,7 @@ const aiReview = new AiReviewService({
   sessions,
   driver,
   git: new GitReview(),
-  state: new StateFile(join(dataDir, 'ai-review-state.json'), 500),
+  state: db.state('ai-review-state', 500),
   workDir: join(dataDir, 'ai-review'),
   emit: (snap) => send('aiReview:changed', snap),
   notice: (n) => send('aiReview:notice', n),
@@ -911,6 +1026,38 @@ const namedHistory = new RecentCall(async () => {
   return { ...result, entries: linkAutomationHistory(named, config.automations ?? [], automations.engine.snapshot().owned, homedir()) }
 })
 
+/** A past session's conversation, read with its account's config folder. */
+async function pastMessages(entry: HistoryEntry): Promise<HistoryMessage[]> {
+  const source = historySources[entry.agentId as keyof typeof historySources]
+  if (!source) return []
+  const config = await configuration.current()
+  const account = entry.accountId ? (config.accounts.find((a) => a.id === entry.accountId) ?? null) : null
+  const configDir = entry.agentId === 'claude' ? claudeConfigDirOf(config, account, homedir()) : (account?.configDir ?? undefined)
+  return source.messages(entry.agentSessionId, entry.cwd ?? homedir(), configDir)
+}
+
+// History's full-text index lives in workhub.db; a database without FTS5 leaves search to the plain match.
+let historyIndex: SqliteHistoryIndex | null = null
+try {
+  historyIndex = new SqliteHistoryIndex(db)
+} catch (err) {
+  diagnostics.log.error(`history index unavailable: ${err instanceof Error ? err.message : String(err)}`)
+}
+const historyIndexer = new HistoryIndexer({
+  index: historyIndex ?? { isOpen: false, stamps: () => new Map(), write: () => [][Symbol.iterator](), remove: () => undefined },
+  // The listing History shows, up to a minute old (a few seconds after a session stopped): indexing never starts a second read of every account.
+  list: (fresh) => namedHistory.get(fresh ? 3_000 : 60_000),
+  messages: pastMessages,
+  onProgress: (p) => send('history:indexProgress', p),
+  log: (m) => diagnostics.log.warn(m)
+})
+
+/** History search over the index plus the plain match of what it does not have yet. */
+async function searchPastSessions(query: string, options: HistorySearchOptions): Promise<HistorySearchResult> {
+  const listing = await namedHistory.get(30_000)
+  return searchAllHistory(listing, historyIndex, query, options, historyIndexer.progress())
+}
+
 function registerIpc(): void {
   // Every handler answers only the app's own renderer (see ipc-guard.ts).
   // Every handler is timed too: a slow one or one that fails is logged by its channel (see ipc-timing.ts).
@@ -979,43 +1126,6 @@ function registerIpc(): void {
   )
   ipc.handle('config:saveSessionGroups', guarded((g) => configuration.saveSessionGroups(g)))
   ipc.on('notifications:show', (_e, n: SessionNotification) => showSessionNotification(n))
-  // Workhub 1's settings are only ever read (`defaults export`); nothing is written back.
-  ipc.handle('config:previewWorkhub1Import', async () => {
-    try {
-      const v1 = await readWorkhub1Settings()
-      if (!v1) return { available: false }
-      const config = await configuration.current()
-      // Names only: the Workhub 1 connections still waiting for their token (nothing is read from the Keychain here).
-      const pendingSecrets = (await pendingWorkhub1Secrets(v1, config, secrets)).map(({ connection }) => ({ connectionId: connection.id, name: connection.name || connection.id }))
-      return { available: true, plan: planWorkhub1Import(v1, config, homedir()), pendingSecrets }
-    } catch (err) {
-      return { available: false, error: err instanceof Error ? err.message : String(err) }
-    }
-  })
-  ipc.handle(
-    'config:applyWorkhub1Import',
-    guarded(async () => {
-      const v1 = await readWorkhub1Settings()
-      if (!v1) return { ok: false, issues: [{ path: 'import', message: 'Workhub 1 settings not found' }] }
-      const result = await configuration.applyImport(planWorkhub1Import(v1, await configuration.current(), homedir()))
-      // Profiles imported earlier get the folder switches they still leave unset.
-      if (result.ok) return (await fillWorkhub1FolderFlagsFrom(v1)) ?? result
-      return result
-    })
-  )
-  // Copies the tokens of Workhub 1's Keychain items into the SecretStore. Only statuses go back.
-  ipc.handle('config:importWorkhub1Secrets', async (): Promise<Workhub1SecretResult[]> => {
-    if (process.platform !== 'darwin' || loadError) return []
-    try {
-      const v1 = await readWorkhub1Settings()
-      if (!v1) return []
-      const results = await importWorkhub1Secrets(v1, configuration, secrets, (item) => readKeychainItem(item))
-      if (results.some((r) => r.status === 'imported')) send('config:changed')
-      return results
-    } catch {
-      return []
-    }
-  })
   ipc.on('hub:openExternal', (_e, url: unknown, profileId: unknown) => {
     if (typeof url === 'string') void links.open(url, typeof profileId === 'string' ? profileId : null)
   })
@@ -1029,6 +1139,8 @@ function registerIpc(): void {
     if (typeof version === 'string' && version) saveUpdatePrompt({ skippedVersion: version })
   })
   ipc.handle('history:list', () => namedHistory.get())
+  ipc.handle('history:search', (_e, query: unknown, options: unknown) => searchPastSessions(typeof query === 'string' ? query.slice(0, 500) : '', historySearchOptions(options)))
+  ipc.handle('history:indexProgress', () => historyIndexer.progress())
   ipc.handle('history:find', async (_e, keys: unknown) => {
     if (!Array.isArray(keys)) return []
     const wanted = new Set(keys.filter((k): k is string => typeof k === 'string'))
@@ -1236,13 +1348,31 @@ function registerIpc(): void {
   ipc.handle('health:flowTraces', (_e, profileId: string | null, environmentId: string, mapId: string, hours: number, sort: FlowTraceSort) => health.flowTraces(profileId, environmentId, mapId, hours, sort))
   ipc.handle('health:flowTrace', (_e, profileId: string | null, environmentId: string, mapId: string, traceId: string) => health.flowTrace(profileId, environmentId, mapId, traceId))
   ipc.handle('health:flowTraceLogs', (_e, profileId: string | null, environmentId: string, mapId: string, traceId: string) => health.flowTraceLogs(profileId, environmentId, mapId, traceId))
+  ipc.handle('storage:info', (): StorageInfo => {
+    const backupFolder = join(dataDir, BACKUP_FOLDER)
+    return { path: db.path, sizeBytes: db.sizeBytes(), backupFolder, lastBackup: listBackups(backupFolder)[0] ?? null, recovered: db.recovered() }
+  })
+  // The usage reports and session tags (main window only: not in the remote allowlist).
+  registerAnalyticsIpc(ipc, { db, records: sessionRecords, scan: () => tokenSpend.scanNow() })
+  ipc.handle('storage:backup', async (): Promise<StorageBackupResult> => {
+    try {
+      const path = await backupDb(true)
+      return path ? { ok: true, path } : { ok: false, error: 'no backup written' }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+  ipc.on('storage:revealBackups', () => {
+    const folder = join(dataDir, BACKUP_FOLDER)
+    mkdirSync(folder, { recursive: true, mode: 0o700 })
+    void shell.openPath(folder)
+  })
   registerFlowMapsIpc(ipc, {
-    dir: join(dataDir, FLOW_MAPS_FOLDER),
+    maps: flowMaps,
     pickFiles: async () => {
       const r = await dialog.showOpenDialog(win!, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'JSON', extensions: ['json'] }], defaultPath: homedir() })
       return r.canceled ? [] : r.filePaths
     },
-    showItemInFolder: (path) => shell.showItemInFolder(path),
     createWindow: (hash, title) => createAuxWindow(hash, title, { width: 1320, height: 900, minWidth: 760, minHeight: 520 }),
     mainWindow: () => win,
     writeImage: async (dataUrl) => {
@@ -1272,6 +1402,9 @@ function registerIpc(): void {
     if (!sessions.list().some((v) => v.id === id)) throw new Error('the session is not open')
     return pageHistory(await sessions.history(id), before)
   })
+  // A paired device that connected while sub-agents or background tasks ran reads them here, for one
+  // session or a list (see remote/activity.ts).
+  ipc.handle('remote:activity', (_e, ids: unknown) => readActivity(remoteActivity, () => sessions.list().map((v) => v.id), ids))
   registerChatIpc(ipc, { slack, automations, configuration, guarded })
   // The chat's Listen button: a long agent message is summarized (one small Haiku query) before it is read aloud.
   const listenSummarizer = new ListenSummarizer({ bridgeDir, cwd: dataDir })
@@ -1388,6 +1521,19 @@ function showSessionNotification(n: SessionNotification): void {
   }, { sessionId: n.sessionId }, `session:${n.sessionId}`)
 }
 
+// Open permission requests and questions are announced again every N minutes (Settings →
+// Notifications, "Needs an answer") until answered, so one does not wait for hours unseen.
+const PERMISSION_REMINDER_TICK_MS = 60_000
+const remindedAt = new Map<string, number>()
+let permissionReminderTimer: ReturnType<typeof setInterval> | undefined
+async function remindWaitingSessions(): Promise<void> {
+  const options = appOptions(await configuration.current())
+  const main = win && !win.isDestroyed() ? win : null
+  const viewing = viewedSessions({ visible: !!main?.isVisible(), focused: !!main?.isFocused(), session: automations.viewing() }, sessionWindows.focusedSession())
+  const input = { views: sessions.list(), remindedAt, now: Date.now(), intervalMinutes: options.notifyNeedsAnswer ? options.remindNeedsAnswerMinutes : 0, viewing, t: trayText(trayLocale).t }
+  for (const n of reminderNotifications(input)) showSessionNotification(n)
+}
+
 /** A usage alert (worded by the renderer); a click brings the window up on Home. */
 function showUsageNotification(n: { title: string; body: string }): void {
   void notifier.show('usage', n, () => {
@@ -1432,7 +1578,7 @@ const healthWatcher = new HealthWatcher({
   alertSettings: async (profileId) => (await configuration.current()).profiles.find((p) => p.id === profileId)?.health?.alerts,
   changed: scheduleTray,
   cooldowns: (() => {
-    const file = new StateFile<{ firedAt: Record<string, number> }>(join(dataDir, 'health-alerts.json'), 500)
+    const file = db.state<{ firedAt: Record<string, number> }>('health-alerts', 500)
     return { load: () => file.load({ firedAt: {} }).firedAt ?? {}, save: (firedAt) => file.save({ firedAt }), flush: () => file.flush() }
   })()
 })
@@ -1456,7 +1602,7 @@ const flowAlertWatcher = new FlowAlertWatcher({
   read: (profileId, environmentId, mapId, hours) => health.flowMap(profileId, environmentId, mapId, hours),
   alert: flowAlertNotification,
   cooldowns: (() => {
-    const file = new StateFile<{ firedAt: Record<string, number> }>(join(dataDir, 'flow-alerts.json'), 500)
+    const file = db.state<{ firedAt: Record<string, number> }>('flow-alerts', 500)
     return { load: () => file.load({ firedAt: {} }).firedAt ?? {}, save: (firedAt) => file.save({ firedAt }), flush: () => file.flush() }
   })()
 })
@@ -1515,16 +1661,16 @@ const productMetricSource = new ProductMetricSource(async (profileId) => (await 
 const metricAlerts = new MetricAlertService({
   profiles: metricAlertProfiles,
   sources: () => (demoHealth ? [healthMetricSource, demoMetricSource, ...(scenario ? [productMetricSource] : [])] : [healthMetricSource]),
-  store: new StateFile<MetricAlertsState>(join(dataDir, 'metric-alerts.json'), 1_000),
+  store: db.state<MetricAlertsState>('metric-alerts', 1_000),
   notify: metricAlertNotification,
   changed: (profileId) => send('metricAlerts:changed', profileId),
   demo: demoHealth
 })
 
-// Plan milestones and inbox (planner-state.json: per profile, user data rather than settings).
+// Plan milestones and inbox (the `planner-state` key of `kv_state`: per profile, user data rather than settings).
 const planner = new PlannerService({
   profiles: async () => (await configuration.current()).profiles,
-  store: new StateFile<PlannerState>(join(dataDir, 'planner-state.json'), 500),
+  store: db.state<PlannerState>('planner-state', 500),
   tracker: (profileId, connectionId) => ticketService.trackerFor(profileId, connectionId),
   // Every window: the main one, and the windows of single inbox items and milestones.
   changed: (profileId) => BrowserWindow.getAllWindows().forEach((w) => !w.isDestroyed() && w.webContents.send('planner:changed', profileId))
@@ -1534,8 +1680,9 @@ const ticketWatcher = new TicketWatcher({
   activeProfileId: async () => (await configuration.current()).activeProfileId ?? null,
   enabled: async () => appOptions(await configuration.current()).notifyTickets,
   list: (profileId) => ticketService.call(profileId, (t, ignored) => t.listAssigned({ ignoredStatuses: ignored })),
-  store: new StateFile(join(dataDir, 'ticket-watch.json'), 500),
+  store: db.state('ticket-watch', 500),
   announce: ticketNotification,
+  record: (profileId, changes, at) => void timelines.appendTicketChanges(profileId, changes, at),
   // A burst (a profile not read for a day, a capped list) folds into one notification.
   announceSummary: (_profileId, changes) => void notifier.show('tickets', ticketSummaryWords(changes, trayText(trayLocale).t), () => navigate('tickets'))
 })
@@ -1858,34 +2005,6 @@ function startTray(): void {
   setInterval(scheduleTray, 60_000).unref?.()
 }
 
-/** Marks that Workhub 1's folder switches were filled into the profiles once (see `fillWorkhub1FolderFlags`). */
-const workhub1FolderFlags = new StateFile<{ done: boolean }>(join(dataDir, 'workhub1-folder-flags.json'), 0)
-
-/** Fills the folder switches Workhub 1 turned on into the profiles that leave them unset; the new config when one changed. */
-async function fillWorkhub1FolderFlagsFrom(v1: Workhub1Settings): Promise<Result<WorkhubConfig> | undefined> {
-  let last: Result<WorkhubConfig> | undefined
-  for (const profile of fillWorkhub1FolderFlags(v1, await configuration.current(), homedir())) {
-    last = await configuration.saveProfile(profile)
-    if (!last.ok) break
-  }
-  if (last?.ok) send('config:changed')
-  return last
-}
-
-/** Once, at the first launch that finds Workhub 1's settings: profiles imported before the folder switches were imported get them. */
-async function fillWorkhub1FolderFlagsOnce(): Promise<void> {
-  if (loadError || workhub1FolderFlags.load({ done: false }).done) return
-  try {
-    const v1 = await readWorkhub1Settings()
-    if (!v1) return
-    await fillWorkhub1FolderFlagsFrom(v1)
-    workhub1FolderFlags.save({ done: true })
-    workhub1FolderFlags.flush()
-  } catch {
-    // Tried again at the next launch.
-  }
-}
-
 /** Profiles with folders and no default folder get their first folder, so "New session" says where it starts. */
 async function fillDefaultFoldersOnStart(): Promise<void> {
   if (loadError) return
@@ -1930,7 +2049,7 @@ void app.whenReady().then(async () => {
       openLocalReviewWindow(sessionId, true)
       return { ok: true }
     },
-    saveFlowMap: (map) => saveFlowMap(join(dataDir, FLOW_MAPS_FOLDER), map, { keepAlerts: true }),
+    saveFlowMap: (map) => saveFlowMap(flowMaps, map, { keepAlerts: true }),
     addInboxItems: async (body) => {
       // A reviewer cannot propose items; a request without a session may (see resolveControlProfile).
       const b = (body && typeof body === 'object' && !Array.isArray(body) ? body : {}) as Record<string, unknown>
@@ -1950,16 +2069,12 @@ void app.whenReady().then(async () => {
       save: (a) => automations.save(a),
       agentKeys: async (profileId) => resolveEffectiveAgents(await configuration.current(), profileId).map((a) => a.key),
       history: () => namedHistory.get(10_000),
-      messages: async (entry) => {
-        const source = historySources[entry.agentId as keyof typeof historySources]
-        if (!source) return []
-        const config = await configuration.current()
-        const account = entry.accountId ? (config.accounts.find((a) => a.id === entry.accountId) ?? null) : null
-        const configDir = entry.agentId === 'claude' ? claudeConfigDirOf(config, account, homedir()) : (account?.configDir ?? undefined)
-        return source.messages(entry.agentSessionId, entry.cwd ?? homedir(), configDir)
-      },
-      newId: () => crypto.randomUUID().slice(0, 8)
+      search: (query, options) => searchPastSessions(query, options),
+      messages: pastMessages,
+      newId: () => crypto.randomUUID().slice(0, 8),
+      runs: (query) => automationRuns.list(query)
     }),
+    analytics: createAnalyticsControl({ ...controlProfiles, db, queries: analyticsQueries, log: (m) => diagnostics.log.info(m) }),
     log: (m) => diagnostics.log.warn(m)
   }
   if (loopbackControl) {
@@ -1994,7 +2109,7 @@ void app.whenReady().then(async () => {
   await refreshMenu()
   createWindow()
   // One after the other: both rewrite profiles.
-  void fillWorkhub1FolderFlagsOnce().then(fillDefaultFoldersOnStart, () => undefined)
+  void fillDefaultFoldersOnStart().catch(() => undefined)
   await refreshOptionsCache()
   try {
     startTray()
@@ -2006,6 +2121,7 @@ void app.whenReady().then(async () => {
   }
   usage.start()
   tokenSpend.start()
+  permissionReminderTimer = setInterval(() => void remindWaitingSessions().catch((err: unknown) => diagnostics.log.warn(`permission reminders: ${err instanceof Error ? err.message : String(err)}`)), PERMISSION_REMINDER_TICK_MS)
   // Opt-in: nothing contacts GitHub unless the user turned this on (or presses "Check now").
   // A version found by these automatic checks is announced in a prompt, at most once a day.
   if (app.isPackaged) {
@@ -2027,6 +2143,7 @@ void app.whenReady().then(async () => {
   }
   calendarWatcher.start()
   planner.start()
+  historyIndexer.start()
   // First run: no profile yet and the welcome was not finished.
   const first = await configuration.current()
   if (!loadError && first.profiles.length === 0 && !appOptions(first).welcomeDone) openSetupWindow('welcome')
@@ -2048,6 +2165,7 @@ nativeUpdater.on('before-quit-for-update', () => {
   sessionWindows.suspend()
   settingsWindow.flush()
   openSessions.freeze()
+  if (firstInstance) db.flushAll()
 })
 app.on('before-quit', (event) => {
   void remoteService.stop()
@@ -2064,6 +2182,7 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   quitting = true
   usage.stop()
+  if (permissionReminderTimer) clearInterval(permissionReminderTimer)
   kiroUsageReader?.dispose()
   tokenSpend.stop()
   prEvents.stop()
@@ -2078,8 +2197,28 @@ app.on('before-quit', (event) => {
   ticketWatcher.stop()
   calendarWatcher.stop()
   planner.stop()
+  historyIndexer.stop()
   sessionNames.flush()
+  if (firstInstance) db.flushAll()
   void sessions.stopAll().finally(() => app.quit())
+})
+// Last: every pending state is written and the database closed once nothing else will write.
+// A second instance only ever had the throwaway in-memory database: nothing to write.
+// The analytics worker's read connection is gone first (its process has exited), so the close's
+// checkpoint empties the write-ahead log and no `workhub.db-wal` outlives the app.
+let dbClosed = false
+app.on('will-quit', (event) => {
+  historyIndexer.stop()
+  if (dbClosed) return
+  event.preventDefault()
+  const closeDb = () => {
+    if (dbClosed) return
+    dbClosed = true
+    if (firstInstance) db.close()
+    // A quit asked for again from here is ignored once will-quit was cancelled; everything ran, so exit.
+    app.exit(0)
+  }
+  void analyticsQueries.closeAndWait(2000).then(closeDb, closeDb)
 })
 // Kept in the menu bar, the app outlives its windows (a window closed some other way than its
 // close button is opened again from the icon); otherwise closing the last window quits.

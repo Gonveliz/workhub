@@ -1,4 +1,4 @@
-import { FolderOpen, Trash2, Upload } from 'lucide-react'
+import { Trash2, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { moduleScreens } from '@workhub/core'
 import type { ConfigSnapshot } from '@shared/api'
@@ -22,7 +22,6 @@ export function FlowMapsSettings({ snap, profileId, onOpenModules }: { snap: Con
   const { t, tn } = useI18n()
   const toast = useToast()
   const profile = snap.config.profiles.find((p) => p.id === (profileId ?? snap.config.activeProfileId))
-  const [folder, setFolder] = useState('')
   const [maps, setMaps] = useState<FlowMapSummary[] | null>(null)
   const [error, setError] = useState<string>()
   const [deleting, setDeleting] = useState<FlowMapSummary | null>(null)
@@ -36,7 +35,6 @@ export function FlowMapsSettings({ snap, profileId, onOpenModules }: { snap: Con
       })
       .catch((e: unknown) => setError(errorText(e)))
   useEffect(() => {
-    void window.hub.flowMaps.folder().then(setFolder, () => setFolder(''))
     void load()
   }, [profile?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -73,14 +71,10 @@ export function FlowMapsSettings({ snap, profileId, onOpenModules }: { snap: Con
       {!on && onOpenModules && <ModuleOffNote module="flowMaps" onOpenModules={onOpenModules} />}
       {on && !healthOn && <p className="rounded-md bg-warning-soft px-3 py-2 text-sm text-warning">{t('flowMaps.settings.needsHealth')}</p>}
 
-      <SettingsGroup title={t('flowMaps.settings.folder')} footnote={t('flowMaps.settings.format')}>
+      <SettingsGroup title={t('flowMaps.settings.add')} footnote={t('flowMaps.settings.format')}>
         <div className="flex flex-col gap-2 py-3">
-          <code className="break-all rounded bg-surface-raised px-2 py-1 text-xs text-muted" data-testid="flow-maps-folder">{folder || '…'}</code>
-          <p className="text-xs text-subtle">{t('flowMaps.settings.folderHint')}</p>
+          <p className="text-xs text-subtle">{t('flowMaps.settings.addHint')}</p>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" icon={<FolderOpen className="size-3.5" aria-hidden />} onClick={() => window.hub.flowMaps.reveal()}>
-              {t('flowMaps.settings.reveal')}
-            </Button>
             <Button size="sm" variant="primary" icon={<Upload className="size-3.5" aria-hidden />} disabled={busy} onClick={() => void importFiles()}>
               {t('flowMaps.settings.import')}
             </Button>

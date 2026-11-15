@@ -167,7 +167,7 @@ export interface BriefRecord {
   error?: string
 }
 
-/** What the Plan watcher keeps between launches (`calendar-state.json`). */
+/** What the Plan watcher keeps between launches (the `calendar-state` key of `kv_state`). */
 export interface CalendarState {
   /** Reminder and rule keys already fired, with when. */
   fired: Record<string, number>

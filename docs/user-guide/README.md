@@ -15,7 +15,7 @@ One page per area of Workhub 2. Names in **bold** are labels you see in the app 
 11. [Plan](plan.md)
 12. [Automations](automations.md)
 13. [History](history.md)
-14. [Usage and budgets](usage.md)
+14. [Usage and budgets](usage.md) (and Usage and reports)
 15. [Settings](settings.md)
 16. [Keyboard shortcuts](keyboard-shortcuts.md)
 

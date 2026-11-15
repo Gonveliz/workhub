@@ -37,6 +37,20 @@ describe('buildHub', () => {
     expect(sent).toEqual([['sessions:permission', ['s1', 'r1', 'allow', undefined]]])
   })
 
+  it('maps the usage reports to their analytics channels', async () => {
+    const { transport, invoked } = fakeTransport()
+    const hub = buildHub(transport, 'linux')
+    const q = { since: 0, until: 1, groupBy: 'agent' as const }
+    await hub.analytics.spend({ ...q, bucket: 'day' })
+    await hub.analytics.totals(q)
+    await hub.analytics.sessions({ tag: 'spike' })
+    await hub.analytics.weekly({ weekStart: 0 })
+    await hub.analytics.filters({})
+    await hub.analytics.refresh()
+    expect(invoked.map(([c]) => c)).toEqual(['analytics:spend', 'analytics:totals', 'analytics:sessions', 'analytics:weekly', 'analytics:filters', 'analytics:refresh'])
+    expect(invoked[0]![1]).toEqual([{ ...q, bucket: 'day' }])
+  })
+
   it('normalizes optional arguments the way the preload did', async () => {
     const { transport, invoked, sent } = fakeTransport()
     const hub = buildHub(transport, 'mac')

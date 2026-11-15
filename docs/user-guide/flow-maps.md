@@ -11,16 +11,18 @@ numbers come from the Health environment you pick.
 
 ## Where maps live
 
-`flow-maps/` inside Workhub's data folder, one file per map, named after its `id`. **Settings → Profiles → (profile) → Screens →
-Flow maps** (open the row) shows the folder, reveals it, imports JSON files into it and lists every map it holds
-(an invalid file is listed with its error, and can be deleted from there). The folder is read on
-every refresh, so a new or edited file shows up without a restart.
+In Workhub's database (`workhub.db` in the data folder), one map per `id`. **Settings → Profiles → (profile) → Screens →
+Flow maps** (open the row) imports JSON files and lists every stored map (an invalid one is listed
+with its error, and can be deleted from there). Maps are read on every refresh, so a new or replaced
+map shows up without a restart. Earlier versions read a `flow-maps/` folder; on the first start of this version its maps are
+stored in the database and the folder is renamed to `flow-maps.migrated/` (nothing is deleted; when
+two files had the same `id`, `<id>.json` wins and the other is left as `.skipped`). Dropping a file in
+a `flow-maps/` folder no longer adds a map: import it in Settings or post it with the skill.
 
 Three ways to add one:
 
 - **Settings → Profiles → (profile) → Screens → Flow maps → Import JSON…** picks one or more files; each is validated and stored
   under its `id`.
-- Drop the file in the folder.
 - Post it to the local control endpoint from inside a Workhub session (what the
   `workhub-flow-map` skill does):
 
@@ -48,15 +50,17 @@ of showing numbers.
 ## The screen
 
 **Flow maps (⌘7)** has one header row: the title, the Health environments as a segmented control
-(a dot for each one's state; hover it for the label), and **Reload** (reads the folder and the
+(a dot for each one's state; hover it for the label), and **Reload** (reads the stored maps and the
 opened map again) and **Settings** (Settings → Profiles → (profile) → Screens → Flow maps) at the right.
 
-The left rail lists the maps of the folder that name the chosen environment (or name none): under
+The left rail lists the stored maps that name the chosen environment (or name none): under
 their `group` heading (maps without one under **Other**, last), with a search box that matches name,
 heading and description (accents and case ignored). The dot next to each map says how it stands in
-the last stored hour: red when a part is over the map's limits, green when none is, grey without
-limits or without data yet; a red count next to it says how many parts are over. The dots and
-counts come from the local history only: listing the maps never reads the cluster.
+the last stored hour: red when a part is over the map's limits, green when none is. A map with no
+limits, no data yet, or no reading in the last two hours (the connection down, the profile idle)
+shows no dot, so nothing looks live when it is not; a red count next to a map says how many parts
+are over. The dots and counts come from the local history only: listing the maps never reads the
+cluster.
 
 The map picked opens next to the rail with:
 
@@ -128,7 +132,7 @@ to turn Health on. Without the Flow maps module the screen only says how to turn
 
 ### Editing the limits in Settings
 
-**Settings → Alerts → Flow maps · limits** lists every valid map of the folder under its `group`,
+**Settings → Alerts → Flow maps · limits** lists every valid stored map under its `group`,
 with the environment that measures it. Per map: a row for every part (p95 in ms, failure share in
 %, **Slow above (ms)** and **Slow calls (%)**, and the map's **Notify** switch), one row per part
 with limits of its own (pick a measured part and **Add part limit**; a blank field inherits the
@@ -157,9 +161,10 @@ over those 80 minutes. The previous window is the same number of whole hours jus
   measure the same thing share it. At most four reads run against the cluster at once, the alert
   checks included.
 - If a read fails, the stored numbers stay on screen and a message says why they are not newer.
-- The history lives in `flow-history/` in the data folder, one file per profile, connection and
-  environment (about 10 MB for a few hundred measures). Hours older than seven days are dropped,
-  and a file not written for seven days is deleted.
+- The history lives in the database (`workhub.db`), per profile, connection and environment
+  (stored under a hash, never the names). Only the hours that change are written. The screens read
+  the last seven days; hours are kept 90 days and older ones are deleted at start, as is a measure
+  not read in 90 days.
 
 An execution is kept 10 minutes.
 
