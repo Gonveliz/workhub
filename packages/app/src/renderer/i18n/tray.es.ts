@@ -15,6 +15,8 @@ export const trayEs: Record<keyof typeof trayEn, string> = {
   'tray.tooltip.running.other': '{count} trabajando',
   'tray.tooltip.paused': 'notificaciones en pausa',
   'tray.section.needsYou': 'Te necesitan',
+  'notify.needsAnswerReminder': 'Te espera desde hace {minutes} min',
+  'notify.needsAnswerReminderConsole': 'La consola espera un permiso o una respuesta desde hace {minutes} min',
   'tray.nothingNeedsYou': 'Nada te necesita',
   'tray.level.error': 'Error',
   'tray.level.needsAnswer': 'Necesita una respuesta',

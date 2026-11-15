@@ -34,7 +34,7 @@ export interface SavedSessionWindows {
   sessions: { key: string; bounds?: WindowBounds }[]
 }
 
-/** Where the remembered windows are kept (a `StateFile` in the data folder). */
+/** Where the remembered windows are kept (a `StateStore` in the database). */
 export interface SessionWindowsStore {
   load(fallback: SavedSessionWindows): SavedSessionWindows
   save(value: SavedSessionWindows): void
@@ -298,6 +298,11 @@ export class SessionWindows {
     this.held.delete(contents)
     if (!queue || contents.isDestroyed()) return
     for (const [channel, args] of queue) contents.send(channel, ...args)
+  }
+
+  /** The session of the separate window that has the focus, if any. */
+  focusedSession(): string | null {
+    return this.focused
   }
 
   private setFocused(id: string | null): void {

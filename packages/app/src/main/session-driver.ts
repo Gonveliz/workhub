@@ -91,6 +91,11 @@ export class SessionDriver {
     this.viewing = sessionId
   }
 
+  /** The session the main window shows, as the renderer last reported it. */
+  viewingId(): string | null {
+    return this.viewing
+  }
+
   views(): SessionView[] {
     return this.sessions.list()
   }

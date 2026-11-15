@@ -11,12 +11,14 @@ import {
   type AutomationDefinition,
   type AutomationHost,
   type AutomationNotice,
+  type AutomationRun,
   type AutomationsState,
   type BudgetStatus,
   type ConfigurationService,
   type DrivenSession,
   type Result,
-  type WorkhubConfig
+  type WorkhubConfig,
+  type StateStore
 } from '@workhub/core'
 import { locateClaudeTranscript } from '@workhub/adapters/transcript-claude'
 import type { AccountUsage, SessionView, StartSessionInput } from '../shared/api'
@@ -25,14 +27,13 @@ import { agentKeyBudget } from './agent-usage'
 import { claudeAccounts } from './claude-accounts'
 import type { SessionDriver } from './session-driver'
 import type { SlackWatcherService } from './slack-watcher'
-import type { StateFile } from './state-file'
 
 export interface AutomationServiceDeps {
   configuration: ConfigurationService
   driver: SessionDriver
   startSession: (input: StartSessionInput) => Promise<SessionView>
   watcher: SlackWatcherService
-  state: StateFile<AutomationsState>
+  state: StateStore<AutomationsState>
   home: string
   usage: () => AccountUsage[]
   /** The usage budget verdict of an account (Settings → Usage); automatic runs wait past a ceiling. */
@@ -41,6 +42,11 @@ export interface AutomationServiceDeps {
   /** The stored config changed here (a session's sidebar place moved); the renderer reloads it. */
   configChanged: () => void
   notice: (notice: ChatNoticeEvent) => void
+  /**
+   * Every run the engine logs (it keeps only the last ones), new or changed, with the profile of
+   * its automation: the full history lives in the database.
+   */
+  recordRuns?: (runs: readonly AutomationRun[], profileOf: (automationId: string) => string | null) => void
 }
 
 const TICK_MS = 2_000
@@ -87,6 +93,8 @@ export class AutomationService {
 
   async start(): Promise<void> {
     await this.reload()
+    // The runs the state kept from before (the history starts with them).
+    this.recordRuns(this.engine.snapshot().runs)
     if (this.timer) return
     this.timer = setInterval(() => void this.tick(), TICK_MS)
     this.timer.unref?.()
@@ -156,8 +164,17 @@ export class AutomationService {
       notify: (n: AutomationNotice) => this.deps.notice({ kind: 'automationFailed', automationName: n.automationName, outcome: n.outcome, detail: n.detail }),
       persist: (state) => {
         this.deps.state.save(state)
+        this.recordRuns(state.runs)
         this.changed()
       }
+    }
+  }
+
+  private recordRuns(runs: readonly AutomationRun[]): void {
+    try {
+      this.deps.recordRuns?.(runs, (id) => this.defs.find((d) => d.id === id)?.profileId ?? null)
+    } catch {
+      // The history is a record: a failed write never stops a run.
     }
   }
 
@@ -250,6 +267,11 @@ export class AutomationService {
 
   setViewing(sessionId: string | null): void {
     this.deps.driver.setViewing(sessionId)
+  }
+
+  /** The session on screen in the main window, when the renderer reported one. */
+  viewing(): string | null {
+    return this.deps.driver.viewingId()
   }
 
   snapshot(): AutomationsSnapshot {

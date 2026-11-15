@@ -55,6 +55,8 @@ export interface AppOptions {
   notifyReplied: boolean
   /** OS notification when a session asks for a permission or an answer. */
   notifyNeedsAnswer: boolean
+  /** Minutes between reminders while a permission or an answer still waits (0: no reminder). */
+  remindNeedsAnswerMinutes: number
   /** OS notification when a session fails. */
   notifyError: boolean
   /** Look for a newer release on GitHub at startup and from Settings. Off by default (nothing is contacted unless asked). */
@@ -167,7 +169,12 @@ export const DEFAULT_SPEECH_RATE = 190
 /** The cheap model a long message is summarized with before it is read aloud. */
 export const DEFAULT_LISTEN_MODEL = 'haiku'
 
-export const DEFAULT_OPTIONS: AppOptions = { claudePlanUsage: false, notifyReplied: true, notifyNeedsAnswer: true, notifyError: true, checkForUpdates: false, notifyPrEvents: DEFAULT_PR_EVENT_TOGGLES, codexUsage: false, kiroUsage: true, usageBudget: DEFAULT_USAGE_BUDGET, notifySlack: true, notifyAutomations: true, notifyTickets: true, notifyHealth: true, notifyFlowMaps: true, notifyMeetings: true, notifyMetricAlerts: true, healthRefreshFloorMinutes: DEFAULT_HEALTH_FLOOR_MINUTES, keepInTray: true, reopenSessions: true, startSessionsAtLaunch: false, showAppBadge: true, trayPopover: DEFAULT_TRAY_POPOVER_OPTIONS, notificationsEnabled: true, readAloud: false, speechVoice: '', speechRate: DEFAULT_SPEECH_RATE, listenModel: DEFAULT_LISTEN_MODEL, welcomeDone: false, workhubMcp: true }
+/** Reminder cadence while a session waits for a permission or an answer; the choices Settings offers. */
+export const DEFAULT_REMIND_NEEDS_ANSWER_MINUTES = 15
+export const MAX_REMIND_NEEDS_ANSWER_MINUTES = 240
+export const REMIND_NEEDS_ANSWER_CHOICES = [0, 5, 15, 30, 60] as const
+
+export const DEFAULT_OPTIONS: AppOptions = { claudePlanUsage: false, notifyReplied: true, notifyNeedsAnswer: true, remindNeedsAnswerMinutes: DEFAULT_REMIND_NEEDS_ANSWER_MINUTES, notifyError: true, checkForUpdates: false, notifyPrEvents: DEFAULT_PR_EVENT_TOGGLES, codexUsage: false, kiroUsage: true, usageBudget: DEFAULT_USAGE_BUDGET, notifySlack: true, notifyAutomations: true, notifyTickets: true, notifyHealth: true, notifyFlowMaps: true, notifyMeetings: true, notifyMetricAlerts: true, healthRefreshFloorMinutes: DEFAULT_HEALTH_FLOOR_MINUTES, keepInTray: true, reopenSessions: true, startSessionsAtLaunch: false, showAppBadge: true, trayPopover: DEFAULT_TRAY_POPOVER_OPTIONS, notificationsEnabled: true, readAloud: false, speechVoice: '', speechRate: DEFAULT_SPEECH_RATE, listenModel: DEFAULT_LISTEN_MODEL, welcomeDone: false, workhubMcp: true }
 
 export function appOptions(config: Pick<WorkhubConfig, 'options'>): AppOptions {
   const options = { ...DEFAULT_OPTIONS, ...config.options }
@@ -597,6 +604,7 @@ export const configSchema = z.object({
       claudePlanUsage: z.boolean().default(false),
       notifyReplied: z.boolean().default(true),
       notifyNeedsAnswer: z.boolean().default(true),
+      remindNeedsAnswerMinutes: clamped([0, MAX_REMIND_NEEDS_ANSWER_MINUTES], DEFAULT_REMIND_NEEDS_ANSWER_MINUTES),
       notifyError: z.boolean().default(true),
       checkForUpdates: z.boolean().default(false),
       notifyPrEvents: z

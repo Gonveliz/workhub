@@ -17,6 +17,8 @@ export const trayEn = {
   'tray.tooltip.running.other': '{count} running',
   'tray.tooltip.paused': 'notifications paused',
   'tray.section.needsYou': 'Needs you',
+  'notify.needsAnswerReminder': 'Still waiting for you after {minutes} min',
+  'notify.needsAnswerReminderConsole': 'The console has been waiting for a permission or an answer for {minutes} min',
   'tray.nothingNeedsYou': 'Nothing needs you',
   'tray.level.error': 'Error',
   'tray.level.needsAnswer': 'Needs an answer',

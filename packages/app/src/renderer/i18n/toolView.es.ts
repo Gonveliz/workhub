@@ -2,7 +2,7 @@ import type { toolViewEn } from './toolView.en'
 
 /** Spanish copy for `toolView.en.ts`: same keys, same placeholders. */
 export const toolViewEs: Record<keyof typeof toolViewEn, string> = {
-  'tool.showMore': 'Ver más',
+  'tool.showMore': 'Mostrar más',
   'tool.showLess': 'Ver menos',
   'tool.showAll': 'Ver las {total} líneas',
   'tool.output': 'Salida',

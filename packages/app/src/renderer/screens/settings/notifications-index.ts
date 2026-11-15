@@ -51,7 +51,7 @@ export const NOTIFICATIONS_INDEX: readonly NotificationsIndexEntry[] = [
   ]),
   ...rows('notifAlerts.group.sessions', [
     [ID.sessionsReplied, 'notifAlerts.row.replied', 'notifAlerts.row.repliedHint', 'notifAlerts.what.help'],
-    [ID.sessionsNeedsAnswer, 'notifAlerts.row.needsAnswer'],
+    [ID.sessionsNeedsAnswer, 'notifAlerts.row.needsAnswer', 'notifAlerts.remindAria'],
     [ID.sessionsError, 'notifAlerts.row.error']
   ]),
   ...rows('notifAlerts.group.pullRequests', [

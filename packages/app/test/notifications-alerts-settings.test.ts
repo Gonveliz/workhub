@@ -1,7 +1,7 @@
 import { createElement, type ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { emptyConfig, NO_MODULES, type AppOptions, type Profile, type Result, type WorkhubConfig } from '@workhub/core'
+import { DEFAULT_OPTIONS, emptyConfig, NO_MODULES, type AppOptions, type Profile, type Result, type WorkhubConfig } from '@workhub/core'
 import type { ConfigSnapshot } from '../src/shared/api'
 
 /**
@@ -101,6 +101,22 @@ describe('Settings → Notifications and alerts', () => {
     // No channel columns: the app-wide options do not route per channel.
     expect(html).not.toContain('>Channels<')
     expect(html).toContain('Profiles with Health: Acme web')
+  })
+
+  it('the waiting row offers the reminder interval, saved as remindNeedsAnswerMinutes', async () => {
+    render()
+    const select = control('Remind while a session waits for an answer')
+    expect(select.value).toBe('15')
+    expect((select.options as { value: string; label: string }[]).map((o) => o.label)).toEqual(['No reminder', 'Remind every 5 min', 'Remind every 15 min', 'Remind every 30 min', 'Remind every 60 min'])
+    await call('Remind while a session waits for an answer', 'onChange', '30')
+    expect(saveOptions).toHaveBeenCalledWith({ remindNeedsAnswerMinutes: 30 })
+  })
+
+  it('a reminder interval typed in config.json that is not among the choices is still offered', () => {
+    render(snapshot({ options: { ...DEFAULT_OPTIONS, remindNeedsAnswerMinutes: 7 } }))
+    const select = control('Remind while a session waits for an answer')
+    expect(select.value).toBe('7')
+    expect((select.options as { value: string }[]).map((o) => o.value)).toEqual(['0', '5', '7', '15', '30', '60'])
   })
 
   it('a session switch writes its own option', async () => {
