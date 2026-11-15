@@ -191,3 +191,43 @@ describe('registerPrEventsIpc', () => {
     expect(asked).toEqual([['work', 'https://github.com/acme/api/pull/1'], [null, 'https://example.com/phish']])
   })
 })
+
+describe('PrEventService interval per code host connection', () => {
+  it('syncs each profile when its connection interval has passed, 3 minutes when the connection does not say', async () => {
+    const modules = { flows: false, health: false, chatWatcher: false, automations: false, flowMaps: false, planner: false }
+    const config: WorkhubConfig = {
+      ...emptyConfig(),
+      connections: [
+        { id: 'fast', kind: 'codeHost', provider: 'github', settings: { refreshMinutes: '1' } },
+        { id: 'plain', kind: 'codeHost', provider: 'github', settings: {} }
+      ],
+      profiles: [
+        { id: 'a', name: 'A', connections: { codeHost: 'fast' }, accountIds: [], modules },
+        { id: 'b', name: 'B', connections: { codeHost: 'plain' }, accountIds: [], modules }
+      ]
+    }
+    let now = 0
+    const reads: string[] = []
+    const service = new PrEventService({
+      source: { lists: async (p) => (reads.push(p ?? ''), { state: 'ready', mine: [], toReview: [] }), stateOf: async () => null },
+      store: { load: async () => ({ version: 1, profiles: {} }), save: async () => undefined },
+      config: async () => config,
+      emit: () => undefined,
+      now: () => now
+    })
+    await service.syncDue()
+    expect(reads).toEqual(['a', 'b'])
+    now = 59_000
+    await service.syncDue()
+    expect(reads).toEqual(['a', 'b'])
+    now = 60_000
+    await service.syncDue()
+    expect(reads).toEqual(['a', 'b', 'a'])
+    now = 180_000
+    await service.syncDue()
+    expect(reads).toEqual(['a', 'b', 'a', 'a', 'b'])
+    // A forced sync (start, demo) reads every profile at once.
+    await service.sync()
+    expect(reads.slice(5)).toEqual(['a', 'b'])
+  })
+})

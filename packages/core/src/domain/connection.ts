@@ -69,3 +69,29 @@ export const PROFILE_CONNECTION_KINDS: readonly ConnectionKind[] = CONNECTION_KI
 export function connectionSecretRef(connectionId: string): string {
   return `connection/${connectionId}`
 }
+
+/** The connection setting that says how often Workhub reads it, in minutes (a string, like every setting). */
+export const CONNECTION_REFRESH_SETTING = 'refreshMinutes'
+/** The minutes offered for a code host's pull requests and a tracker's tickets. */
+export const CONNECTION_REFRESH_CHOICES = [1, 2, 3, 5, 10, 15, 30, 60] as const
+/** How often each kind is read when its connection does not say: pull requests every 3 minutes, tickets every 5 (Workhub 1). */
+export const DEFAULT_REFRESH_MINUTES = { codeHost: 3, tracker: 5 } as const
+export type RefreshedKind = keyof typeof DEFAULT_REFRESH_MINUTES
+
+/** Minutes between reads of a connection: its setting clamped to 1–60, else the kind's default. */
+export function connectionRefreshMinutes(connection: Pick<Connection, 'settings'> | undefined, kind: RefreshedKind): number {
+  const raw = Number(connection?.settings[CONNECTION_REFRESH_SETTING])
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_REFRESH_MINUTES[kind]
+  return Math.min(60, Math.max(1, Math.round(raw)))
+}
+
+/** Milliseconds between reads of the `kind` connection a profile picks; the default when it picks none. */
+export function profileRefreshMs(
+  config: { profiles: readonly { id: string; connections: Partial<Record<ConnectionKind, string>> }[]; connections: readonly Connection[] },
+  profileId: string | null,
+  kind: RefreshedKind
+): number {
+  const id = config.profiles.find((p) => p.id === profileId)?.connections[kind]
+  const connection = id ? config.connections.find((c) => c.id === id && c.kind === kind) : undefined
+  return connectionRefreshMinutes(connection, kind) * 60_000
+}

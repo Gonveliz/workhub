@@ -73,7 +73,8 @@ Actions on the toolbar:
 ## Notifications
 
 Workhub checks your pull requests every three minutes and shows an OS notification when one changes
-or when someone asks for your review. **Settings → General → Pull request notifications** has a
+or when someone asks for your review. **Refresh every**, in the code host connection (**Settings →
+Connections → Code**), changes how often: from 1 to 60 minutes. The lists on screen follow it too. **Settings → General → Pull request notifications** has a
 switch per kind: **Review requested**, **Approved**, **Changes requested**, **New comments**, **CI
 failed**, **CI passing again**, **Merge conflicts**, **New commits**, **Merged**, **Closed**.
 Clicking a notification opens the pull request.

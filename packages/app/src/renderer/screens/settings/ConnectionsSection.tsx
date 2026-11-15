@@ -3,6 +3,9 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   appOptions,
   CALENDAR_CONNECTION_SETTINGS,
+  CONNECTION_REFRESH_CHOICES,
+  CONNECTION_REFRESH_SETTING,
+  connectionRefreshMinutes,
   findProvider,
   HEALTH_CONNECTION_SETTINGS,
   HEALTH_FLOOR_CHOICES,
@@ -310,6 +313,17 @@ export function ConnectionEditor({
     </Field>
   )
 
+  const refreshField = (refreshed: 'codeHost' | 'tracker') => (
+    <Field label={t('settingsConnections.refresh')} hint={t(refreshed === 'codeHost' ? 'settingsConnections.refreshHintCode' : 'settingsConnections.refreshHintTickets')}>
+      <Select
+        aria-label={t('settingsConnections.refresh')}
+        value={String(connectionRefreshMinutes(draft, refreshed))}
+        onChange={(v) => setSetting(CONNECTION_REFRESH_SETTING, v)}
+        options={CONNECTION_REFRESH_CHOICES.map((m) => ({ value: String(m), label: t('settingsConnections.refreshMinutes', { count: m }) }))}
+      />
+    </Field>
+  )
+
   const fields = (): ReactNode => {
     switch (kind) {
       case 'codeHost':
@@ -324,6 +338,7 @@ export function ConnectionEditor({
               <Input aria-label={t('settingsConnections.host')} value={draft.endpoint ?? ''} onChange={(e) => set({ endpoint: e.target.value })} placeholder={providerInfo?.defaultEndpoint ?? 'https://git.example.com'} spellCheck={false} />
             </Field>
             {secretInput(t('settingsConnections.token'), t('settingsConnections.tokenHintCode'))}
+            {refreshField('codeHost')}
           </>
         )
       case 'tracker': {
@@ -352,6 +367,7 @@ export function ConnectionEditor({
             <Field label={t('trackers.ignoredStatuses')} hint={t('trackers.ignoredStatusesHint')}>
               <Input aria-label={t('trackers.ignoredStatuses')} value={draft.settings[TRACKER_SETTINGS.ignored] ?? ''} onChange={(e) => setSetting(TRACKER_SETTINGS.ignored, e.target.value)} placeholder="Blocked, On hold" />
             </Field>
+            {refreshField('tracker')}
           </>
         )
       }

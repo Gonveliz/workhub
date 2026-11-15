@@ -38,4 +38,8 @@ switch to a profile not read for over a day, its tickets are recorded without no
 five changes in one read arrive as one summary, and a very long list (100 tickets or more) never
 reports a ticket as taken away, since the tracker may have left it out.
 
+Tickets are read every five minutes. **Refresh every**, in the tracker connection (**Settings →
+Connections → Tickets**), changes how often, from 1 to 60 minutes, for the notifications and the
+lists on screen.
+
 Next: [Slack](slack.md).

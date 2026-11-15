@@ -158,7 +158,7 @@ import { meetingReminderWords, planView, registerPlanIpc } from './plan-ipc'
 import { PlannerService, type PlannerState } from './planner-service'
 import { addControlInboxItems, registerPlannerIpc } from './planner-ipc'
 import { expandHome } from './automations'
-import { gatePrompt, owningProfile, productCalendarEvents, ticketsInProgress, type CalendarState, type DueAction } from '@workhub/core'
+import { gatePrompt, owningProfile, profileRefreshMs, productCalendarEvents, ticketsInProgress, type CalendarState, type DueAction } from '@workhub/core'
 import type { SetupPage } from '../shared/setup-api'
 
 // The control endpoint of a Workhub this one was started from (a dev run launched from a session of
@@ -1537,7 +1537,8 @@ const ticketWatcher = new TicketWatcher({
   store: new StateFile(join(dataDir, 'ticket-watch.json'), 500),
   announce: ticketNotification,
   // A burst (a profile not read for a day, a capped list) folds into one notification.
-  announceSummary: (_profileId, changes) => void notifier.show('tickets', ticketSummaryWords(changes, trayText(trayLocale).t), () => navigate('tickets'))
+  announceSummary: (_profileId, changes) => void notifier.show('tickets', ticketSummaryWords(changes, trayText(trayLocale).t), () => navigate('tickets')),
+  intervalMs: async (profileId) => profileRefreshMs(await configuration.current(), profileId, 'tracker')
 })
 
 async function refreshOptionsCache(): Promise<void> {

@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react'
+import { profileRefreshMs } from '@workhub/core'
 import type { CodeHostLists } from '@shared/codehost-api'
+import { currentConfig } from './configStore'
 import { errorText } from './lib/errorText'
 
-/** How often the lists refresh while a screen that shows them is open (Workhub 1: every 180 s). */
-export const REFRESH_MS = 180_000
+/** How often a poller checks whether its profile is due; the refresh itself follows the code host connection's interval. */
+export const POLL_TICK_MS = 15_000
+
+/** Milliseconds between refreshes of a profile's lists: its code host connection's interval (3 minutes by default, as Workhub 1). */
+export function refreshIntervalMs(profileId: string | null): number {
+  const snap = currentConfig()
+  return snap ? profileRefreshMs(snap.config, profileId, 'codeHost') : profileRefreshMs({ profiles: [], connections: [] }, null, 'codeHost')
+}
 
 interface Entry {
   lists: CodeHostLists | null
@@ -38,7 +46,9 @@ interface Poller {
   profileId: string | null
   users: number
   timer: ReturnType<typeof setInterval>
-  /** A tick came while the window was hidden: the next time it shows, the lists refresh at once. */
+  /** When this poller last refreshed (or started, right after the screen's own first read). */
+  lastAt: number
+  /** A refresh came due while the window was hidden: the next time it shows, the lists refresh at once. */
   missed: boolean
 }
 
@@ -56,13 +66,14 @@ function watchVisibility(): void {
     for (const p of pollers.values()) {
       if (!p.missed) continue
       p.missed = false
+      p.lastAt = Date.now()
       void refreshPullRequests(p.profileId, true)
     }
   })
 }
 
 /**
- * Keeps a profile's lists fresh while something shows them: every `REFRESH_MS`, skipped while the
+ * Keeps a profile's lists fresh while something shows them: at its code host connection's interval, skipped while the
  * window is hidden (and caught up with one refresh when it shows again). Returns the release.
  */
 export function pollPullRequests(profileId: string | null): () => void {
@@ -74,10 +85,16 @@ export function pollPullRequests(profileId: string | null): () => void {
       profileId,
       users: 0,
       missed: false,
+      lastAt: Date.now(),
       timer: setInterval(() => {
-        if (pageHidden()) p.missed = true
-        else void refreshPullRequests(profileId, true)
-      }, REFRESH_MS)
+        if (Date.now() - p.lastAt < refreshIntervalMs(profileId)) return
+        if (pageHidden()) {
+          p.missed = true
+          return
+        }
+        p.lastAt = Date.now()
+        void refreshPullRequests(profileId, true)
+      }, POLL_TICK_MS)
     }
     poller = p
     pollers.set(key, p)
