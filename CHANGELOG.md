@@ -4,6 +4,29 @@ All notable changes to Workhub 2 are listed here. Entries from 2.0.0-alpha.2 on 
 [release-please](https://github.com/googleapis/release-please) from the Conventional Commits on
 `main`; see the release process in [CONTRIBUTING.md](CONTRIBUTING.md#releases).
 
+## [2.0.0-alpha.31](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.30...v2.0.0-alpha.31) (2026-11-15)
+
+
+### Features
+
+* **sessions:** delete a closed or stopped session from the sidebar ([4d2621f](https://github.com/SoldierIced/workhub/commit/4d2621f00f3ebe09ebafd24804f1b52873ce0f37))
+* **sessions:** delete a closed or stopped session from the sidebar ([f3291b4](https://github.com/SoldierIced/workhub/commit/f3291b41998efcb3d5f0271d1742de0b0f7675f0))
+* **sessions:** drop the limit on images per message ([4a598e2](https://github.com/SoldierIced/workhub/commit/4a598e2d8702e222840e5f8360812564c4361cd8))
+* **sessions:** drop the limit on images per message ([72a2902](https://github.com/SoldierIced/workhub/commit/72a2902827cbf1cb00df787127692c53de393658))
+* **sessions:** open files and run shell commands from an agent's reply ([0fe0408](https://github.com/SoldierIced/workhub/commit/0fe0408cce1293499d62775a3452b5f45e74bc45))
+* **sessions:** open files and run shell commands from an agent's reply ([cea5251](https://github.com/SoldierIced/workhub/commit/cea52516fcdaa711ba370ca7fb56d97c72c8aa0a))
+* **sessions:** run /login from the chat through Claude's console ([10c875b](https://github.com/SoldierIced/workhub/commit/10c875b9ba8e23ccb386471153e42c84932344c1))
+
+
+### Bug Fixes
+
+* **accounts:** expand a leading ~ in account config folders ([d5af594](https://github.com/SoldierIced/workhub/commit/d5af594d84d756ac81ea8922bdf74cfd29f43f54))
+* agent startup errors, /login from the chat, Windows console path ([5a21bf8](https://github.com/SoldierIced/workhub/commit/5a21bf8a54537acb80045bcebeaf29807354cb66))
+* **agents:** show what an agent wrote to stderr when it exits on its own ([13d96d0](https://github.com/SoldierIced/workhub/commit/13d96d04b6358d720548bb15c799929a008d5e47))
+* **agents:** start .cmd shims such as npx on Windows ([bf61b6c](https://github.com/SoldierIced/workhub/commit/bf61b6c6090d82b0215247855d39460cc9a20cfa))
+* **agents:** start npx-based agents on Windows and expand ~ in account folders ([3a23eb3](https://github.com/SoldierIced/workhub/commit/3a23eb36927b38a229e8c088714985e2cb2bbbe1))
+* **terminal:** find the console's command on the session PATH on Windows ([b5eff87](https://github.com/SoldierIced/workhub/commit/b5eff878ddc26bbbeb3f4026f7c51847b0f7ab1f))
+
 ## [2.0.0-alpha.30](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.29...v2.0.0-alpha.30) (2026-11-14)
 
 
