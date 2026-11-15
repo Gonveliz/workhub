@@ -1,5 +1,5 @@
 import { ArrowUp, Check, Download, FileText, Image as ImageIcon, Square, TriangleAlert, X } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
 import type { ToolView } from '@workhub/core'
 import { Spinner } from '../../renderer/components/atoms'
 import { Markdown } from '../../renderer/components/molecules/Markdown'
@@ -12,6 +12,7 @@ import { useNow } from '../../renderer/lib/usage'
 import { usePendingFocus } from '../../renderer/lib/pendingFocus'
 import type { RemoteFile, RemoteHistoryPage } from '../../shared/remote-api'
 import { navigate, useClient, useClientStatus } from '../app-context'
+import { filePreview, type FilePreview } from '../file-preview'
 import { takeFirstPrompt } from '../first-prompt'
 import { basename, Body, Header, InlineConfirm, Screen } from '../ui'
 import { sessionTitle } from './HomeScreen'
@@ -20,21 +21,47 @@ import { subagentOfCall } from '../../renderer/lib/subagentView'
 import { SessionActivity } from './SessionActivity'
 
 const IMAGE = /\.(png|jpe?g|gif|webp|svg)$/i
-/** What is shown inline; anything else (SVG included: it can carry scripts) only downloads. */
-const INLINE_IMAGE = /^image\/(png|jpeg|gif|webp)$/
 
 function pathOf(view: ToolView | undefined): string | null {
   if (!view) return null
   return view.kind === 'edit' || view.kind === 'write' || view.kind === 'read' ? view.path : null
 }
 
-/** A file the agent touched: an image shows inline once fetched; anything else downloads. */
+/** What a fetched file shows above its row: the image, the rendered Markdown, the text, or why there is nothing. */
+export function FilePreviewBody({ file, preview, expanded }: { file: RemoteFile; preview: FilePreview | null; expanded: boolean }) {
+  const { t } = useI18n()
+  if (!preview) return null
+  if (preview.kind === 'image') return <img src={`data:${file.mime};base64,${file.data}`} alt={file.name} className="max-h-72 w-full object-contain" />
+  if (preview.kind === 'tooLong') {
+    return (
+      <div data-testid="file-preview-too-long" className="border-b border-border px-2.5 py-1.5 text-2xs text-muted">
+        {t('web.session.file.tooLong')}
+      </div>
+    )
+  }
+  const box = cn('border-b border-border px-3 py-2', !expanded && 'max-h-80 overflow-y-auto')
+  if (preview.kind === 'markdown') {
+    return (
+      <div data-testid="file-preview-markdown" className={box}>
+        <Markdown text={preview.text} />
+      </div>
+    )
+  }
+  return (
+    <pre data-testid="file-preview-text" className={cn(box, 'overflow-x-auto font-mono text-2xs text-fg')}>
+      {preview.text}
+    </pre>
+  )
+}
+
+/** A file the agent touched: once fetched, an image, a Markdown document or any text shows here; anything else downloads. */
 export function FileChip({ sessionId, path }: { sessionId: string; path: string }) {
   const { t } = useI18n()
   const client = useClient()
   const [file, setFile] = useState<RemoteFile | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(false)
   const isImage = IMAGE.test(path)
   const fetchFile = async () => {
     setLoading(true)
@@ -49,17 +76,23 @@ export function FileChip({ sessionId, path }: { sessionId: string; path: string 
     }
   }
   const dataUrl = file ? `data:${file.mime};base64,${file.data}` : null
-  const inline = file !== null && INLINE_IMAGE.test(file.mime)
+  const preview = useMemo(() => (file ? filePreview(file) : null), [file])
+  const readable = preview?.kind === 'markdown' || preview?.kind === 'text'
   return (
     <div className="mt-1.5 overflow-hidden rounded-lg border border-border bg-bg">
-      {dataUrl && inline && <img src={dataUrl} alt={file!.name} className="max-h-72 w-full object-contain" />}
-      <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs">
+      {file && <FilePreviewBody file={file} preview={preview} expanded={expanded} />}
+      <div className="flex items-center gap-3 px-2.5 py-1.5 text-xs">
         {isImage ? <ImageIcon className="size-3.5 shrink-0 text-info" aria-hidden /> : <FileText className="size-3.5 shrink-0 text-info" aria-hidden />}
         <span className="min-w-0 flex-1 truncate font-mono text-muted">{basename(path)}</span>
+        {readable && (
+          <button type="button" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded} className="shrink-0 text-accent">
+            {t(expanded ? 'web.session.file.collapse' : 'web.session.file.expand')}
+          </button>
+        )}
         {loading ? (
           <Spinner className="size-3.5" />
         ) : dataUrl ? (
-          <a href={dataUrl} download={file!.name} className="flex items-center gap-1 text-accent">
+          <a href={dataUrl} download={file!.name} className="flex shrink-0 items-center gap-1 text-accent">
             <Download className="size-3.5" aria-hidden />
             {t('web.session.file.download')}
           </a>

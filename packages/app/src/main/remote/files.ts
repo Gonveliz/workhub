@@ -53,14 +53,22 @@ function inside(rel: string): boolean {
  */
 export async function resolveRemoteFile(folder: string, path: string): Promise<string> {
   if (typeof folder !== 'string' || !folder || typeof path !== 'string' || !path.trim()) throw new RemoteRefused('a path is required')
-  const asked = relative(resolve(folder), resolve(folder, path))
-  if (!inside(asked)) throw new RemoteRefused('the file is not in the session folder')
-  if (hasSecretPart(asked)) throw new RemoteRefused('the file is not available remotely')
-  let root: string
-  let target: string
+  const absolute = resolve(folder, path)
+  let root: string | null
   try {
     root = await realpath(folder)
-    target = await realpath(resolve(folder, path))
+  } catch {
+    root = null
+  }
+  // As typed, the path is inside the folder as the session names it, or as it really is: when the
+  // folder is reached through a symlink, the agent names its files by either one.
+  const asked = [relative(resolve(folder), absolute), ...(root ? [relative(root, absolute)] : [])].find(inside)
+  if (asked === undefined) throw new RemoteRefused('the file is not in the session folder')
+  if (hasSecretPart(asked)) throw new RemoteRefused('the file is not available remotely')
+  let target: string
+  try {
+    if (!root) throw new Error('no folder')
+    target = await realpath(absolute)
   } catch {
     throw new RemoteRefused('the file was not found')
   }
