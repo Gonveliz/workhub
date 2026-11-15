@@ -72,6 +72,7 @@ export const sessionMonitorEs: Record<keyof typeof sessionMonitorEn, string> = {
   'monitor.openTrackerSettings': 'Abrir ajustes de trackers',
   'monitor.tool.ranCommand': 'Ejecutó un comando',
   'monitor.tool.askedQuestion': 'Te hizo una pregunta',
+  'monitor.tool.usedTool': 'Usó una herramienta',
   'monitor.tool.updatedTasks': 'Actualizó la lista de tareas',
   'monitor.tool.proposedPlan': 'Propuso un plan',
   'monitor.tool.ranCode': 'Ejecutó código',

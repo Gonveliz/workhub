@@ -70,6 +70,7 @@ export const sessionMonitorEn = {
   'monitor.openTrackerSettings': 'Open tracker settings',
   'monitor.tool.ranCommand': 'Ran a command',
   'monitor.tool.askedQuestion': 'Asked you a question',
+  'monitor.tool.usedTool': 'Used a tool',
   'monitor.tool.updatedTasks': 'Updated the task list',
   'monitor.tool.proposedPlan': 'Proposed a plan',
   'monitor.tool.ranCode': 'Ran code',

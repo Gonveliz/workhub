@@ -102,6 +102,8 @@ export function buildAppMenuTemplate(input: AppMenuInput): MenuItemConstructorOp
     submenu: [
       ...MENU_ROUTES.map((r): MenuItemConstructorOptions => ({ label: t(r.label), accelerator: `CmdOrCtrl+${r.key}`, click: () => run({ kind: 'navigate', route: r.route }) })),
       { label: t('nav.sessions'), accelerator: 'CmdOrCtrl+0', click: () => run({ kind: 'navigate', route: 'sessions' }) },
+      // Usage and reports has no key: ⌘1-⌘9 are taken.
+      { label: t('nav.usage'), click: () => run({ kind: 'navigate', route: 'usage' }) },
       { type: 'separator' },
       ...MODES.map((m): MenuItemConstructorOptions => ({ label: t(m.label), accelerator: `CmdOrCtrl+Alt+${m.key}`, click: () => run({ kind: 'showMode', mode: m.mode }) })),
       { type: 'separator' },

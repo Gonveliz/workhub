@@ -25,6 +25,7 @@ reported by the agent**; a missing or unreadable transcript never breaks the ses
 | Activity | The tool calls so far: commands run, files read, edited or written, searches, pages fetched, subagents started. |
 | Tickets, Pull requests | The tickets and pull requests the session worked on, found from its tool calls. With a tracker connected, tickets show their title and status; click one to open it. |
 | Local changes | Uncommitted changes in the repos the session changed (files and repos), with a **clean** marker per repo. A repo counts when the agent (or one of its sub-agents) edited or wrote a file in it, ran a git command that writes there (commit, push, merge, rebase, cherry-pick, revert, a new branch), or ran `gh pr create` or `gh pr merge` there. A repo it only read (`cd`, `git log`, a search) does not count, and neither does one it changed only through other shell commands (a redirect into a file, `sed -i`, a code generator) until it commits there. |
+| Tags | Free labels for what the session is about (an idea, a client, a spike); Return or a comma adds one, × removes it. They group and filter sessions in [Usage and reports](usage.md#usage-and-reports). |
 | Slack | Threads that wake this session and messages about its tickets and pull requests. See [Slack](slack.md). |
 
 Pull requests and tickets from the monitor open in Workhub (**View in app**) or on the code host
@@ -53,6 +54,7 @@ The monitor also holds **Usage limit for this session**, a ceiling for this one 
   (input, cache writes and output); a smaller "+ cache" figure shows the cache reads apart, because
   they are most of the volume but cost much less. A session counts for the folder its edits and
   commands worked in.
+- **Usage by agent** has **See reports**, which opens [Usage and reports](usage.md#usage-and-reports).
 
 A card that depends on something not configured says so and links to **Settings**.
 

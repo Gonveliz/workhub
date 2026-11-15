@@ -98,7 +98,7 @@ export function TopNav({ items, route, onNavigate, profileId }: TopNavProps) {
         const active = route === item.route
         const name = t(ROUTE_LABEL[item.route])
         const { badge, note } = extra(item.route)
-        const tip = [`${name} (${shortcutLabel(item.shortcut, platform)})`, note].filter(Boolean).join('\n')
+        const tip = [item.shortcut ? `${name} (${shortcutLabel(item.shortcut, platform)})` : name, note].filter(Boolean).join('\n')
         const labelled = level < 2 || (level === 2 && active)
         return (
           <button

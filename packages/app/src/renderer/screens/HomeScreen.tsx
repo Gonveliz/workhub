@@ -188,7 +188,7 @@ export function HomeScreen({ profile, sessions, usage: reads = [], onOpenSession
           <div className="flex min-w-0 flex-col gap-3">
             <PullRequestCard kind="mine" profileId={profile?.id ?? null} lists={pullRequests.lists} onOpenPullRequest={onOpenPullRequest} onOpenAll={() => onOpenPullRequest()} onOpenSettings={onOpenSettings} />
             <PullRequestCard kind="toReview" profileId={profile?.id ?? null} lists={pullRequests.lists} onOpenPullRequest={onOpenPullRequest} onOpenAll={() => onOpenPullRequest()} onOpenSettings={onOpenSettings} />
-            <AgentUsageCard sections={usageSections} kiro={kiro} kiroSpend={kiroSpend} apiSpend={apiSpend} ceilings={budget.ceilings} now={now} onOpenSettings={() => onOpenSettings('usage')} />
+            <AgentUsageCard sections={usageSections} kiro={kiro} kiroSpend={kiroSpend} apiSpend={apiSpend} ceilings={budget.ceilings} now={now} onOpenSettings={() => onOpenSettings('usage')} onOpenReports={onNavigate ? () => onNavigate('usage') : undefined} />
           </div>
           <div className="flex min-w-0 flex-col gap-3">
             {modules.has('planner') && profile && <HomeInboxCard profileId={profile.id} onOpenPlan={() => onNavigate?.('plan')} />}
