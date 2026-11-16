@@ -363,6 +363,14 @@ a bounded journal per live session (`main/chat-journal.ts`, types in `shared/cha
   typecheck, tests and build on macOS, Windows and Linux for every push to `main` and every pull
   request.
 - User-facing text goes through the i18n tables in English and Spanish.
+- `npm run smoke` (`scripts/smoke.mjs`) boots the built app (`packages/app/out`) with the demo
+  scenario, a temporary `WORKHUB_DATA_DIR` and the agents' folders (`CLAUDE_CONFIG_DIR`,
+  `CODEX_HOME`, `XDG_DATA_HOME` for OpenCode, `WORKHUB_KIRO_DIR`) pointed at empty temporary
+  folders; `HOME` is not changed (a fake home breaks safeStorage on macOS). It visits Home, Pull
+  requests, Tickets, Automations, History, Health, Plan, Usage and Settings (General, Advanced)
+  over CDP, asserts content and no error-boundary fallback, then asserts `main.log` has no `ERROR`
+  line and no `render-process-gone`. It always stops the app and deletes the folders. The `smoke`
+  CI job runs it on Ubuntu under `xvfb-run`, allowed to fail until proven stable.
 - Smoke tests drive a real app: start it with `--remote-debugging-port=9222` and use
   `packages/app/scripts/drive.mjs` over CDP. `packages/app/scripts/demo-agent.mjs` is a custom ACP
   agent that exercises automations without a model. The `WORKHUB_DEMO_*` environment variables serve
