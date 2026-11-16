@@ -5,6 +5,7 @@ import { imageInputFromDataUrl } from './lib/images'
 import { PromptQueues, type QueuedPrompt, type SubmitOutcome } from './lib/prompt-queue'
 import { pushItem, pushTurnEnd, pushUser } from './store'
 import { SettleWaits } from './lib/settle-waits'
+import { clearStoredDraft } from './lib/drafts'
 
 const listeners = new Set<() => void>()
 
@@ -80,12 +81,15 @@ const queues = new PromptQueues(
 )
 
 let started = false
-/** Follows session states so waiting messages go out when their session turns ready. */
+/** Follows session states so waiting messages go out when their session turns ready. Every window with a composer starts it; a second start does nothing. */
 export function startPromptQueue(): void {
   if (started) return
   started = true
   window.hub.sessions.onChanged((view) => queues.stateChanged(view.id, view.state))
-  window.hub.sessions.onRemoved((id) => queues.drop(id))
+  window.hub.sessions.onRemoved((id) => {
+    queues.drop(id)
+    clearStoredDraft(id)
+  })
 }
 
 /** Sends, injects into the running turn, or queues a message, by the session's state. */

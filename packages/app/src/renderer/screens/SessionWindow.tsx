@@ -16,6 +16,7 @@ import { usePlatform } from '../lib/platform'
 import { closeSubagent } from '../lib/subagentView'
 import { sessionTitle } from '../lib/windows'
 import { pushTurnEnd, pushUser, seedSession, setViewing, startStore, useSessions } from '../store'
+import { startPromptQueue } from '../promptQueue'
 import { SessionPane } from './SessionsScreen'
 import { SubagentBody } from './sessions/SubagentView'
 
@@ -110,6 +111,8 @@ function SessionWindow({ sessionId }: { sessionId: string }) {
 
   useEffect(() => {
     startStore()
+    // Messages queued while the agent works go out from this window too.
+    startPromptQueue()
     // The close dialog reads the profiles (whether a worktree is kept or removed on close).
     void refreshConfig().catch(() => undefined)
     const offConfig = window.hub.config.onChanged(() => void refreshConfig().catch(() => undefined))

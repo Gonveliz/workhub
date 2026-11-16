@@ -9,7 +9,7 @@ import { useI18n } from '../../i18n/I18nProvider'
 import type { MessageKey } from '../../i18n/translate'
 import { cn } from '../../lib/cn'
 import { usePendingFocus } from '../../lib/pendingFocus'
-import { onComposerDraft, takeComposerDraft } from '../../lib/drafts'
+import { clearStoredDraft, flushStoredDrafts, loadStoredDraft, onComposerDraft, saveStoredDraft, takeComposerDraft } from '../../lib/drafts'
 import { hasImageFiles, imageFilesOf, insertImageMarkers, pickImageFiles, PROMPT_IMAGE_TYPES, readImageFiles, removeImageMarker } from '../../lib/images'
 import { acceptsInput, restoreComposer } from '../../lib/prompt-queue'
 import { isEditable, shouldFocusComposer } from '../../lib/composer-focus'
@@ -368,8 +368,13 @@ const ChatBlock = memo(function ChatBlock({ item, onAnswer, sessionId, cwd, hasS
 export function ChatPane({ data, active = false }: { data: SessionData; active?: boolean }) {
   const { t, tn } = useI18n()
   const v = data.view
-  const [text, setText] = useState(() => takeComposerDraft(v.id) ?? '')
+  const [text, setText] = useState(() => takeComposerDraft(v.id) ?? loadStoredDraft(v.id))
   const [images, setImages] = useState<string[]>([])
+  // The text survives the pane unmounting (detach, dock): kept while typing, read back on mount.
+  useEffect(() => {
+    saveStoredDraft(v.id, text)
+  }, [v.id, text])
+  useEffect(() => flushStoredDrafts, [])
   const queued = useQueuedPrompts(v.id)
   const bottom = useRef<HTMLDivElement>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
@@ -574,6 +579,7 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
     setRestored(0)
     // While the agent works the message waits for the turn's end (or joins the turn, on Claude).
     if (submitPrompt(v.id, v.state, midTurn, value, images) === 'refused') return
+    clearStoredDraft(v.id)
     setText('')
     setImages([])
   }

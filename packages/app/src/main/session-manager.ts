@@ -215,12 +215,26 @@ export class SessionManager {
 
   /** Drops a stopped or failed session from the list. A live one stays: the caller must stop it first. */
   remove(id: string): boolean {
+    return this.drop(id, true)
+  }
+
+  private drop(id: string, stopTerminals: boolean): boolean {
     const s = this.sessions.get(id)
     if (!s || (s.view.state !== 'stopped' && s.view.state !== 'error')) return false
     this.sessions.delete(id)
     this.sends.withdraw(id)
+    // The agent may have exited on its own, which `stop()` never saw: its Shell and console
+    // terminals would keep running with no session left to show them.
+    if (stopTerminals) this.stopTerminals(id)
     this.deps.emitRemoved?.(id)
     return true
+  }
+
+  /** Stops the session's shell and console terminal channels, whatever its state (best effort). */
+  private stopTerminals(id: string): void {
+    for (const channel of ['shell', 'console'] as const) {
+      void (async () => this.deps.terminal.stop(terminalChannel(id, channel)))().catch(() => undefined)
+    }
   }
 
   /**
@@ -380,10 +394,16 @@ export class SessionManager {
     // What was picked for this session, else the account's defaults, else the agent's (Settings → Agents).
     const model = input.model ?? account?.defaultModel
     const modeId = input.readOnly ? undefined : (input.modeId ?? defaultStartMode(config, choice.agent.id, account))
-    // A session reopened at launch resumes its conversation only when it exists (one never
-    // prompted has none): otherwise the same session id starts fresh, as Workhub 1 does.
+    // A session reopened (at launch, or by hand from the list) resumes its conversation only when
+    // it exists (one never prompted has none, and a transcript may be gone): otherwise the same
+    // session id starts fresh, as Workhub 1 does. An agent without a transcript reader cannot be
+    // checked, so a manual reopen of it keeps resuming.
     const starting = async () => {
-      const resume = internal.restored ? await this.hasTranscript(session).catch(() => false) : Boolean(input.resumeAgentSessionId)
+      const resume = internal.restored
+        ? await this.hasTranscript(session).catch(() => false)
+        : input.resumeAgentSessionId
+          ? !this.reader(session) || (await this.hasTranscript(session).catch(() => false))
+          : false
       return engine === 'app' ? this.startChat(session, { resume, model, effort: input.effort, modeId, cols: input.cols, rows: input.rows }) : this.startConsole(session, input.cols, input.rows, model)
     }
     void starting().catch(
@@ -450,10 +470,12 @@ export class SessionManager {
   async close(id: string): Promise<void> {
     const s = this.sessions.get(id)
     if (!s) return
-    if (s.view.state !== 'stopped' && s.view.state !== 'error') await this.stop(id)
+    // `stop()` already stopped the terminals; a session that had exited on its own needs it here.
+    const wasLive = s.view.state !== 'stopped' && s.view.state !== 'error'
+    if (wasLive) await this.stop(id)
     // A late event may have moved it out of `stopped`; closing wins.
     if (s.view.state !== 'stopped' && s.view.state !== 'error') this.update(id, { state: 'stopped' })
-    this.remove(id)
+    this.drop(id, !wasLive)
   }
 
   /**

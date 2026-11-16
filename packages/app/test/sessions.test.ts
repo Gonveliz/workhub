@@ -170,7 +170,7 @@ describe('SessionManager', () => {
   })
 
   it('carries where a session came from (main only), and resumes a moved session under its own id', async () => {
-    const { manager, native } = setup()
+    const { manager, native } = setup(emptyConfig(), true)
     const origin = { kind: 'failover' as const, fromLabel: 'Claude - Personal', fromIdentity: 'abc', reason: 'limit' as const }
     const view = await manager.start({ profileId: null, agentKey: 'claude', cwd: '/tmp/demo', resumeAgentSessionId: 'abc' }, { origin })
     await flush()
@@ -235,7 +235,7 @@ describe('SessionManager', () => {
   })
 
   it('replays a resumed conversation and passes images only to agents that take them', async () => {
-    const { manager, native, acp, replays } = setup()
+    const { manager, native, acp, replays } = setup(emptyConfig(), true)
     const view = await manager.start({ profileId: null, agentKey: 'claude', cwd: '/tmp/demo', resumeAgentSessionId: 'abc' })
     await flush()
     await flush()
