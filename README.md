@@ -49,6 +49,12 @@ Then follow [Getting started](docs/user-guide/getting-started.md).
 - Sidebar with folders, session groups (drag or Alt+Up/Down to reorder), sub-agents, profile colors
   and attention flags (replied, needs an answer, failed); optional OS notifications and app badge.
 - Read replies aloud with the OS voices, per session.
+- A git worktree and branch per session (off by default, per profile or folder), so parallel
+  sessions in one repository do not step on each other.
+- **History** search over past sessions, and **Usage and reports**: how many tokens and how much
+  time went into each project, filtered and grouped.
+- **Workhub Remote**: a phone app (a web app served by a relay) to see and drive the sessions
+  running on your desktop, end-to-end encrypted. See [Remote access](docs/user-guide/remote-access.md).
 
 **Accounts and usage**
 - Several accounts per agent (a Claude account is a config folder), per-profile agent order, and
@@ -100,7 +106,7 @@ Then follow [Getting started](docs/user-guide/getting-started.md).
 ## Requirements
 
 - macOS, Windows or Linux (only macOS is tested so far)
-- To run from source: Node.js 22 and npm 10 (Windows needs no build tools; Linux needs python3, make
+- To run from source: Node.js 24 and npm 10 (Windows needs no build tools; Linux needs python3, make
   and a C++ compiler; see CONTRIBUTING.md)
 - The agents you want to run, on your PATH (for example `kiro-cli`, `opencode`, `gemini`); Codex
   runs through `npx`. An agent that is not installed shows as such in New session, with how to
@@ -130,8 +136,8 @@ to System Settings > Privacy & Security, scroll to Security and click **Open Any
 **Windows**: run the `.exe`. SmartScreen shows "Windows protected your PC": click **More info**,
 then **Run anyway**. The installer lets you pick the folder and installs per user.
 
-**Linux**: `chmod +x Workhub-2-*-linux-x64.AppImage && ./Workhub-2-*-linux-x64.AppImage`, or
-`sudo apt install ./Workhub-2-*-linux-x64.deb`.
+**Linux**: `chmod +x Workhub-2-*-linux-x86_64.AppImage && ./Workhub-2-*-linux-x86_64.AppImage`, or
+`sudo apt install ./Workhub-2-*-linux-amd64.deb`.
 
 **macOS from source**: `scripts/install-mac.sh [--dry-run]` builds the app and installs it to
 `/Applications` (named `WORKHUB_BUNDLE_NAME`, default `Workhub`). It refuses to replace a bundle
@@ -182,6 +188,7 @@ The [user guide](docs/user-guide/README.md) has one page per area:
 | [Pull requests](docs/user-guide/pull-requests.md), [Tickets](docs/user-guide/tickets.md) | Code host and tracker |
 | [Slack](docs/user-guide/slack.md), [Health](docs/user-guide/health.md), [Flow maps](docs/user-guide/flow-maps.md), [Plan](docs/user-guide/plan.md), [Automations](docs/user-guide/automations.md) | Optional modules |
 | [History](docs/user-guide/history.md), [Usage and budgets](docs/user-guide/usage.md) | Past sessions, plan usage and ceilings |
+| [Remote access](docs/user-guide/remote-access.md) | Workhub Remote: the phone app, pairing, self-hosting the relay |
 | [Settings](docs/user-guide/settings.md), [Keyboard shortcuts](docs/user-guide/keyboard-shortcuts.md) | Reference |
 
 Also: [Troubleshooting](docs/troubleshooting.md) (logs, common problems) and
@@ -269,10 +276,12 @@ Conventional Commits on `main`; [CHANGELOG.md](CHANGELOG.md) is generated the sa
 1. Every push to `main` with a `feat`, `fix`, `perf` or `revert` commit opens or updates the
    release pull request: the next version (`2.0.0-alpha.N` while in alpha) in every `package.json`
    and `package-lock.json`, and the new changelog entry.
-2. Merging it tags `v<version>`, creates a **draft** release (marked latest) with the changelog as notes, and
+2. Merging it tags `v<version>`, creates a draft release with the changelog as notes, and
    runs the `release` workflow, which builds the macOS, Windows and Linux installers and attaches
-   them, with checksums and `latest*.yml` update metadata, to the draft.
-3. Review the draft on the Releases page and publish it.
+   them, with checksums and `latest*.yml` update metadata, to it.
+3. Once the installers are attached, the workflow publishes the release as the latest one (not a
+   pre-release, alphas included, so the download links and one-line installers follow it). There is
+   nothing to publish by hand.
 
 Moving to beta or stable (a `Release-As` commit footer, or `"prerelease": false` in
 `release-please-config.json`) and the manual tag fallback are described in
@@ -311,7 +320,9 @@ there is no separate build step for `core` or `adapters`.
 ## Privacy
 
 No telemetry. Workhub makes network calls only to services you configure (your code host, tracker,
-Elastic, calendars, agents) and to GitHub when you turn on update checks. Configuration and state stay on your machine;
+Elastic, calendars, agents), to GitHub when you turn on update checks, and, when you turn on
+Remote access (off by default), to the relay (the project's by default, or one you host) and to the
+web push services that deliver notifications to paired phones. Configuration and state stay on your machine;
 `config.json` holds only `secretRef` keys, never secrets, and the app's state (sessions, watcher memory, spend, Plan,
 flow maps) is in a local SQLite file, `workhub.db`, with daily copies in `backups/`; neither holds credentials. Earlier versions' JSON state files are imported once and kept as `*.migrated`. Agents run with their own configuration
 (MCP servers, hooks, permission defaults). See [SECURITY.md](SECURITY.md) for what is stored where.

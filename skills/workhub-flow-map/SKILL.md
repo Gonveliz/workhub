@@ -52,7 +52,7 @@ hop of an existing flow, or asks to fix a map that Workhub lists as invalid.
      last hour every five minutes and notifies once an hour per part. A part with fewer than
      `minCalls` calls in the hour (default 20) never counts as over a limit; `"notify": false`
      keeps the limits on screen without notifying. The user can also edit them in
-     **Settings → Alerts → Flow maps · limits**.
+     **Settings → Profiles → (profile) → Screens → Flow maps → Flow maps · limits**.
    - When you redraw a map that already exists, leave `alerts` out unless the user asked to change
      them: posting a map without `alerts` keeps the limits the stored map has. Send `alerts` to
      replace them.
@@ -75,7 +75,7 @@ hop of an existing flow, or asks to fix a map that Workhub lists as invalid.
    A posted map replaces the stored one with the same `id`, except that a map posted without
    `alerts` keeps the stored map's `alerts`.
 
-   Outside a session, hand the file to the user for **Settings → Flow maps → Import JSON…** (maps
+   Outside a session, hand the file to the user for **Settings → Profiles → (profile) → Screens → Flow maps → Import JSON…** (maps
    are stored in Workhub's database; a file dropped in the data folder's `flow-maps/` is not read). Then tell the user to open Flow maps (⌘7) → the
    environment → Reload.
 

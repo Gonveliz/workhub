@@ -83,7 +83,7 @@ export const metricAlertsEs: Record<keyof typeof metricAlertsEn, string> = {
   'metricAlerts.settings.businessDays': 'Días hábiles',
   'metricAlerts.settings.businessDaysHint': 'Solo estos días cuentan para promedios, tendencias y datos faltantes.',
   'metricAlerts.settings.notifyMin': 'Notificar desde',
-  'metricAlerts.settings.notifyMinHint': 'Una notificación cuando una alerta se abre o empeora con esta severidad o más. El interruptor está en Ajustes → General.',
+  'metricAlerts.settings.notifyMinHint': 'Una notificación cuando una alerta se abre o empeora con esta severidad o más. El interruptor está en Ajustes → Notificaciones y alertas.',
   'metricAlerts.settings.overrides': 'Ajustes por métrica',
   'metricAlerts.settings.noOverrides': 'Todas las métricas usan los valores por defecto.',
   'metricAlerts.settings.addOverride': 'Agregar ajuste',

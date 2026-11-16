@@ -80,7 +80,7 @@ const STATE_REASON: Record<PlanView['state'], string | undefined> = {
   ready: undefined,
   demo: undefined,
   moduleOff: 'Plan is off in this profile',
-  noConnection: 'No calendar is set up for this profile (Settings → Plan → Calendars)',
+  noConnection: 'No calendar is set up for this profile (Settings → Connections → Calendars)',
   error: 'No calendar of this profile could be read'
 }
 

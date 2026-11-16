@@ -114,7 +114,7 @@ export const plannerEs: Record<keyof typeof plannerEn, string> = {
   'planner.inbox.action.discard': 'Descartar',
   'planner.inbox.action.done': 'Hecho',
   'planner.inbox.action.reopen': 'Reabrir',
-  'planner.inbox.noCreate': 'El gestor de tickets no puede crear issues, o no hay uno configurado (Ajustes → Plan → Bandeja).',
+  'planner.inbox.noCreate': 'El gestor de tickets no puede crear issues, o no hay uno configurado (Ajustes → Perfiles → Pantallas → Plan → Bandeja).',
   'planner.inbox.setupTracker': 'Configurar el gestor',
   'planner.inbox.ticketCreated': '{key} creado',
   'planner.inbox.openLink': 'Abrir enlace',

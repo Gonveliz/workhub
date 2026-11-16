@@ -102,7 +102,7 @@ export const PLANNER_ERRORS = {
   moduleOff: 'Plan is off in this profile',
   unknown: 'The item no longer exists',
   notAllowed: 'This item does not offer that action',
-  noProject: 'Set the project for new issues in Settings → Plan → Inbox',
+  noProject: 'Set the project for new issues in Settings → Profiles → Screens → Plan → Inbox',
   noCreate: 'This tracker cannot create issues',
   noSearch: 'This tracker cannot search',
   tooMany: 'Too many milestones',

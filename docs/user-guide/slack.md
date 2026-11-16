@@ -58,7 +58,7 @@ the profile. **Open in Slack** on a thread uses this.
 
 ## Notifications
 
-**Settings → General → Other notifications → Slack** controls notifications for watched channels,
+**Settings → Notifications and alerts** (Work, Slack) controls notifications for watched channels,
 replies in tracked threads and watcher failures.
 
 Next: [Health](health.md).

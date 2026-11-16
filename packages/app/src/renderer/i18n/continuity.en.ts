@@ -40,5 +40,5 @@ export const continuityEn = {
   'continuity.settings.automatic': 'Automatic',
   'continuity.settings.off': 'Off',
   'continuity.settings.hint':
-    'When a Claude account reaches its usage limit, or your ceiling in Settings → Usage, its session can continue in the next Claude account of this profile (in the agent order) that is under its ceilings. Ask offers it in the chat; Automatic switches by itself and tells Claude to go on. The conversation moves whole: its files are copied to the other account, never moved or overwritten.'
+    'When a Claude account reaches its usage limit, or your ceiling in Settings → Agents, its session can continue in the next Claude account of this profile (in the agent order) that is under its ceilings. Ask offers it in the chat; Automatic switches by itself and tells Claude to go on. The conversation moves whole: its files are copied to the other account, never moved or overwritten.'
 } as const

@@ -1,11 +1,11 @@
-/** English copy of usage per agent account: the Home card, the composer gate, Settings → Usage and the alerts. */
+/** English copy of usage per agent account: the Home card, the composer gate, Settings → Agents and the alerts. */
 export const usageEn = {
   'agentUsage.title': 'Usage by agent',
   'agentUsage.agent.claude': 'Claude',
   'agentUsage.agent.codex': 'Codex',
   'agentUsage.agent.kiro': 'Kiro',
   'agentUsage.defaultAccount': 'Default account',
-  'agentUsage.empty': 'No usage yet. Turn on reading per agent in Settings → Usage, or start a session that reports it.',
+  'agentUsage.empty': 'No usage yet. Turn on reading per agent in Settings → Agents, or start a session that reports it.',
   'agentUsage.openSettings': 'Usage settings',
   'agentUsage.asOf': 'from a session file, {when}',
   'agentUsage.readFailed': 'Could not read the usage',
@@ -61,13 +61,13 @@ export const usageEn = {
   'agentUsage.resetsAt': 'Resets {when} (in {time})',
   'agentUsage.kiroSpentShort': 'spent {today} today · {week} in 7 days',
   'agentUsage.kiroRemainingUnknown': 'credits left: not read',
-  'agentUsage.kiroNoRemaining': 'Credits left are not read: turn on "Read Kiro credits left" in Settings → Usage. Kiro reports them only when asked through kiro-cli, never in its local files.',
+  'agentUsage.kiroNoRemaining': 'Credits left are not read: turn on "Read Kiro credits left" in Settings → Agents. Kiro reports them only when asked through kiro-cli, never in its local files.',
   'agentUsage.settings.kiroHint': 'Credits used and left this billing cycle, with the reset day.',
   'agentUsage.session.title': 'Usage limit for this session',
   'agentUsage.session.help':
-    'A ceiling for this session only, per window. It replaces the account\'s ceiling (Settings → Usage) for that window, higher or lower; 100 lifts it. Past it, prompts need "Send anyway". Kept with the session, also after a restart.',
+    'A ceiling for this session only, per window. It replaces the account\'s ceiling (Settings → Agents) for that window, higher or lower; 100 lifts it. Past it, prompts need "Send anyway". Kept with the session, also after a restart.',
   'agentUsage.session.account': 'Account: {value}',
-  'agentUsage.session.noRead': 'Turn on usage reading for this agent in Settings → Usage to set a limit.',
+  'agentUsage.session.noRead': 'Turn on usage reading for this agent in Settings → Agents to set a limit.',
   'agentUsage.session.reset': "Use the account's limits",
   'agentUsage.session.now': 'now {percent}%',
   'agentUsage.refresh': 'Refresh usage',

@@ -26,7 +26,7 @@ To install by hand, download the installer for your system from the
 to check the download. The builds are not signed with a paid certificate, so each system asks for
 one extra step the first time you open the app.
 
-A release is created as a **draft** and only its owner sees drafts until it is published. If no
+A release is published as the latest one once its installers are attached. If no
 release is published yet, build from source: see the README, [macOS from source](../../README.md#install-by-hand)
 and [Build installers](../../README.md#build-installers).
 
@@ -34,7 +34,7 @@ and [Build installers](../../README.md#build-installers).
 |---|---|---|
 | macOS (Apple Silicon) | `.dmg` or `.zip` | Drag **Workhub 2** to Applications. Gatekeeper blocks the first launch: open the app once, then go to **System Settings → Privacy & Security**, scroll to **Security** and click **Open Anyway**. Or run `xattr -dr com.apple.quarantine "/Applications/Workhub 2.app"`. |
 | Windows (x64) | `.exe` installer | SmartScreen shows "Windows protected your PC": click **More info**, then **Run anyway**. The installer lets you pick the folder and installs per user. |
-| Linux (x64) | `.AppImage` or `.deb` | `chmod +x Workhub-2-*-linux-x64.AppImage && ./Workhub-2-*-linux-x64.AppImage`, or `sudo apt install ./Workhub-2-*-linux-x64.deb`. |
+| Linux (x64) | `.AppImage` or `.deb` | `chmod +x Workhub-2-*-linux-x86_64.AppImage && ./Workhub-2-*-linux-x86_64.AppImage`, or `sudo apt install ./Workhub-2-*-linux-amd64.deb`. |
 
 Workhub 2 has its own app id and data folder, so it can run next to Workhub 1.
 
@@ -58,6 +58,9 @@ Windows is built by CI and has not been tested on real machines yet. Please repo
    the `PATH` an app started with. See
    [Troubleshooting](../troubleshooting.md#an-agent-is-not-found-on-path).
 
+On Windows, the **Shell** view opens the shell named by the `COMSPEC` environment variable, else
+`powershell.exe`.
+
 By hand instead: download `Workhub-2-<version>-win-x64.exe` from the Releases page and run it.
 SmartScreen shows "Windows protected your PC": click **More info**, then **Run anyway** (expected
 for every unsigned build). To check the download first:
@@ -71,17 +74,15 @@ Open **Terminal**, paste this line and press Enter:
 curl -fsSL https://raw.githubusercontent.com/SoldierIced/workhub/main/scripts/install.sh | bash
 ```
 
-It installs the newest published release to `/Applications` (as **Workhub**), with no Gatekeeper
-prompt, and opens it. A running copy keeps working; the new version starts the next time you open
-it.
-
-The **Shell** view opens the shell named by the `COMSPEC` environment variable, else
-`powershell.exe`.
+It installs the newest published release to `/Applications` (as **Workhub**, not **Workhub 2**,
+the name the `.dmg` uses), with no Gatekeeper prompt, and opens it. A running copy keeps working;
+the new version starts the next time you open it.
 
 ## Uninstall
 
 - **Windows**: **Settings → Apps → Installed apps → Workhub 2 → Uninstall**.
-- **macOS**: delete **Workhub 2** from `/Applications`.
+- **macOS**: delete the app from `/Applications`: **Workhub 2** if you installed the `.dmg` or
+  `.zip`, **Workhub** if you used the one-line installer.
 
 Uninstalling leaves your data folder in place. To remove it too, delete it by hand:
 `%APPDATA%\Workhub 2` on Windows, `~/Library/Application Support/Workhub 2` on macOS. The folder
@@ -118,9 +119,11 @@ them.
 
 **Settings → General → Updates** has a **Check for new versions automatically** switch, off by default: nothing
 contacts GitHub unless you turn it on or press **Check now**. On Windows and the Linux AppImage the
-app can download and install the new version (**Download and restart**). On macOS an unsigned app
-cannot replace itself, so Workhub only announces the new version and opens the release page: download
-it and replace the app.
+app can download and install the new version (**Download and restart**). On macOS the app is unsigned, so it cannot use the system updater;
+instead it downloads the release's `.zip`, checks its SHA-256, and swaps its own app in place when it
+runs from an app in a folder it can write to (**Download and restart**, as on Windows; the new version
+starts on the next launch). From a folder it cannot write to, Workhub only announces the new version
+and opens the release page: download it and replace the app.
 
 With **Check for updates** on, Workhub checks when it starts and every 6 hours while it runs. When
 it finds a newer version it asks, at most once a day: **Update now** (or **Download the new

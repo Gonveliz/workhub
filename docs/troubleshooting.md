@@ -66,7 +66,7 @@ path and size. `config.json` and `secrets.json` stay separate files.
 - **Backups**: `backups/workhub-YYYY-MM-DD.db` about 30 seconds after start and once a day,
   `workhub-YYYY-MM-DD-HHmm.db` for **Back up now**; the newest 7 of each kind are kept. **Show backups
   folder** in Settings → Advanced → Data opens the folder.
-- **Flow maps** are no longer read from a `flow-maps/` folder: import them in **Settings → Flow maps**
+- **Flow maps** are no longer read from a `flow-maps/` folder: import them in **Settings → Profiles → (profile) → Screens → Flow maps**
   or post them with the `workhub-flow-map` skill.
 
 ## Health is unreachable or returns 401

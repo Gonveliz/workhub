@@ -53,7 +53,7 @@ From PowerShell use `curl.exe -s -H "Authorization: Bearer $env:WORKHUB_TOKEN" "
 
 Every answer is JSON with `ok`. `ok: false` carries `error`: tell the user in one line. An answer
 with `enabled: false` or a `reason` means Plan is off in the profile or has no calendar: tell the
-user the reason and that it is turned on in **Settings → Plan**.
+user the reason and that it is turned on in **Settings → Profiles → (profile) → Screens → Plan**.
 
 ## Endpoints
 

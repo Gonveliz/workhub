@@ -159,7 +159,7 @@ export const webEn = {
   'web.plan.title': 'Plan',
   'web.plan.item': 'Item',
   'web.plan.facts': 'Details',
-  'web.plan.disabled': 'Plan is off in this profile. Turn it on in Settings → Plan on the computer.',
+  'web.plan.disabled': 'Plan is off in this profile. Turn it on in Settings → Profiles → Screens → Plan on the computer.',
   'web.plan.inboxHint': 'Agents, alerts and meetings propose items here; you approve, keep or discard them.',
   'web.plan.openBrief': 'Open brief',
   'web.plan.waitingInInbox.one': '{count} item waits for review in the Inbox',

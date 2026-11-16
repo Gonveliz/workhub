@@ -106,7 +106,7 @@ reset, not a calendar, too large, no address stored) and keeps the events of its
 
 Every timed meeting gets a notification **Default reminder** minutes before it starts (default 10;
 **Off** turns it off). Clicking the notification opens the meeting's call link, or the Plan screen
-when there is none. **Settings → General → Other notifications → Meeting reminders** silences them,
+when there is none. **Settings → Notifications and alerts** (Work, meetings) silences them,
 and **Pause notifications** applies too.
 
 When a calendar cannot be read (for example right after the laptop wakes, before the network is up),

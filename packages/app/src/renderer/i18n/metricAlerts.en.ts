@@ -1,4 +1,4 @@
-/** English copy of metric alerts: Health → Alerts, the Home card and Settings → Health → Alert rules. */
+/** English copy of metric alerts: Health → Alerts, the Home card and Settings → Profiles → Screens → Health → Alert rules. */
 export const metricAlertsEn = {
   'health.sections': 'Health sections',
   'health.tab.environments': 'Environments',
@@ -81,7 +81,7 @@ export const metricAlertsEn = {
   'metricAlerts.settings.businessDays': 'Business days',
   'metricAlerts.settings.businessDaysHint': 'Only these days count for baselines, trends and missing data.',
   'metricAlerts.settings.notifyMin': 'Notify from',
-  'metricAlerts.settings.notifyMinHint': 'A notification when an alert opens or gets worse at this severity or above. The switch is in Settings → General.',
+  'metricAlerts.settings.notifyMinHint': 'A notification when an alert opens or gets worse at this severity or above. The switch is in Settings → Notifications and alerts.',
   'metricAlerts.settings.overrides': 'Per-metric overrides',
   'metricAlerts.settings.noOverrides': 'Every metric uses the defaults.',
   'metricAlerts.settings.addOverride': 'Add override',

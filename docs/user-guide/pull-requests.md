@@ -66,7 +66,7 @@ Actions on the toolbar:
   sent until you press **Send**.
 - **Close PR…** closes it without merging, with an optional closing comment and an optional **Delete
   the branch**. Long-lived branches are never deleted: the list is **Protected branches** in
-  **Settings → General → Pull requests**, and `release…` branches are always kept. A closed pull
+  **Settings → Connections → Code**, and `release…` branches are always kept. A closed pull
   request can be reopened on the code host.
 - **Copy link**.
 
@@ -74,7 +74,7 @@ Actions on the toolbar:
 
 Workhub checks your pull requests every three minutes and shows an OS notification when one changes
 or when someone asks for your review. **Refresh every**, in the code host connection (**Settings →
-Connections → Code**), changes how often: from 1 to 60 minutes. The lists on screen follow it too. **Settings → General → Pull request notifications** has a
+Connections → Code**), changes how often: from 1 to 60 minutes. The lists on screen follow it too. **Settings → Notifications and alerts** (Pull requests) has a
 switch per kind: **Review requested**, **Approved**, **Changes requested**, **New comments**, **CI
 failed**, **CI passing again**, **Merge conflicts**, **New commits**, **Merged**, **Closed**.
 Clicking a notification opens the pull request.

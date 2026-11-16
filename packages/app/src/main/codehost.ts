@@ -172,7 +172,7 @@ export class CodeHostService {
       const base = { provider: host.provider, cli, ...empty, demo }
       if (status.state === 'error') {
         // A transient failure (right after wake, a VPN drop) keeps the last good lists, so the screen keeps its content and shows the error line. Not cached: the next call asks again.
-        const last = cached?.value
+        const last = previous
         return { ...base, mine: last?.mine ?? [], toReview: last?.toReview ?? [], login: last?.login, updatedAt: last?.updatedAt, state: 'error', message: status.message }
       }
       return { ...base, state: status.state }

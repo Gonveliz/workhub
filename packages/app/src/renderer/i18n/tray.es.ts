@@ -128,7 +128,7 @@ export const trayEs: Record<keyof typeof trayEn, string> = {
   'settings.notifyFlowMaps': 'Mapas de flujo',
   'settings.notifyFlowMapsHint': 'Una parte de un flujo supera su límite de p95 o de fallos. Una alerta por parte por hora.',
   'settings.notifyMetricAlerts': 'Alertas de métricas',
-  'settings.notifyMetricAlertsHint': 'Una alerta de métrica se abre o empeora, con al menos la severidad mínima elegida en Ajustes → Salud → Reglas de alertas.',
+  'settings.notifyMetricAlertsHint': 'Una alerta de métrica se abre o empeora, con al menos la severidad mínima elegida en Ajustes → Perfiles → Pantallas → Salud → Reglas de alertas.',
   'settings.notifyHealth': 'Salud',
   'settings.notifyHealthHint': 'Un entorno se degrada, no se puede alcanzar o se recupera, un servicio deja de reportar, un pod deja de estar listo, una señal de error empieza a empeorar. Una alerta por tema por hora.',
   'settings.pause': 'Pausar notificaciones',

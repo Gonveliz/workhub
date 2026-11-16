@@ -161,7 +161,7 @@ export const webEs: Record<keyof typeof webEn, string> = {
   'web.plan.title': 'Plan',
   'web.plan.item': 'Ítem',
   'web.plan.facts': 'Detalles',
-  'web.plan.disabled': 'Plan está apagado en este perfil. Encendelo en Ajustes → Plan en la computadora.',
+  'web.plan.disabled': 'Plan está apagado en este perfil. Encendelo en Ajustes → Perfiles → Pantallas → Plan en la computadora.',
   'web.plan.inboxHint': 'Agentes, alertas y reuniones proponen ítems acá; vos los aprobás, guardás o descartás.',
   'web.plan.openBrief': 'Abrir brief',
   'web.plan.waitingInInbox.one': '{count} ítem espera revisión en el Inbox',

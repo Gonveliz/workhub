@@ -36,10 +36,36 @@ folder) and are not copied.
 ## Network and system access
 
 Workhub contacts only services you configure (code host, Jira or Linear, Elastic, agents) and,
-when you turn on update checks (off by default), GitHub Releases. Reading Claude plan usage from
+when you turn on update checks (off by default), GitHub Releases. With Remote access on (off by
+default) it also contacts the relay and the web push services described below. Reading Claude plan usage from
 Anthropic's usage endpoint is opt-in. The
 optional Slack tracking hook edits an account's `settings.json` only on request, keeps a `.bak`
 copy, and removes only its own entry.
+
+## Remote access (Workhub Remote)
+
+Remote access is off by default. When you turn it on (Settings, Remote access) Workhub stores and
+contacts the following; see [Remote access](docs/user-guide/remote-access.md) and
+[the architecture notes](docs/architecture.md).
+
+- **On this computer.** A key pair that identifies it (its seed lives in the secret store,
+  `secrets.json`, next to your tokens), the relay address, and the list of paired devices with
+  the capabilities you granted each one. A device can never pick a folder outside the profile's,
+  skip permission prompts, open windows or dialogs on the desktop, read or change settings, or see
+  secrets. Revoking a device in Settings drops it at once.
+- **The relay.** Workhub connects to the relay you set: by default the one the project runs, or
+  one you host yourself (`packages/relay`). Messages between the computer and a paired phone are
+  end-to-end encrypted; the relay forwards ciphertext. It sees fingerprints, which computer a
+  device talks to, message sizes and timing, IP addresses and push endpoints. It never sees
+  message contents, session names, folders, prompts or notifications. It keeps no messages or
+  accounts; the only thing it stores is where to send push notifications.
+- **Push.** Notifications reach a phone that is offline through Web Push (the browsers' own push
+  services). The body is sealed to the device's key, so the push service carries ciphertext.
+- **On the phone.** Its own key pair, the last answers it received, encrypted with that key, and
+  its push subscription, in the browser's storage.
+- **What the relay can do.** It serves the phone app's code, so a malicious relay operator could
+  ship modified code that reads the keys on the phone. Pair only with a relay you trust;
+  self-hosting is the safest choice, and the pairing screen shows the relay host to check.
 
 Agents run with their own permission modes and MCP servers, and can execute code on your machine;
 the effective permission mode of each session is shown in its header. Release builds are not

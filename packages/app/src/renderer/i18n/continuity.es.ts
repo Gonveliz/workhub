@@ -42,5 +42,5 @@ export const continuityEs: Record<keyof typeof continuityEn, string> = {
   'continuity.settings.automatic': 'Automático',
   'continuity.settings.off': 'Desactivado',
   'continuity.settings.hint':
-    'Cuando una cuenta de Claude alcanza su límite de uso, o tu techo de Ajustes → Uso, su sesión puede continuar en la siguiente cuenta de Claude de este perfil (según el orden de agentes) que esté por debajo de sus techos. Preguntar lo ofrece en el chat; Automático cambia por su cuenta y le pide a Claude que siga. La conversación pasa completa: sus archivos se copian a la otra cuenta, nunca se mueven ni se sobrescriben.'
+    'Cuando una cuenta de Claude alcanza su límite de uso, o tu techo de Ajustes → Agentes, su sesión puede continuar en la siguiente cuenta de Claude de este perfil (según el orden de agentes) que esté por debajo de sus techos. Preguntar lo ofrece en el chat; Automático cambia por su cuenta y le pide a Claude que siga. La conversación pasa completa: sus archivos se copian a la otra cuenta, nunca se mueven ni se sobrescriben.'
 }

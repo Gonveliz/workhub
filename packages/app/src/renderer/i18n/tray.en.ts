@@ -130,7 +130,7 @@ export const trayEn = {
   'settings.notifyFlowMaps': 'Flow maps',
   'settings.notifyFlowMapsHint': 'A part of a flow above its p95 or failure limit. One alert per part per hour.',
   'settings.notifyMetricAlerts': 'Metric alerts',
-  'settings.notifyMetricAlertsHint': 'A metric alert opens or gets worse, at or above the minimum severity set in Settings → Health → Alert rules.',
+  'settings.notifyMetricAlertsHint': 'A metric alert opens or gets worse, at or above the minimum severity set in Settings → Profiles → Screens → Health → Alert rules.',
   'settings.notifyHealth': 'Health',
   'settings.notifyHealthHint': 'An environment degrades, cannot be reached or recovers, a service stops reporting, a pod stops being ready, an error signal starts worsening. One alert per subject per hour.',
   'settings.pause': 'Pause notifications',
