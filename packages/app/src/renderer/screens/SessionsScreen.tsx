@@ -2,6 +2,7 @@ import { CircleAlert, Plus } from 'lucide-react'
 import { memo, useEffect, useState } from 'react'
 import { terminalChannel } from '@shared/api'
 import { Button, Spinner } from '../components/atoms'
+import { ErrorBoundary } from '../components/ErrorBoundary'
 import { EmptyState } from '../components/molecules'
 import { BrandMark } from '../components/organisms'
 import { useI18n } from '../i18n/I18nProvider'
@@ -31,7 +32,9 @@ export function SessionsScreen({ sessions, selectedId, visible, theme, onNewSess
     <div className="flex h-full min-h-0 flex-col">
       {sessions.map((s) => (
         <div key={s.view.id} className={cn('flex min-h-0 flex-1 flex-col', s.view.id !== current?.view.id && 'hidden')}>
-          <SessionPane data={s} visible={visible && s.view.id === current?.view.id} theme={theme} />
+          <ErrorBoundary where="session" variant="session">
+            <SessionPane data={s} visible={visible && s.view.id === current?.view.id} theme={theme} />
+          </ErrorBoundary>
         </div>
       ))}
       {!current && (

@@ -104,6 +104,7 @@ import { guardIpc, isTrustedRendererUrl } from './ipc-guard'
 import { timeIpc } from './ipc-timing'
 import { isRemoteSender, pageHistory, promptFromDevice, readActivity, recordIpc, RemoteActivityLog, RemoteHub, RemoteService, registerRemoteIpc, readRemoteFile, touchedPaths, type RemoteState } from './remote'
 import { rendererReporter, startDiagnostics } from './diagnostics'
+import { ReloadGuard, watchRenderer } from './render-recovery'
 import { permissionAllowed } from './permissions'
 import { historySearchOptions, listAllHistory, searchAllHistory } from './history'
 import { HistoryIndexer } from './history-indexer'
@@ -1892,7 +1893,10 @@ const rendererOrigin = { fileUrl: pathToFileURL(rendererFile).href, devServerUrl
  * are denied, and <webview> tags never attach. A window that rendered untrusted Markdown (a pull
  * request, a ticket) can then never turn into a remote page that still holds `window.hub`.
  */
+const reloadGuard = new ReloadGuard()
 app.on('web-contents-created', (_event, contents) => {
+  // Every BrowserWindow (main, auxiliary, popover) passes through here: one place for crash recovery.
+  watchRenderer(contents, diagnostics.log, reloadGuard)
   contents.on('will-navigate', (event, url) => {
     if (url === contents.getURL()) return
     event.preventDefault()

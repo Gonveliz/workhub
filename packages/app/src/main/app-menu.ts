@@ -25,7 +25,7 @@ export interface AppMenuInput {
   openSetup?: (page: SetupPage) => void
   /** Help → the main process log in the file manager. */
   revealLogs?: () => void
-  /** Reload and developer tools in the View menu (dev runs only). */
+  /** Developer tools in the View menu (dev runs only); Reload is always there. */
   developer: boolean
 }
 
@@ -107,7 +107,9 @@ export function buildAppMenuTemplate(input: AppMenuInput): MenuItemConstructorOp
       { type: 'separator' },
       ...MODES.map((m): MenuItemConstructorOptions => ({ label: t(m.label), accelerator: `CmdOrCtrl+Alt+${m.key}`, click: () => run({ kind: 'showMode', mode: m.mode }) })),
       { type: 'separator' },
-      ...(input.developer ? ([{ role: 'reload' }, { role: 'toggleDevTools' }, { type: 'separator' }] as MenuItemConstructorOptions[]) : []),
+      { role: 'reload' },
+      ...(input.developer ? ([{ role: 'toggleDevTools' }] as MenuItemConstructorOptions[]) : []),
+      { type: 'separator' },
       { role: 'resetZoom' },
       { role: 'zoomIn' },
       { role: 'zoomOut' },

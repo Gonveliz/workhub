@@ -46,6 +46,7 @@ On macOS the modifier is ⌘. On Windows and Linux use Ctrl in its place.
 | ⌘/Ctrl+Return | Send all comments, in the **Review changes** window |
 | ⌘/Ctrl+Alt+. | Stop reading aloud |
 | Esc | Leave selection mode in Health |
+| Reload | View menu: reloads the window. Workhub also does it by itself if a window crashes; your sessions keep running |
 | Zoom | View menu: reset zoom, zoom in, zoom out, full screen |
 
 The key assigned to **New {agent} Session** in the File menu follows the agent order; only the first

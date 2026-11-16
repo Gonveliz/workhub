@@ -20,6 +20,7 @@ import { PlanItemWindow } from './screens/plan/PlanItemWindow'
 import { parsePlanItemHash } from '@shared/plan-item-window'
 import { parseReviewLoopHash } from '@shared/review-loop-window'
 import { ReviewLoopWindow } from './screens/sessions/ReviewLoopWindow'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { startPerfReports } from './lib/perfReport'
 import './styles.css'
 
@@ -67,4 +68,8 @@ function Themed({ children }: { children: ReactElement }): ReactElement {
   return children
 }
 
-createRoot(document.getElementById('root')!).render(<Themed>{root(location.hash)}</Themed>)
+createRoot(document.getElementById('root')!).render(
+  <ErrorBoundary where="window" variant="window">
+    <Themed>{root(location.hash)}</Themed>
+  </ErrorBoundary>
+)
