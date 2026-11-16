@@ -4,6 +4,96 @@ All notable changes to Workhub 2 are listed here. Entries from 2.0.0-alpha.2 on 
 [release-please](https://github.com/googleapis/release-please) from the Conventional Commits on
 `main`; see the release process in [CONTRIBUTING.md](CONTRIBUTING.md#releases).
 
+## [2.0.0-alpha.34](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.33...v2.0.0-alpha.34) (2026-11-16)
+
+
+### Features
+
+* **agents:** let agents propose sessions and message each other, with approval ([52d7ba5](https://github.com/SoldierIced/workhub/commit/52d7ba550cc9fa9199e16a3aab256d055eae84b0))
+* **agents:** resume Codex, Kiro, OpenCode and Gemini sessions ([daa269a](https://github.com/SoldierIced/workhub/commit/daa269a27248db44ada49a50758f27674956a8cd))
+* **agents:** review and revert the changes agents made ([af9e66e](https://github.com/SoldierIced/workhub/commit/af9e66eca1bea1d3bb6e2d36af4e90b5dd9fa172))
+* **app:** ask before quitting while sessions are working ([e56969f](https://github.com/SoldierIced/workhub/commit/e56969f6b938af27e793454e0ad0a12ccdc8b20a))
+* **automations:** run an automation on pull request events ([5c2a07a](https://github.com/SoldierIced/workhub/commit/5c2a07a1bf5ef8d21c19894fb196eb23426ead28))
+* **config:** keep a copy of config.json before a migration changes it ([d1ab5b6](https://github.com/SoldierIced/workhub/commit/d1ab5b60ee55297cdeec52def33a9eda577e8866))
+* **diagnostics:** export a diagnostics folder for bug reports ([4eed445](https://github.com/SoldierIced/workhub/commit/4eed445f1f4761dfca761f56a65a2bc90d7970eb))
+* fixes, hardening and features from the alpha.32 review ([1211d8a](https://github.com/SoldierIced/workhub/commit/1211d8aaddba2038240d8213ca8c1e4bb32df32d))
+* **pull-requests:** create and merge pull requests from the app ([97d8514](https://github.com/SoldierIced/workhub/commit/97d851408ebd55386db07b62334011ff620c5665))
+* **pull-requests:** send failing checks and review comments to the session ([5c2a07a](https://github.com/SoldierIced/workhub/commit/5c2a07a1bf5ef8d21c19894fb196eb23426ead28))
+* **remote:** add an Automations screen to the phone app ([c943817](https://github.com/SoldierIced/workhub/commit/c943817ee58030058b21cd0d47bac17b3cfa1057))
+* **remote:** confirm pairing with a code typed on the desktop ([f41cc10](https://github.com/SoldierIced/workhub/commit/f41cc10672360d9f146c0da1980896b8368194d5))
+* **remote:** show a session's changes and its waiting review on the phone ([6f22d35](https://github.com/SoldierIced/workhub/commit/6f22d35492f4eb34a3f81f316fdff1689546d052))
+* **security:** give each session its own token for the control endpoint ([ba9edd8](https://github.com/SoldierIced/workhub/commit/ba9edd82ce5e5ff215190c537c5053c3f18fb789))
+* **sessions:** add session shortcuts, a command palette and prompt recall ([42d6f3d](https://github.com/SoldierIced/workhub/commit/42d6f3d72a71ce8240c5275f2380c251423341b9))
+* **sessions:** find in the conversation and export it as Markdown ([72d77c3](https://github.com/SoldierIced/workhub/commit/72d77c31e7d6e8d23e9da45bddd1940d899b9a3b))
+* **sessions:** flag a session that has gone quiet ([e56969f](https://github.com/SoldierIced/workhub/commit/e56969f6b938af27e793454e0ad0a12ccdc8b20a))
+* **settings:** show what the data takes and compact the database ([db07e48](https://github.com/SoldierIced/workhub/commit/db07e48e41fe6569af93940822c8c66817d4c523))
+* **slack:** choose who may wake a session ([faf04e3](https://github.com/SoldierIced/workhub/commit/faf04e3be26f72907f8d7ad0a270c0ae33f38c2d))
+* **slack:** count and show what reading Slack costs ([faf04e3](https://github.com/SoldierIced/workhub/commit/faf04e3be26f72907f8d7ad0a270c0ae33f38c2d))
+* **storage:** restore the database from a backup in Settings ([54d49cf](https://github.com/SoldierIced/workhub/commit/54d49cfe45578567685d623dc06e4c31c3934f20))
+* **terminal:** add a scrollback setting, 10,000 lines by default ([eb81288](https://github.com/SoldierIced/workhub/commit/eb8128879b00867787142fa8759037f9427b4251))
+* **tickets:** add GitHub Issues as a tracker ([8126e2d](https://github.com/SoldierIced/workhub/commit/8126e2db627fca5970524ad66650c153ca31f377))
+* **usage:** add dollar ceilings for agents billed by API key ([00200ba](https://github.com/SoldierIced/workhub/commit/00200bab93b9eb68f7ecf5d17a8cffb8f43fe891))
+* **usage:** export the totals table as CSV ([00200ba](https://github.com/SoldierIced/workhub/commit/00200bab93b9eb68f7ecf5d17a8cffb8f43fe891))
+* **usage:** keep 12 months of detail, then daily summaries ([db07e48](https://github.com/SoldierIced/workhub/commit/db07e48e41fe6569af93940822c8c66817d4c523))
+* **worktrees:** copy ignored files and run a setup command in a new worktree ([80a3652](https://github.com/SoldierIced/workhub/commit/80a36525af0b868d98605e4feb75c7373c54c513))
+
+
+### Bug Fixes
+
+* **a11y:** stop endless animations when reduced motion is on ([c1a4161](https://github.com/SoldierIced/workhub/commit/c1a4161222f1bdbe8ab9cd26ca23bf4d60001036))
+* **agents:** run every child process with the login shell PATH ([d859a7d](https://github.com/SoldierIced/workhub/commit/d859a7dccfbaaaf415c1e95ac5a94b778e45ddbf))
+* **alerts:** skip days a source was never read instead of counting them as zero ([6cd65a2](https://github.com/SoldierIced/workhub/commit/6cd65a283e3cfef17ec298ae647ef0a1eb9a0cb0))
+* **automations:** persist the interval schedule and run it when the window opens ([faecf38](https://github.com/SoldierIced/workhub/commit/faecf38e440acf8caf5302a07a61179ab87e41ea))
+* **config:** keep the app usable when config.json fails to load ([6a4c168](https://github.com/SoldierIced/workhub/commit/6a4c16870b108d4fcff0379fb6c62c8124912556))
+* **diagnostics:** log the first failure and the recovery of background jobs ([4eed445](https://github.com/SoldierIced/workhub/commit/4eed445f1f4761dfca761f56a65a2bc90d7970eb))
+* **files:** reveal a file that could run instead of opening it ([3d1aadd](https://github.com/SoldierIced/workhub/commit/3d1aaddc32d42864ef06c9858725f6731bf8a63c))
+* **history:** keep sessions older than the newest 400 listed and searchable ([cac46e4](https://github.com/SoldierIced/workhub/commit/cac46e4dc859339d4e7bca7034d5f494e858d318))
+* **i18n:** point UI text at the Settings sections that exist today ([ef7fb79](https://github.com/SoldierIced/workhub/commit/ef7fb79f5608a47ca89d9f2c488c48e269829504))
+* **install:** stop when the checksum of a download cannot be checked ([3d1aadd](https://github.com/SoldierIced/workhub/commit/3d1aaddc32d42864ef06c9858725f6731bf8a63c))
+* **plan:** ignore an automation that is turned off in brief rules ([c73dfec](https://github.com/SoldierIced/workhub/commit/c73dfec56a7a6ad49dd98662ee2aea426040ccf4))
+* **plan:** keep reminders working after a failed calendar read ([d16353e](https://github.com/SoldierIced/workhub/commit/d16353e526db92302d828f7a0a7a56ce79db7e03))
+* **pull-requests:** announce CI passing again after a pending step ([191df0c](https://github.com/SoldierIced/workhub/commit/191df0cdd381e16c03ba633e7320052c697c760c))
+* **pull-requests:** keep the last lists when the code host cannot be reached ([191df0c](https://github.com/SoldierIced/workhub/commit/191df0cdd381e16c03ba633e7320052c697c760c))
+* **relay:** handle stream errors when serving files ([3d1aadd](https://github.com/SoldierIced/workhub/commit/3d1aaddc32d42864ef06c9858725f6731bf8a63c))
+* **relay:** keep served files inside the root when a symlink points out of it ([65685c1](https://github.com/SoldierIced/workhub/commit/65685c1630778271f83d43671a0290494fce12b9))
+* **relay:** keep the push time-to-live inside the notification's validity ([3d1aadd](https://github.com/SoldierIced/workhub/commit/3d1aaddc32d42864ef06c9858725f6731bf8a63c))
+* **relay:** read the client address from one configured header ([b67964e](https://github.com/SoldierIced/workhub/commit/b67964e0cd41b9cf4a2777f5a6c95a6a182b1ecd))
+* **remote:** allow a phone only the calls the phone app makes ([ce45fd1](https://github.com/SoldierIced/workhub/commit/ce45fd143cc393d8a84201ca48b39c85aad0f0b3))
+* **remote:** check a file against the frame size before reading it ([7d7e40f](https://github.com/SoldierIced/workhub/commit/7d7e40f7b0f4a1fbec3bfe0b190cddf3d47eb22c))
+* **remote:** never start a session from a phone in an unattended mode ([ce45fd1](https://github.com/SoldierIced/workhub/commit/ce45fd143cc393d8a84201ca48b39c85aad0f0b3))
+* **remote:** send plan changes to paired phones ([7d7e40f](https://github.com/SoldierIced/workhub/commit/7d7e40f7b0f4a1fbec3bfe0b190cddf3d47eb22c))
+* **renderer:** add error boundaries and reload a renderer that died ([cf44b88](https://github.com/SoldierIced/workhub/commit/cf44b88b1b96f96dc302269d665657891dc8fd61))
+* **review:** open a review only for folders of the session or its profile ([dd1bf88](https://github.com/SoldierIced/workhub/commit/dd1bf88389e7ba15595bebb70f773a788943066b))
+* **review:** read diff paths with spaces and quoted names ([191df0c](https://github.com/SoldierIced/workhub/commit/191df0cdd381e16c03ba633e7320052c697c760c))
+* **security:** fence third-party text in wake and meeting brief prompts ([c73dfec](https://github.com/SoldierIced/workhub/commit/c73dfec56a7a6ad49dd98662ee2aea426040ccf4))
+* **security:** harden git calls against a repository's own configuration ([dd1bf88](https://github.com/SoldierIced/workhub/commit/dd1bf88389e7ba15595bebb70f773a788943066b))
+* **security:** make five text patterns run in linear time ([65685c1](https://github.com/SoldierIced/workhub/commit/65685c1630778271f83d43671a0290494fce12b9))
+* **security:** read the dev server address only in a development run ([3d1aadd](https://github.com/SoldierIced/workhub/commit/3d1aaddc32d42864ef06c9858725f6731bf8a63c))
+* **security:** redact secrets in agent error output ([4eed445](https://github.com/SoldierIced/workhub/commit/4eed445f1f4761dfca761f56a65a2bc90d7970eb))
+* **sessions:** keep the composer draft when a session moves between windows ([6ecd017](https://github.com/SoldierIced/workhub/commit/6ecd017ceda145b371c176270e8e0b4f34f29670))
+* **sessions:** rebuild the chat of a reloaded, detached or docked window ([109a706](https://github.com/SoldierIced/workhub/commit/109a7064fa1842a448af544ea9c3b1dc57d2e4a3))
+* **sessions:** send queued prompts in a session's own window ([6ecd017](https://github.com/SoldierIced/workhub/commit/6ecd017ceda145b371c176270e8e0b4f34f29670))
+* **sessions:** show why the Claude bridge exited ([d859a7d](https://github.com/SoldierIced/workhub/commit/d859a7dccfbaaaf415c1e95ac5a94b778e45ddbf))
+* **sessions:** start fresh when a kept session has no transcript to resume ([6ecd017](https://github.com/SoldierIced/workhub/commit/6ecd017ceda145b371c176270e8e0b4f34f29670))
+* **sessions:** state the real size limit of pasted images ([c1a4161](https://github.com/SoldierIced/workhub/commit/c1a4161222f1bdbe8ab9cd26ca23bf4d60001036))
+* **sessions:** stop the shell of a session closed after its agent exited ([6ecd017](https://github.com/SoldierIced/workhub/commit/6ecd017ceda145b371c176270e8e0b4f34f29670))
+* **settings:** remove the token field of code hosts, which nothing read ([191df0c](https://github.com/SoldierIced/workhub/commit/191df0cdd381e16c03ba633e7320052c697c760c))
+* **slack:** keep unread replies when the session posts in the thread ([faecf38](https://github.com/SoldierIced/workhub/commit/faecf38e440acf8caf5302a07a61179ab87e41ea))
+* **storage:** keep the database backup from stalling on Node 26 ([c1a4161](https://github.com/SoldierIced/workhub/commit/c1a4161222f1bdbe8ab9cd26ca23bf4d60001036))
+* **usage:** escape backslashes in report table cells ([65685c1](https://github.com/SoldierIced/workhub/commit/65685c1630778271f83d43671a0290494fce12b9))
+
+
+### Performance
+
+* **agents:** cap the tool list an ACP session reports ([6579d68](https://github.com/SoldierIced/workhub/commit/6579d686165f036f8695f313014ac551071b8669))
+* **automations:** notify only on change and keep the tray from reading the code host ([baa4867](https://github.com/SoldierIced/workhub/commit/baa486719e5bf5e981fc9abbfd70c30ab3377899))
+* **history:** parse transcripts in a worker process ([5854e26](https://github.com/SoldierIced/workhub/commit/5854e26a9c54f4bb5980dfda23a11d93c76e35d7))
+* **sessions:** cut re-renders while agents stream ([8af0d7a](https://github.com/SoldierIced/workhub/commit/8af0d7a2837a56791ede67d64a6a756ae3428238))
+* **sessions:** draw only the newest part of a long chat ([43f8bcd](https://github.com/SoldierIced/workhub/commit/43f8bcd0a7bdd578ebf69cbf07be6d99d785d64d))
+* **sessions:** stop reading the transcripts of stopped sessions ([6579d68](https://github.com/SoldierIced/workhub/commit/6579d686165f036f8695f313014ac551071b8669))
+* **terminal:** send terminal output in batches ([eb81288](https://github.com/SoldierIced/workhub/commit/eb8128879b00867787142fa8759037f9427b4251))
+* **usage:** run the report queries in a read-only worker process ([d834957](https://github.com/SoldierIced/workhub/commit/d83495727173e1f8a4f5dba673b09a0607a8f9b8))
+
 ## [2.0.0-alpha.33](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.32...v2.0.0-alpha.33) (2026-11-15)
 
 
