@@ -17,6 +17,7 @@ import type { PullRequestWindowTab } from './codehost-api'
 import type { MenuCommand } from './windows-api'
 import type { RemoteStatusView } from './remote-api'
 import type { SignInEvent } from './sign-in-api'
+import type { InstallQueueSnapshot } from './setup-api'
 
 /** What carries `hub` calls to the main process: request/response, one-way, and main's events. */
 export interface HubTransport {
@@ -308,6 +309,14 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
     setup: {
       run: () => invoke('setup:run'),
       install: (installer) => invoke('setup:install', installer),
+      installPlan: (installers) => invoke('setup:installPlan', installers),
+      installMany: (installers) => invoke('setup:installMany', installers),
+      installState: () => invoke('setup:installState'),
+      retryInstall: (installer) => invoke('setup:retryInstall', installer),
+      cancelInstalls: () => send('setup:cancelInstalls'),
+      onInstallProgress: (cb) => subscribe<[InstallQueueSnapshot]>('setup:installProgress', cb),
+      tools: () => invoke('tools:list'),
+      removeTool: (id) => invoke('tools:remove', id),
       openWindow: (page) => send('setup:openWindow', page),
       openSettings: (tab) => send('setup:openSettings', tab),
       completeWelcome: () => invoke('setup:completeWelcome'),

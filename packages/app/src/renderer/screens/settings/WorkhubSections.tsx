@@ -8,6 +8,7 @@ import type { MessageKey } from '../../i18n/translate'
 import { errorText } from '../../lib/errorText'
 import { fileName, formatBytes } from '../../lib/localReview'
 import { SetupEntryGroup } from '../SetupEntryGroup'
+import { ManagedToolsGroup } from './ManagedToolsGroup'
 import { UpdatesSettings } from '../UpdatesSettings'
 import { VoiceSettingsGroup } from '../VoiceSettings'
 import { LanguageAppearanceGroup } from './AppearanceGroup'
@@ -85,6 +86,7 @@ export function AdvancedSection({ snap }: SectionProps) {
   return (
     <div className="flex flex-col gap-6" data-testid="settings-advanced">
       <SetupEntryGroup />
+      <ManagedToolsGroup />
       <SettingsGroup anchor="data" title={t('settingsV2.advanced.data')} help={t('help.general.storage')}>
         <div className="flex items-center gap-3 py-3" data-settings-row>
           <FolderCog className="size-4 shrink-0 text-muted" aria-hidden />

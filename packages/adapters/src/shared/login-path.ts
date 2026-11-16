@@ -50,6 +50,15 @@ export function prependPath(path: string, folders: readonly string[], delimiter:
   return [...folders, ...path.split(delimiter)].filter(Boolean).join(delimiter)
 }
 
+/**
+ * `folders` first, each once: Workhub's tools folder must win over anything the person installed,
+ * and a PATH that already starts with them (read again after an install) does not grow.
+ */
+export function withFoldersFirst(path: string, folders: readonly string[], delimiter: string = hostDelimiter): string {
+  const rest = path.split(delimiter).filter((p) => p && !folders.includes(p))
+  return [...folders, ...rest].join(delimiter)
+}
+
 export type ShellRunner = (shell: string, args: string[], timeoutMs: number) => Promise<string>
 
 const runShell: ShellRunner = (shell, args, timeoutMs) =>

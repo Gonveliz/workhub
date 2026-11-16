@@ -1,10 +1,11 @@
 import { CircleCheck, CircleDashed, CircleX, TriangleAlert } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { problemCount, setupGoal, type SetupFix, type SetupGoal, type SetupItem } from '@workhub/core'
+import { missingInstallers, problemCount, setupGoal, type SetupFix, type SetupGoal, type SetupItem } from '@workhub/core'
 import { Button, Select, Spinner } from '../components/atoms'
 import { refreshConfig, useConfig } from '../configStore'
 import { useToast } from '../components/molecules'
 import { InstallAction } from '../components/organisms/InstallAction'
+import { InstallMissing } from '../components/organisms/InstallMissing'
 import { useI18n } from '../i18n/I18nProvider'
 import { cn } from '../lib/cn'
 import { fixLabel, itemDetail, itemTitle, type SetupState } from '../lib/setup'
@@ -129,6 +130,7 @@ export function SetupChecklist({ state, actions }: { state: SetupState; actions?
         </Button>
       </div>
       <GoalPicker onChanged={run} />
+      {!running && <InstallMissing installers={missingInstallers(items)} onDone={run} />}
       <Section title={t('setup.required')} items={items.filter((i) => !i.optional)} onInstalled={run} />
       <Section title={t('setup.optional')} items={items.filter((i) => i.optional)} onInstalled={run} />
     </div>

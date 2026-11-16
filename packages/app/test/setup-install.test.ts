@@ -60,3 +60,39 @@ describe('registerSetupInstallIpc', () => {
     expect(got).toEqual(['codex'])
   })
 })
+
+describe('SetupInstaller with the tools Workhub installs itself', () => {
+  const fakeManaged = (hasNode: boolean, results: Record<string, { ok: true } | { ok: false; reason: 'checksum'; detail: string }> = {}) => {
+    const calls: string[] = []
+    let node = hasNode
+    return {
+      calls,
+      hasNode: () => node,
+      install: async (id: string) => {
+        calls.push(id)
+        if (id === 'node') node = true
+        return results[id] ?? { ok: true as const }
+      }
+    }
+  }
+
+  it('installs into the tools folder instead of running a command, Node.js first for an npm agent', async () => {
+    const shell: string[] = []
+    const managed = fakeManaged(false)
+    const installer = new SetupInstaller({ platform: 'win32', arch: 'x64', managed: managed as never, run: async (c) => (shell.push(c), { ok: true, output: '' }) })
+    expect(await installer.install('opencode')).toEqual({ ok: true, output: '' })
+    expect(managed.calls).toEqual(['node', 'opencode'])
+    expect(await installer.install('git')).toEqual({ ok: true, output: '' })
+    expect(managed.calls).toEqual(['node', 'opencode', 'git'])
+    // Claude Code keeps its official script.
+    await installer.install('claudeCode')
+    expect(shell).toEqual(['irm https://claude.ai/install.ps1 | iex'])
+  })
+
+  it('reports why a managed install failed and stops before the agent when Node.js fails', async () => {
+    const managed = fakeManaged(false, { node: { ok: false, reason: 'checksum', detail: 'mismatch' } })
+    const installer = new SetupInstaller({ platform: 'linux', arch: 'arm64', managed: managed as never })
+    expect(await installer.install('gemini')).toEqual({ ok: false, output: 'mismatch', reason: 'checksum' })
+    expect(managed.calls).toEqual(['node'])
+  })
+})

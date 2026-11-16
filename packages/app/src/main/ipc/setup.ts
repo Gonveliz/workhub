@@ -4,15 +4,13 @@ import type { SetupPage } from '../../shared/setup-api'
 import { registerAgentToolsIpc, type AgentToolsService } from '../agent-tools'
 import type { IpcRegistrar } from '../ipc-guard'
 import { settingsSectionArg, type SettingsWindow } from '../settings-window'
-import type { SetupInstaller } from '../setup-install'
-import { registerSetupInstallIpc } from '../setup-ipc'
+import { registerSetupInstallIpc, type SetupInstallIpcDeps } from '../setup-ipc'
 import type { SetupService } from '../setup-service'
 
 export interface SetupIpcDeps {
   setup: Pick<SetupService, 'run'>
-  setupInstaller: Pick<SetupInstaller, 'install'>
-  /** Reads the login shell's PATH again (an install may have added a folder to the shell profile). */
-  refreshCliPath: () => Promise<void>
+  /** One install (a row's Install), "Install what is missing" and the tools folder (setup-ipc.ts). */
+  installs: SetupInstallIpcDeps
   agentTools: AgentToolsService
   openSetupWindow: (page: SetupPage) => void
   setupWindow: (page: SetupPage) => BrowserWindow | undefined
@@ -28,15 +26,7 @@ export interface SetupIpcDeps {
 export function registerSetupIpc(ipc: IpcRegistrar, deps: SetupIpcDeps): void {
   const { settingsWindow } = deps
   ipc.handle('setup:run', () => deps.setup.run())
-  registerSetupInstallIpc(ipc, {
-    install: async (id) => {
-      try {
-        return await deps.setupInstaller.install(id)
-      } finally {
-        await deps.refreshCliPath()
-      }
-    }
-  })
+  registerSetupInstallIpc(ipc, deps.installs)
   registerAgentToolsIpc(ipc, deps.agentTools)
   ipc.on('setup:openWindow', (_e, page: SetupPage) => {
     if (page === 'welcome' || page === 'check' || page === 'help') deps.openSetupWindow(page)

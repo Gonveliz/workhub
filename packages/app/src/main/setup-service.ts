@@ -89,14 +89,16 @@ export interface SetupServiceDeps {
   agents?: (config: WorkhubConfig) => readonly AgentDefinition[]
   /** Test seam: the operating system the install fixes are for. */
   platform?: NodeJS.Platform
+  /** The processor: where Workhub has an archive for it, the fixes install into its tools folder. */
+  arch?: string
   /** Test seam: replaces the command runner. */
   run?: typeof probe
 }
 
 /** What the install table needs to know about this machine: Homebrew and npm are checked, never assumed. */
-export async function installContext(run: typeof probe, env: NodeJS.ProcessEnv, platform: NodeJS.Platform): Promise<InstallContext> {
+export async function installContext(run: typeof probe, env: NodeJS.ProcessEnv, platform: NodeJS.Platform, arch?: string): Promise<InstallContext> {
   const [brew, npm] = await Promise.all([platform === 'win32' ? Promise.resolve(null) : run('brew', ['--version'], { env }), run('npm', ['--version'], { env })])
-  return { platform, brew: brew?.result === 'ok', npm: npm.result === 'ok' }
+  return { platform, ...(arch ? { arch } : {}), brew: brew?.result === 'ok', npm: npm.result === 'ok' }
 }
 
 /** Checks what Workhub needs on this machine. Nothing here changes any setting. */
@@ -119,7 +121,7 @@ export class SetupService {
       return claudeSignInItem(`claudeSignIn:${ref.accountId ?? 'default'}`, ref.name || 'Claude', p, ref.accountId)
     })
     const platform = this.deps.platform ?? process.platform
-    const ctx = await installContext(run, base, platform)
+    const ctx = await installContext(run, base, platform, this.deps.arch)
     const nodeProbe = (async () => {
       let p = await run('node', ['--version'], { env: base })
       // A Node from a version manager may only be on the login shell's PATH.

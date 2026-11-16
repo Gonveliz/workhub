@@ -24,6 +24,7 @@ import {
   readySummary,
   stepComplete,
   WELCOME_AGENTS,
+  welcomeInstallers,
   welcomeSteps,
   workspaceName,
   workspaceOf,
@@ -33,6 +34,7 @@ import {
   type WelcomeState,
   type WelcomeStep
 } from '../lib/welcome-flow'
+import { InstallMissing } from '../components/organisms/InstallMissing'
 import { FixButton, FixNotes, SetupChecklist, SetupRow } from './SetupChecklist'
 
 /** The routes of the setup windows (`#welcome`, `#setup`, `#howitworks`); null for any other hash. */
@@ -483,6 +485,7 @@ function WelcomePage() {
         </h1>
         <p className="text-base text-muted">{titles[step].subtitle}</p>
       </header>
+      {(step === 'agent' || step === 'code') && <InstallMissing installers={welcomeInstallers(step, state)} onDone={check.run} />}
       {step === 'goal' && <GoalStep goal={goal} onGoal={chooseGoal} />}
       {step === 'agent' && <AgentStep agent={agent} onAgent={setAgent} items={check.items} onInstalled={check.run} />}
       {step === 'signIn' && agent && <SignInStep agent={agent} items={check.items} waiting={waitingSignIn} onStarted={() => setWaitingSignIn(true)} onCheck={check.run} checking={check.running} />}

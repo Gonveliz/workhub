@@ -174,12 +174,12 @@ describe('install table', () => {
     expect(all.filter((m) => m.mode === 'copy').map((m) => `${m.tool}/${m.platform}`).sort()).toEqual(['git/linux', 'git/win32'])
   })
 
-  it('never assumes Homebrew or npm, and never offers Homebrew for gh on Linux', () => {
+  it('never assumes Homebrew or npm (npm installs Workhub runs itself use its own Node.js), and never offers Homebrew for gh on Linux', () => {
     for (const m of all) {
       if (/^brew /.test(m.command)) expect(m.requires, m.command).toBe('brew')
-      if (/^npm /.test(m.command)) expect(m.requires, m.command).toBe('npm')
+      if (/^npm /.test(m.command) && !m.managed) expect(m.requires, m.command).toBe('npm')
     }
-    expect(INSTALLERS.github.linux).toBeUndefined()
+    expect(INSTALLERS.github.linux?.every((m) => m.managed)).toBe(true)
     expect(installMethod('github', { platform: 'linux', brew: true })).toBeNull()
     expect(installCommand('gitlab', { platform: 'darwin', brew: false })).toBeNull()
   })

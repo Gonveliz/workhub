@@ -3,7 +3,7 @@
  * is complete, how each agent card reads the setup check, the default folder and the workspace's
  * name. The window (screens/SetupWindows.tsx) only draws them.
  */
-import { goalIncludesCode, slugId, type Profile, type SetupFix, type SetupGoal, type SetupItem, type SignInTool } from '@workhub/core'
+import { goalIncludesCode, missingInstallers, slugId, type InstallerId, type Profile, type SetupFix, type SetupGoal, type SetupItem, type SignInTool } from '@workhub/core'
 import { folderName } from './home'
 
 export type WelcomeStep = 'goal' | 'agent' | 'signIn' | 'folder' | 'code' | 'ready'
@@ -156,3 +156,19 @@ export function readySummary(state: WelcomeState): { line: SummaryLine; done: bo
 
 /** A session can start once there is an agent that is installed and a folder. */
 export const canStartSession = (state: WelcomeState): boolean => stepComplete('agent', state) && stepComplete('folder', state)
+
+/**
+ * What "Install what is missing" installs on a welcome step: the chosen agent on the agent step
+ * (and git, for the code goals), git and the needed code host tools on the code step. Only what
+ * Workhub can install here (an Install fix); the main process adds Node.js first when needed.
+ */
+export function welcomeInstallers(step: WelcomeStep, state: Pick<WelcomeState, 'goal' | 'agent' | 'items'>): InstallerId[] {
+  const code = state.goal !== null && goalIncludesCode(state.goal)
+  const git = code ? missingInstallers(state.items.filter((i) => i.kind === 'git').map((i) => ({ ...i, optional: false }))) : []
+  if (step === 'agent') {
+    const fix = state.agent ? agentInstallFix(state.agent, state.items) : undefined
+    return [...(fix?.kind === 'install' ? [fix.installer] : []), ...git]
+  }
+  if (step === 'code') return [...git, ...missingInstallers(state.items.filter((i) => i.kind === 'github' || i.kind === 'gitlab'))]
+  return []
+}

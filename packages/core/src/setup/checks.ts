@@ -38,7 +38,7 @@ export type SetupFix =
   | { kind: 'settings'; tab: string }
   | { kind: 'link'; url: string; title: 'installGuide' | 'downloadNode' | 'installGh' | 'installPage'; admin?: boolean }
   | { kind: 'command'; command: string }
-  | { kind: 'install'; installer: InstallerId; command: string }
+  | { kind: 'install'; installer: InstallerId; command: string; managed?: boolean }
   | { kind: 'adminCommand'; installer: InstallerId; command: string; url: string }
   | { kind: 'signIn'; tool: SignInTool; accountId?: string }
 
@@ -52,7 +52,7 @@ export function installFix(installer: InstallerId, context: InstallContext | str
   const platform = typeof context === 'string' ? context : (context?.platform ?? '')
   const method = installMethod(installer, context)
   const url = installPage(installer, platform)
-  if (method?.mode === 'run') return { kind: 'install', installer, command: method.command }
+  if (method?.mode === 'run') return { kind: 'install', installer, command: method.command, ...(method.managed ? { managed: true } : {}) }
   if (method?.mode === 'copy') return { kind: 'adminCommand', installer, command: method.command, url }
   return { kind: 'link', url, title: LINK_TITLES[installer] ?? 'installPage', ...(adminOnly(installer, platform) ? { admin: true } : {}) }
 }
@@ -189,7 +189,8 @@ export function codexItem(npx: Probe, node: Probe, context?: InstallContext | st
     return item('codex', 'ok', 'codexReady', { version: /v\d+\.\d+\.\d+/.exec(node.output)?.[0] ?? firstLine(node.output) })
   }
   if (npx.result === 'timeout' || node.result === 'timeout') return item('codex', 'warning', 'timeout', { command: npx.result === 'timeout' ? 'npx --version' : 'node --version' })
-  return item('codex', 'missing', 'codexNeedsNode', {}, { fix: installFix('node', context) })
+  // Workhub installs its own Node.js and fetches the adapter with it where it can; else Node's own fix.
+  return item('codex', 'missing', 'codexNeedsNode', {}, { fix: installMethod('codexAdapter', context) ? installFix('codexAdapter', context) : installFix('node', context) })
 }
 
 const AGENT_COMMANDS = { kiro: 'kiro-cli', opencode: 'opencode', gemini: 'gemini' } as const
@@ -276,4 +277,13 @@ export function usageItem(options: { claudePlanUsage: boolean; codexUsage: boole
   const on = [options.claudePlanUsage ? 'Claude' : '', options.codexUsage ? 'Codex' : ''].filter(Boolean)
   if (on.length > 0) return item('usage', 'ok', 'usageOn', { sources: on.join(', ') }, { optional: true })
   return item('usage', 'missing', 'usageOff', {}, { optional: true, fix: { kind: 'settings', tab: 'usage' } })
+}
+
+/**
+ * The installers "Install what is missing" runs: the needed rows that are not ready and that
+ * Workhub can install here (an Install fix), in the rows' order (`installQueue` sorts them).
+ */
+export function missingInstallers(items: readonly SetupItem[]): InstallerId[] {
+  const ids = items.flatMap((i) => (!i.optional && i.status !== 'ok' && i.fix?.kind === 'install' ? [i.fix.installer] : []))
+  return [...new Set(ids)]
 }
