@@ -451,6 +451,7 @@ export const SETTINGS_INDEX: readonly SettingsIndexEntry[] = [
     ["storage.database", "storage.databaseHint"],
     ["storage.backupNow"],
     ["storage.revealBackups"],
+    ["storage.restore", "storage.restoreHint"],
   ]),
 ];
 

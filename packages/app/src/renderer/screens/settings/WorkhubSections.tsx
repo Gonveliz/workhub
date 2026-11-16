@@ -13,6 +13,7 @@ import { VoiceSettingsGroup } from '../VoiceSettings'
 import { LanguageAppearanceGroup } from './AppearanceGroup'
 import { SettingsGroup } from './SettingsLayout'
 import { StorageRecoveredNotice, useStorageInfo } from './StorageNotice'
+import { RestoreBackupsRow } from './RestoreBackupsRow'
 import { StorageUsageRow } from './StorageUsageRow'
 import type { SectionProps } from './shared'
 
@@ -62,6 +63,8 @@ export function AdvancedSection({ snap }: SectionProps) {
   const { t } = useI18n()
   // Compacting changes the file's size: the database row reads it again.
   const [compactions, setCompactions] = useState(0)
+  // A new backup joins the list of copies to restore from.
+  const [backups, setBackups] = useState(0)
   return (
     <div className="flex flex-col gap-6" data-testid="settings-advanced">
       <SetupEntryGroup />
@@ -76,7 +79,8 @@ export function AdvancedSection({ snap }: SectionProps) {
             {snap.dataDir}
           </code>
         </div>
-        <DatabaseRow refresh={compactions} />
+        <DatabaseRow refresh={compactions} onBackedUp={() => setBackups((n) => n + 1)} />
+        <RestoreBackupsRow refresh={backups} />
         <StorageUsageRow onCompacted={() => setCompactions((n) => n + 1)} />
       </SettingsGroup>
     </div>
@@ -92,7 +96,7 @@ export function backupErrorKey(error: string): 'storage.backupNotWritten' | 'sto
 }
 
 /** The database file, its size, the last copy, "Back up now" and the backups folder (Settings → Advanced → Data). */
-function DatabaseRow({ refresh }: { refresh: number }) {
+function DatabaseRow({ refresh, onBackedUp }: { refresh: number; onBackedUp: () => void }) {
   const { t, locale } = useI18n()
   const toast = useToast()
   const [info, load] = useStorageInfo()
@@ -104,8 +108,10 @@ function DatabaseRow({ refresh }: { refresh: number }) {
     setBusy(true)
     try {
       const r = await window.hub.storage.backup()
-      if (r.ok) toast(t('storage.backedUp', { path: r.path }))
-      else {
+      if (r.ok) {
+        toast(t('storage.backedUp', { path: r.path }))
+        onBackedUp()
+      } else {
         console.warn('[storage] backup failed', r.error)
         toast(t(backupErrorKey(r.error)), 'danger')
       }

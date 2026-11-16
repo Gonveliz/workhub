@@ -633,6 +633,22 @@ export interface StorageUsage {
 
 export type StorageCompactResult = { ok: true; beforeBytes: number; afterBytes: number } | { ok: false; error: string }
 
+/** A copy the database can be restored from: a backup, or the file an earlier restore set aside. */
+export interface StorageRestorePoint {
+  path: string
+  kind: 'automatic' | 'manual' | 'beforeRestore'
+  /** When the copy was last written (epoch ms). */
+  at: number
+  sizeBytes: number
+}
+
+/**
+ * A restore asked for: `ok` means the copy passed its checks and the app is restarting to swap it in.
+ * `reason` says why it was refused: not one of the listed copies, unreadable, damaged, or made by a
+ * newer Workhub.
+ */
+export type StorageRestoreResult = { ok: true } | { ok: false; reason: 'unknown' | 'unreadable' | 'damaged' | 'newerSchema' | 'failed'; error: string }
+
 export interface StorageApi {
   info(): Promise<StorageInfo>
   /** Copies the database now, to a new `workhub-YYYY-MM-DD-HHmm.db` (the daily copy is kept apart). */
@@ -643,6 +659,10 @@ export interface StorageApi {
   usage(): Promise<StorageUsage>
   /** Runs the retention now, then VACUUM: the file shrinks to what it holds. */
   compact(): Promise<StorageCompactResult>
+  /** The backups and the copies earlier restores set aside, newest first. */
+  restorePoints(): Promise<StorageRestorePoint[]>
+  /** Checks the copy, then restarts the app and swaps it in (the current database kept as a copy). */
+  restore(path: string): Promise<StorageRestoreResult>
 }
 
 /**

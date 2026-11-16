@@ -28,5 +28,21 @@ export const storageEn = {
   'storage.compacting': 'Compacting…',
   'storage.compactHint': 'Runs the daily cleanup now, then rewrites the file to drop the free space. On a large database this can take a while.',
   'storage.compacted': 'Database compacted: {before} → {after}',
-  'storage.compactFailed': 'Compacting failed. Try again in a moment.'
+  'storage.compactFailed': 'Compacting failed. Try again in a moment.',
+  'storage.restore': 'Restore from a backup',
+  'storage.restoreHint': 'Puts a copy in place of the database. Workhub checks the copy, keeps the current database as a copy first (listed here, so a restore can be undone) and restarts.',
+  'storage.restoreNone': 'No backups yet.',
+  'storage.restoreKind.automatic': 'Automatic',
+  'storage.restoreKind.manual': 'Manual',
+  'storage.restoreKind.beforeRestore': 'Before a restore',
+  'storage.restoreAction': 'Restore…',
+  'storage.restoreConfirmTitle': 'Restore the copy of {date}?',
+  'storage.restoreConfirmBody': 'Sessions, spend, Plan, flow maps and the watchers\' state are replaced by this copy: what changed after {date} is not in it. The current database is kept first as workhub.db.before-restore-…, listed here so you can restore it back. Settings and secrets are not touched. Open sessions stop and Workhub restarts.',
+  'storage.restoreConfirm': 'Restore and restart',
+  'storage.restoring': 'The copy passed its checks. Workhub is restarting…',
+  'storage.restoreUnknown': 'That copy is no longer there. The list was read again.',
+  'storage.restoreUnreadable': 'The copy cannot be read as a Workhub database. Nothing was changed.',
+  'storage.restoreDamaged': 'The copy is damaged (it failed the integrity check). Nothing was changed.',
+  'storage.restoreNewer': 'The copy was made by a newer Workhub. Update Workhub to restore it. Nothing was changed.',
+  'storage.restoreFailed': 'The restore failed. Nothing was changed.'
 }

@@ -381,7 +381,9 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       backup: () => invoke('storage:backup'),
       revealBackups: () => send('storage:revealBackups'),
       usage: () => invoke('storage:usage'),
-      compact: () => invoke('storage:compact')
+      compact: () => invoke('storage:compact'),
+      restorePoints: () => invoke('storage:restorePoints'),
+      restore: (path) => invoke('storage:restore', path)
     },
     analytics: {
       tags: (sessionId) => invoke('analytics:tags', sessionId),

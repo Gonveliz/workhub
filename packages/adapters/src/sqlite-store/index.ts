@@ -6,6 +6,7 @@ export { SqliteFlowMaps, type FlowMapRow } from './flow-maps'
 export { FLOW_HISTORY_DAYS, SqliteFlowHistory } from './flow-history'
 export { describeImport, flowMapIdFromFileName, IMPORT_DONE_KEY, importLegacyJson, legacyImportDone, LEGACY_FLOW_HISTORY_FOLDER, LEGACY_FLOW_MAPS_FOLDER, LEGACY_STATE_FILES, type ImportSummary } from './import'
 export { BACKUP_FOLDER, BACKUPS_KEPT, backupDatabase, backupPath, listBackups, manualBackupPath } from './backup'
+export { beforeRestorePath, listRestorePoints, swapInBackup, verifyBackup, type RestoreCheck, type RestoreFailure, type RestorePoint, type RestorePointKind, type RestoreSwap, type SwapOptions } from './restore'
 export { HEAD_BYTES, refreshSessionTotals, repoProjects, transcriptSessionId, TURN_SCAN_KEY, TurnIngest, UNKNOWN_ACCOUNT, type ProjectResolver, type TurnAgent, type TurnIngestOptions, type TurnScanResult } from './turns'
 export {
   AutomationRunLog,

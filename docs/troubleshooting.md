@@ -83,13 +83,22 @@ path and size. `config.json` and `secrets.json` stay separate files.
 - **A damaged database**: only when SQLite reports `workhub.db` as damaged does Workhub rename it to
   `workhub.db.corrupt-<timestamp>`, log it, show a notice in **Settings → Advanced** (Diagnostics and
   Data) with that path and the backups folder, and start with a fresh one. While a `.corrupt-*` file
-  is there no backup is pruned. Restore the newest copy from `backups/` (quit Workhub, copy
-  `backups/workhub-<date>.db` over `workhub.db`, delete `workhub.db-wal` and `workhub.db-shm`).
+  is there no backup is pruned. Restore the newest copy with **Restore…** (see below).
 - **The database cannot be opened** (locked by another process, disk full, no permission): Workhub
   shows an error and quits, and leaves the file as it is. Fix the cause and start again.
 - **Backups**: `backups/workhub-YYYY-MM-DD.db` about 30 seconds after start and once a day,
   `workhub-YYYY-MM-DD-HHmm.db` for **Back up now**; the newest 7 of each kind are kept. **Show backups
   folder** in Settings → Advanced → Data opens the folder.
+- **Restoring a backup**: Settings → Advanced → Data → **Restore from a backup** lists the copies
+  (date, size, automatic or manual) with **Restore…** on each. Workhub first checks the copy: it must
+  open, pass `PRAGMA integrity_check` and have a schema no newer than this version's; otherwise it is
+  refused and nothing changes. Then Workhub quits (stopping sessions, background jobs and the report
+  workers, and closing the database), moves `workhub.db` aside as
+  `workhub.db.before-restore-<timestamp>`, copies the backup into place and starts again. The file
+  set aside is listed too ("Before a restore"), so a restore can be undone. If the swap fails, the
+  original file is put back, an error says why and Workhub starts on it. `main.log` has a
+  `restore:` line for each step. Restoring by hand still works: quit Workhub, copy
+  `backups/workhub-<date>.db` over `workhub.db` and delete `workhub.db-wal` and `workhub.db-shm`.
 - **Flow maps** are no longer read from a `flow-maps/` folder: import them in **Settings → Profiles → (profile) → Screens → Flow maps**
   or post them with the `workhub-flow-map` skill.
 

@@ -27,7 +27,7 @@ fixes it (a profile's problem opens that profile on the right tab).
 | | **Agents** | One card per agent installed on this computer, with its own sign-in and its accounts, **Add account** and each account's form; the usage reading switch under each agent. See [Agents](#agents). |
 | | **Connections** | The services Workhub reads, grouped by kind (Code, Tickets, Calendars, Slack, Health), each with the profiles and screens that use it. See [Connections](#connections). |
 | Per profile | **Profiles** | The list of profiles: colour and symbol, name, an **active** badge and a summary (folders, screens that are on, agents offered), with **Open** and a copy button that duplicates it; **New profile** adds one. See below. |
-| Advanced | **Advanced** | **Diagnostics and help** (**Setup check**, **Welcome tour**, **How Workhub works**) and **Data**: where `config.json`, `secrets.json` and the `workhub.db` database are kept, the database size, **Back up now** and **Show backups folder**, what each kind of data takes and **Compact now** (see [Usage](usage.md#how-long-it-is-kept)). |
+| Advanced | **Advanced** | **Diagnostics and help** (**Setup check**, **Welcome tour**, **How Workhub works**) and **Data**: where `config.json`, `secrets.json` and the `workhub.db` database are kept, the database size, **Back up now**, **Show backups folder** and **Restore from a backup**, what each kind of data takes and **Compact now** (see [Usage](usage.md#how-long-it-is-kept)). |
 
 ### A profile
 
@@ -86,9 +86,13 @@ remembers between launches (open sessions, names, watcher state, spend, Plan, fl
 history, History's search index) is in one database file, `workhub.db`, in the same folder; the row shows its path and size.
 A copy `workhub-YYYY-MM-DD.db` is made in `backups/` about 30 seconds after the app starts and once
 a day after that; **Back up now** makes a separate one, `workhub-YYYY-MM-DD-HHmm.db`, and **Show
-backups folder** opens the folder. The newest 7 daily and the newest 7 manual copies are kept. To
-restore one, quit Workhub and replace `workhub.db` with the copy (delete `workhub.db-wal` and
-`workhub.db-shm` first). If the database ever has to be moved aside because it was damaged, a
+backups folder** opens the folder. The newest 7 daily and the newest 7 manual copies are kept.
+**Restore from a backup** lists them with their date, size and kind; **Restore…** asks first, then
+checks the copy (a damaged one, or one made by a newer Workhub, is refused and nothing changes) and
+restarts Workhub on it. Open sessions stop; `config.json` and `secrets.json` are not touched. The
+database it replaces is kept as `workhub.db.before-restore-<timestamp>` and listed as "Before a
+restore", so you can go back to it the same way. Restoring is available on this computer only, never
+from a paired phone or the control endpoint. If the database ever has to be moved aside because it was damaged, a
 notice in **Diagnostics and help** and in **Data** says where it went (see
 [Troubleshooting](../troubleshooting.md#the-database)). The first start of this version moves the
 JSON state files of earlier versions into the database and renames them to `.migrated`; see

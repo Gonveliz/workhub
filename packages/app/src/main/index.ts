@@ -125,6 +125,7 @@ import { ControlTokens } from './control-auth'
 import { kiroUsageProbeEnabled } from './kiro-usage-probe'
 import { AnalyticsQueries, type QueryWorker } from './analytics-queries'
 import { registerStorageMaintenanceIpc, StorageMaintenance } from './storage-maintenance'
+import { DatabaseRestore, registerDatabaseRestoreIpc } from './database-restore'
 import { createAutomationControl } from './automation-control'
 import { createPlanControl, resolveControlProfile } from './plan-control'
 import { FlowHistoryStore } from './flow-history'
@@ -278,6 +279,18 @@ if (firstInstance) {
 // 12 months of usage detail, then daily summaries; Compact now runs VACUUM with both workers stopped.
 const storageMaintenance = new StorageMaintenance({ db, stats: () => usageReports.storage(), exclusive: (task) => usageReports.exclusive(() => analyticsQueries.exclusive(task)), log: (m) => diagnostics.log.info(m) })
 if (firstInstance) storageMaintenance.start()
+// Restore…: checked now, swapped in on the way out once the database is closed (see will-quit), then relaunched.
+const databaseRestore = new DatabaseRestore({
+  dbPath: join(dataDir, DB_FILE),
+  backupDir: join(dataDir, BACKUP_FOLDER),
+  stopJobs: () => storageMaintenance.stop(),
+  relaunchAndQuit: () => {
+    app.relaunch()
+    app.quit()
+  },
+  showError: (m) => dialog.showErrorBox('Workhub 2 could not restore the backup', m),
+  log: (m) => diagnostics.log.info(m)
+})
 
 /** Help → Export diagnostics…: logs, versions, job table, database size and the redacted config in a folder. */
 jobReports.attach(diagnostics.log)
@@ -1480,6 +1493,7 @@ function registerIpc(): void {
     }
   })
   registerStorageMaintenanceIpc(ipc, storageMaintenance)
+  registerDatabaseRestoreIpc(ipc, databaseRestore)
   ipc.on('storage:revealBackups', () => {
     const folder = join(dataDir, BACKUP_FOLDER)
     mkdirSync(folder, { recursive: true, mode: 0o700 })
@@ -2355,7 +2369,10 @@ app.on('will-quit', (event) => {
   const closeDb = () => {
     if (dbClosed) return
     dbClosed = true
-    if (firstInstance) db.close()
+    if (firstInstance) {
+      db.close()
+      databaseRestore.finish()
+    }
     // A quit asked for again from here is ignored once will-quit was cancelled; everything ran, so exit.
     app.exit(0)
   }

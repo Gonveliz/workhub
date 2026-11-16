@@ -30,5 +30,21 @@ export const storageEs: Record<keyof typeof storageEn, string> = {
   'storage.compacting': 'Compactando…',
   'storage.compactHint': 'Hace ahora la limpieza diaria y después reescribe el archivo para sacar el espacio libre. Con una base de datos grande puede tardar.',
   'storage.compacted': 'Base de datos compactada: {before} → {after}',
-  'storage.compactFailed': 'No se pudo compactar. Probá de nuevo en un momento.'
+  'storage.compactFailed': 'No se pudo compactar. Probá de nuevo en un momento.',
+  'storage.restore': 'Restaurar una copia',
+  'storage.restoreHint': 'Pone una copia en lugar de la base de datos. Workhub revisa la copia, guarda antes la base de datos actual como copia (aparece en esta lista, así se puede deshacer) y se reinicia.',
+  'storage.restoreNone': 'Todavía no hay copias.',
+  'storage.restoreKind.automatic': 'Automática',
+  'storage.restoreKind.manual': 'Manual',
+  'storage.restoreKind.beforeRestore': 'Antes de restaurar',
+  'storage.restoreAction': 'Restaurar…',
+  'storage.restoreConfirmTitle': '¿Restaurar la copia del {date}?',
+  'storage.restoreConfirmBody': 'Las sesiones, el gasto, Plan, los mapas de flujo y el estado de los vigilantes se reemplazan por esta copia: lo que cambió después del {date} no está en ella. Antes se guarda la base de datos actual como workhub.db.before-restore-…, que aparece en esta lista para poder volver a ella. La configuración y los secretos no se tocan. Las sesiones abiertas se cierran y Workhub se reinicia.',
+  'storage.restoreConfirm': 'Restaurar y reiniciar',
+  'storage.restoring': 'La copia pasó las revisiones. Workhub se está reiniciando…',
+  'storage.restoreUnknown': 'Esa copia ya no está. Se volvió a leer la lista.',
+  'storage.restoreUnreadable': 'La copia no se puede leer como base de datos de Workhub. No se cambió nada.',
+  'storage.restoreDamaged': 'La copia está dañada (no pasó la revisión de integridad). No se cambió nada.',
+  'storage.restoreNewer': 'La copia la hizo un Workhub más nuevo. Actualizá Workhub para restaurarla. No se cambió nada.',
+  'storage.restoreFailed': 'La restauración falló. No se cambió nada.'
 }
