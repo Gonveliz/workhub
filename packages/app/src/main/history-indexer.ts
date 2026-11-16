@@ -12,6 +12,7 @@ import type { HistoryEntry, HistoryMessage } from '@workhub/core'
 import { HISTORY_WRITE_CHARS, historyContent, historyIndexKey, historyStamp, type IndexedSession, type IndexedStamps } from '@workhub/adapters/sqlite-store'
 import type { HistoryIndexProgress, HistoryResult } from '../shared/api'
 import { historyAccountKey } from './history'
+import { jobReports } from './job-reporter'
 
 /** What the indexer needs of the index (`SqliteHistoryIndex`). */
 export interface HistoryIndexStore {
@@ -54,6 +55,7 @@ export const listedKey = historyAccountKey
 export class HistoryIndexer {
   private state: HistoryIndexProgress = { indexing: false, indexed: 0, total: 0 }
   private running: Promise<void> | null = null
+  private readonly job = jobReports.job('history index')
   private again = false
   private freshNext = false
   /** Sessions that could not be read, with the stamp they had then: skipped until it changes. */
@@ -102,8 +104,10 @@ export class HistoryIndexer {
           this.freshNext = false
           await this.round(useFresh)
         } while (this.again && !this.stopped)
+        this.job.ok()
       } catch (err) {
         this.deps.log?.(`history index: ${err instanceof Error ? err.message : String(err)}`)
+        this.job.failed(err)
       } finally {
         this.running = null
         this.set({ indexing: false })

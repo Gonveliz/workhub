@@ -104,6 +104,8 @@ import { guardIpc, isTrustedRendererUrl, rendererDevServerUrl } from './ipc-guar
 import { timeIpc } from './ipc-timing'
 import { broadcastToWindowsAndDevices, isRemoteSender, pageHistory, promptFromDevice, readActivity, recordIpc, RemoteActivityLog, RemoteHub, RemoteService, registerRemoteIpc, readRemoteFile, touchedPaths, type RemoteState } from './remote'
 import { rendererReporter, startDiagnostics } from './diagnostics'
+import { createDiagnosticsExporter } from './diagnostics-export-app'
+import { jobReports } from './job-reporter'
 import { ReloadGuard, watchRenderer } from './render-recovery'
 import { permissionAllowed } from './permissions'
 import { HISTORY_LIST_DEPTH, historySearchOptions, listAllHistory, searchAllHistory } from './history'
@@ -270,6 +272,17 @@ if (firstInstance) {
   setTimeout(daily, 30_000).unref?.()
   setInterval(daily, 24 * 3_600_000).unref?.()
 }
+
+/** Help → Export diagnostics…: logs, versions, job table, database size and the redacted config in a folder. */
+jobReports.attach(diagnostics.log)
+const exportDiagnostics = createDiagnosticsExporter({
+  window: () => (win && !win.isDestroyed() ? win : null),
+  logsDir: diagnostics.logsDir,
+  flush: () => diagnostics.flush(),
+  jobs: () => jobReports.table(),
+  storage: () => ({ path: db.path, sizeBytes: db.sizeBytes(), backupFolder: '', lastBackup: listBackups(join(dataDir, BACKUP_FOLDER))[0] ?? null, recovered: db.recovered() }),
+  config: () => configuration.current()
+})
 
 /** Help → Reveal Logs: the log file selected in the file manager, written up to now. */
 function revealLogs(): void {
@@ -1127,6 +1140,7 @@ function registerIpc(): void {
   const report = rendererReporter(diagnostics.log)
   ipc.on('diag:report', (e, r: unknown) => report(e.sender === win?.webContents ? 'main' : 'aux', r))
   ipc.on('diag:revealLogs', revealLogs)
+  ipc.handle('diag:export', exportDiagnostics)
   ipc.on('hub:setTheme', (_e, theme: ThemePreference, chrome?: unknown) => {
     if (theme === 'system' || theme === 'light' || theme === 'dark') nativeTheme.themeSource = theme
     // The same light/dark with another palette fires no `updated`: sync here as well.
@@ -2047,6 +2061,7 @@ async function refreshMenu(): Promise<void> {
         openHelp: () => void openLink(null, HELP_URL),
         openSetup: openSetupWindow,
         revealLogs,
+        exportDiagnostics: () => void exportDiagnostics(),
         developer: !app.isPackaged
       })
     )

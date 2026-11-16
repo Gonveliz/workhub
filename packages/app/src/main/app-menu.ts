@@ -25,6 +25,7 @@ export interface AppMenuInput {
   openSetup?: (page: SetupPage) => void
   /** Help → the main process log in the file manager. */
   revealLogs?: () => void
+  exportDiagnostics?: () => void
   /** Developer tools in the View menu (dev runs only); Reload is always there. */
   developer: boolean
 }
@@ -131,7 +132,8 @@ export function buildAppMenuTemplate(input: AppMenuInput): MenuItemConstructorOp
           ] as MenuItemConstructorOptions[])
         : []),
       { label: t('menu.helpPage', { app: input.appName }), click: input.openHelp },
-      ...(input.revealLogs ? ([{ type: 'separator' }, { label: t('menu.revealLogs'), click: input.revealLogs }] as MenuItemConstructorOptions[]) : [])
+      ...(input.revealLogs ? ([{ type: 'separator' }, { label: t('menu.revealLogs'), click: input.revealLogs }] as MenuItemConstructorOptions[]) : []),
+      ...(input.exportDiagnostics ? ([{ label: t('menu.exportDiagnostics'), click: input.exportDiagnostics }] as MenuItemConstructorOptions[]) : [])
     ]
   }
 

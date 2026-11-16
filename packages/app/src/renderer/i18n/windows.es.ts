@@ -25,6 +25,7 @@ export const windowsEs: Record<keyof typeof windowsEn, string> = {
   'menu.howItWorks': 'Cómo funciona {app}',
   'menu.helpPage': '{app} en GitHub',
   'menu.revealLogs': 'Mostrar registros',
+  'menu.exportDiagnostics': 'Exportar diagnóstico…',
   'window.openInNew': 'Abrir en una ventana nueva',
   'window.moveToMain': 'Mover a la ventana principal',
   'window.moveToMainHint': 'Mostrar esta sesión otra vez en la ventana principal y cerrar esta ventana',

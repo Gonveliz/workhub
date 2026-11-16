@@ -23,6 +23,7 @@ export const windowsEn = {
   'menu.howItWorks': 'How {app} Works',
   'menu.helpPage': '{app} on GitHub',
   'menu.revealLogs': 'Reveal Logs',
+  'menu.exportDiagnostics': 'Export Diagnostics…',
   'window.openInNew': 'Open in New Window',
   'window.moveToMain': 'Move to Main Window',
   'window.moveToMainHint': 'Show this session in the main window again and close this window',

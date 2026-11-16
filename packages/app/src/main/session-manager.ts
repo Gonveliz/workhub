@@ -42,7 +42,8 @@ import {
   type WorktreeStatus,
   type SubagentConversation,
   type TranscriptReader,
-  type WorkhubConfig
+  type WorkhubConfig,
+  redactText
 } from '@workhub/core'
 import { terminalChannel, type PendingPermission, type SessionMode, type SessionView, type SetModeOptions, type StartSessionInput } from '../shared/api'
 import { ConsoleActivity } from './console-activity'
@@ -1057,7 +1058,7 @@ export class SessionManager {
   private logFailure(s: ManagedSession | undefined, error: string | undefined): void {
     if (!s || !this.deps.log) return
     const what = s.view.state === 'starting' ? 'failed to start' : 'ended unexpectedly'
-    this.deps.log(`session ${s.view.id} (${s.view.agentId}) ${what}: ${error ?? 'no error reported'}`)
+    this.deps.log(`session ${s.view.id} (${s.view.agentId}) ${what}: ${error ? redactText(error, 2000) : 'no error reported'}`)
   }
 
   private update(id: string, patch: Partial<SessionView>): void {

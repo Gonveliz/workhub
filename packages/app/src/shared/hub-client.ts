@@ -372,7 +372,8 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
     },
     diagnostics: {
       report: (report) => send('diag:report', report),
-      revealLogs: () => send('diag:revealLogs')
+      revealLogs: () => send('diag:revealLogs'),
+      exportDiagnostics: () => invoke('diag:export')
     },
     storage: {
       info: () => invoke('storage:info'),

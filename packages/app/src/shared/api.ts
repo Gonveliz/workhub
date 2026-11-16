@@ -587,6 +587,9 @@ export interface HubApi {
 }
 
 /** Where the app keeps its state (Settings → Advanced → Data). */
+/** What an export of diagnostics did: `canceled` when the person closed the folder picker. */
+export type DiagnosticsExportResult = { ok: true; folder: string; files: number } | { ok: false; canceled: boolean; error?: string }
+
 export interface StorageInfo {
   /** The database file (`workhub.db` in the data folder). */
   path: string
@@ -623,4 +626,6 @@ export interface DiagnosticsApi {
   report(report: RendererReport): void
   /** Shows the log file in the file manager. */
   revealLogs(): void
+  /** Asks for a folder and writes the diagnostics there (Help → Export diagnostics…). */
+  exportDiagnostics(): Promise<DiagnosticsExportResult>
 }

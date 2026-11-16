@@ -52,6 +52,7 @@ import type { ChatNoticeEvent, SlackDemoInput, SlackHealth, SlackHookAccount, Sl
 import { claudeAccounts } from './claude-accounts'
 import { OwnerStarts } from './owner-starts'
 import type { SessionDriver } from './session-driver'
+import { jobReports } from './job-reporter'
 
 /** What the automations tell the watcher (set once both exist). */
 export interface ChatAutomationLink {
@@ -100,6 +101,7 @@ const ELSEWHERE_MS = 120_000
 export class SlackWatcherService {
   private state: ChatWatcherState
   private running = false
+  private readonly job = jobReports.job('slack watcher')
   private failureStreak = 0
   private notifiedFailure = false
   private lastError: string | undefined
@@ -200,6 +202,7 @@ export class SlackWatcherService {
       const open = this.state.threads.filter((t) => !t.closed).slice(0, THREADS_PER_READ)
       if (!s.channels.length && !open.length) {
         this.lastError = 'nothingToWatch'
+        this.job.ok()
         return
       }
       const result = await this.deps.source
@@ -209,6 +212,7 @@ export class SlackWatcherService {
       const myPrs = await this.deps.myPullRequests().catch(() => new Set<string>())
       const applied = applyDigest(this.state, result.digest, { channelIds: s.channels.map((c) => c.id), myPullRequests: myPrs })
       this.lastError = undefined
+      this.job.ok()
       this.failureStreak = 0
       this.notifiedFailure = false
       this.pausedUntil = undefined
@@ -230,6 +234,10 @@ export class SlackWatcherService {
       for (const n of applied.notices) this.deps.notice(n)
       if (applied.fresh.length) this.automations?.onMessages(applied.fresh, this.state.me)
       if (applied.replies) await this.deliverPendingWakes()
+    } catch (err) {
+      // Not swallowed: the caller sees it as before; the reporter only makes it traceable.
+      this.job.failed(err)
+      throw err
     } finally {
       this.running = false
       this.changed()
@@ -239,6 +247,7 @@ export class SlackWatcherService {
   private recordFailure(s: ChatWatcherSettings, result: Extract<ChatReadResult, { ok: false }>, started: number): void {
     const now = this.now()
     this.lastError = result.error
+    this.job.failed(result.error)
     this.failureStreak += 1
     if (!this.notifiedFailure) {
       this.notifiedFailure = true

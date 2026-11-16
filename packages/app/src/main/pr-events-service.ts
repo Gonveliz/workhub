@@ -3,6 +3,7 @@ import { detectPrEvents, EMPTY_PR_EVENT_STATE, profileRefreshMs, type PrEventSta
 import type { CodeHostLists } from '../shared/codehost-api'
 import type { PrEventBatch, PrNotification } from '../shared/pr-events-api'
 import type { IpcRegistrar } from './ipc-guard'
+import { jobReports } from './job-reporter'
 
 /** How often the service checks which profiles are due; each profile syncs at its code host connection's interval (3 minutes by default, as Workhub 1). */
 export const PR_SYNC_TICK_MS = 30_000
@@ -46,6 +47,7 @@ export class PrEventService {
   private loaded = false
   private timer: ReturnType<typeof setInterval> | undefined
   private running: Promise<void> | undefined
+  private readonly job = jobReports.job('pull request events')
   private listening = false
   private buffered: PrEventBatch[] = []
   private readonly now: () => number
@@ -99,16 +101,20 @@ export class PrEventService {
     }
     const config = await this.deps.config()
     const profiles = config.profiles.filter((p) => (this.deps.demo ? p.id === config.activeProfileId : Boolean(p.connections.codeHost)))
+    let failure: { error: unknown } | undefined
     for (const profile of profiles) {
       const last = this.syncedAt.get(profile.id)
       if (onlyDue && last !== undefined && this.now() - last < profileRefreshMs(config, profile.id, 'codeHost')) continue
       this.syncedAt.set(profile.id, this.now())
       try {
         await this.syncProfile(profile.id)
-      } catch {
+      } catch (err) {
         // A failed sync keeps the memory as it was; the next one tries again.
+        failure ??= { error: err }
       }
     }
+    if (failure) this.job.failed(failure.error)
+    else this.job.ok()
   }
 
   private async syncProfile(profileId: string): Promise<void> {

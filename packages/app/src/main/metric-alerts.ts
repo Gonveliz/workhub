@@ -30,6 +30,7 @@ import {
 } from '@workhub/core'
 import type { HealthView } from '../shared/health-api'
 import type { MetricAlertsView } from '../shared/metric-alerts-api'
+import { jobReports } from './job-reporter'
 
 /** Samples are collected this often: the series are daily, so more often only refreshes today's value. */
 export const METRIC_ALERT_INTERVAL_MS = 5 * 60_000
@@ -116,6 +117,9 @@ export class MetricAlertService {
   private timer: ReturnType<typeof setInterval> | null = null
   private first: ReturnType<typeof setTimeout> | null = null
   private queue: Promise<unknown> = Promise.resolve()
+  private readonly job = jobReports.job('metric alerts')
+  /** The first error a source threw in the current evaluation: it is swallowed so the other sources count, but reported. */
+  private sourceError: { error: unknown } | undefined
   private readonly now: () => number
 
   constructor(private readonly deps: MetricAlertServiceDeps) {
@@ -152,10 +156,15 @@ export class MetricAlertService {
   /** Evaluates every profile with Health on. */
   tick(): Promise<void> {
     return this.serial(async () => {
+      this.sourceError = undefined
       try {
         for (const profile of await this.deps.profiles()) await this.evaluate(profile)
-      } catch {
+        const swallowed = this.sourceError as { error: unknown } | undefined
+        if (swallowed) this.job.failed(swallowed.error)
+        else this.job.ok()
+      } catch (err) {
         // The next tick tries again.
+        this.job.failed(err)
       }
     })
   }
@@ -203,8 +212,9 @@ export class MetricAlertService {
         const collection: MetricCollection = Array.isArray(got) ? { samples: got } : got
         samples.push(...collection.samples)
         covered.push(...(collection.covered ?? coverageOfSamples(collection.samples)))
-      } catch {
+      } catch (err) {
         // A failing source keeps its stored history; the others still count.
+        this.sourceError ??= { error: err }
       }
     }
     const before = this.state.profiles[profile.id] ?? EMPTY_PROFILE

@@ -9,13 +9,37 @@ Workhub keeps an always-on log of the main process.
 - **Where it is**: `<dataDir>/logs/main.log`. The data folder is shown in **Settings → Advanced →
   Data**. In a development run it is `packages/app/.dev-data/`, or `WORKHUB_DATA_DIR` when set.
 - **Session failures**: a session that fails to start or ends on its own is logged with the last lines
-  the agent wrote to stderr (never your prompts).
+  the agent wrote to stderr (never your prompts). Those lines are redacted first: API keys such as
+  `sk-…`, bearer tokens, `key=` and `token=` values and long base64-like blobs become `[redacted]`.
 - **Rotation**: when `main.log` reaches 4 MB it is renamed to `main.1.log`, the previous `main.1.log`
   becomes `main.2.log`, and the oldest copy is dropped. Two rotated copies are kept, so the logs
   never take more than about 12 MB. The file is created with owner-only permissions.
 - **Format**: one line per entry: an ISO timestamp, a level (`DEBUG`, `INFO`, `WARN`, `ERROR`) and
   a message. Writing the log never throws: if it cannot be written, the line is dropped and the app
   goes on.
+
+### Background jobs
+
+The alert checks (health, tickets, flow maps, metric alerts), pull request events, calendar reminders,
+the Slack watcher and the history index catch their errors and try again on the next run. Each one
+now logs the **first** failure of a streak (`job <name> failed: <error>`, cut to 300 characters and
+redacted) and stays quiet while it keeps failing, then logs `job <name> recovered after <time>, <n>
+failed runs`. If notifications stopped, look for a `job ... failed` line without a `recovered` after it.
+
+### Export diagnostics
+
+**Help → Export Diagnostics…**, or **Settings → Advanced → Diagnostics and help → Export**, asks for a
+folder and writes a `workhub-diagnostics-<time>` subfolder in it:
+
+- `main.log` and its rotated copies, with credential-looking text masked again;
+- `versions.json`: the app, Electron, Node, Chromium and OS versions;
+- `jobs.json`: the table of background jobs (last run, last success, last error, failures in a row);
+- `database.json`: the database size and whether a backup exists (not its path);
+- `config.redacted.json`: your settings with every secret-like value, environment and header map and
+  every path replaced by `[redacted]` or `[path]`.
+
+It never includes `secrets.json`, the database, your sessions or your prompts. It is a plain folder
+you can read before attaching it to a report.
 
 ### What is logged
 

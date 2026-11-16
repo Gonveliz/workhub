@@ -92,6 +92,11 @@ export const setupEn = {
   'setup.entry.help': 'How Workhub works',
   'setup.entry.helpHint': 'Profiles, sessions, accounts and where things live.',
   'setup.entry.open': 'Open',
+  'setup.entry.export': 'Export diagnostics',
+  'setup.entry.exportHint': 'Writes the log, versions, background job status, database size and your settings (secrets and paths masked) into a folder you choose, to attach to a bug report. Never your sessions, secrets file or database.',
+  'setup.entry.exportButton': 'Export…',
+  'setup.entry.exportDone': 'Saved {files} files to {folder}',
+  'setup.entry.exportFailed': 'Could not export: {error}',
   // Welcome
   'welcome.title': 'Welcome to Workhub',
   'welcome.step': 'Step {n} of {total}',
