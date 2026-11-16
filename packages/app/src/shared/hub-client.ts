@@ -315,6 +315,7 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       retryInstall: (installer) => invoke('setup:retryInstall', installer),
       cancelInstalls: () => send('setup:cancelInstalls'),
       onInstallProgress: (cb) => subscribe<[InstallQueueSnapshot]>('setup:installProgress', cb),
+      onChanged: (cb) => subscribe<[]>('setup:changed', cb),
       tools: () => invoke('tools:list'),
       removeTool: (id) => invoke('tools:remove', id),
       openWindow: (page) => send('setup:openWindow', page),

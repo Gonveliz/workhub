@@ -129,6 +129,43 @@ describe('SignInFlow (fake clock)', () => {
     expect(p.typed).toEqual(['\r'])
   })
 
+  it('opens the address GitLab prints once it is whole, a single time', async () => {
+    const p = fakeProcess()
+    const opened: string[] = []
+    const flow = new SignInFlow({ tool: 'gitlab', accountName: '', spawn: p.spawn, check: async () => false, emit: () => undefined, openUrl: (u) => opened.push(u), pollMs: POLL })
+    await flow.start()
+    // Output comes in pieces: half an address is not opened.
+    p.print('Failed opening a browser at https://gitlab.com/oauth/authorize?client_id=abc&redirect_uri=http%3A%2F%2Flocalhost%3A7171')
+    expect(opened).toEqual([])
+    p.print('%2Fauth%2Fredirect&state=xyz\r\nEncountered error: exec: "workhub-opens-the-browser": executable file not found\r\n')
+    expect(opened).toEqual(['https://gitlab.com/oauth/authorize?client_id=abc&redirect_uri=http%3A%2F%2Flocalhost%3A7171%2Fauth%2Fredirect&state=xyz'])
+    p.print('Try entering the URL in your browser manually.\r\n')
+    expect(opened).toHaveLength(1)
+    expect(flow.view().prompt.url).toBe(opened[0])
+  })
+
+  it('GitLab: the pane does not show what the tool says about its own browser launch, nor what it prints after a cancel', async () => {
+    const p = fakeProcess()
+    const events: SignInEvent[] = []
+    const flow = new SignInFlow({ tool: 'gitlab', accountName: '', spawn: p.spawn, check: async () => false, emit: (e) => events.push(e), openUrl: () => undefined, pollMs: POLL })
+    await flow.start()
+    p.print('- Signing into gitlab.com\r\nFailed opening a browser at https://gitlab.com/oauth/authorize?state=xyz\r\nEncountered error: exec: "workhub-opens-the-browser": executable file not found in %PATH%\r\nTry entering the URL in your browser manually.\r\n')
+    const shown = () => events.flatMap((e) => (e.type === 'output' ? [e.data] : [])).join('')
+    expect(shown()).toBe('- Signing into gitlab.com\r\n')
+    // The address is still read from what the tool printed.
+    expect(flow.view().prompt.url).toBe('https://gitlab.com/oauth/authorize?state=xyz')
+    await flow.cancel()
+    p.print('   ERROR  \r\n  the command execution has been interrupted.\r\n')
+    expect(shown()).toBe('- Signing into gitlab.com\r\n')
+  })
+
+  it('does not open the address of a tool that opens its browser itself', async () => {
+    const { flow, p, opened } = flowWith('claude', async () => false)
+    await flow.start()
+    p.print('Open this address to sign in: https://claude.example.com/login?code=1\r\n')
+    expect(opened).toEqual([])
+  })
+
   it('a command that cannot start fails without polling', async () => {
     const check = vi.fn(async () => true)
     const flow = new SignInFlow({ tool: 'claude', accountName: '', spawn: () => Promise.reject(new Error('not found')), check, emit: () => undefined, openUrl: () => undefined, pollMs: POLL })
@@ -165,7 +202,7 @@ describe('SignInService', () => {
     agents: []
   } as unknown as WorkhubConfig
 
-  function service(run = vi.fn(async (): Promise<Probe> => ({ result: 'failed', output: '{"loggedIn":false}' }))) {
+  function service(run = vi.fn(async (): Promise<Probe> => ({ result: 'failed', output: '{"loggedIn":false}' })), signedIn?: () => void) {
     const started: StartSessionRequest[] = []
     let listener: (e: AgentEvent) => void = () => undefined
     const terminal: SignInTerminal = {
@@ -193,6 +230,7 @@ describe('SignInService', () => {
         closers.set(id, closed)
       },
       openUrl: () => undefined,
+      ...(signedIn ? { signedIn } : {}),
       run
     })
     return { s, started, windows, closers, terminal, run, emit: (e: AgentEvent) => listener(e) }
@@ -245,6 +283,24 @@ describe('SignInService', () => {
     emit({ sessionId: windows[0]!, type: 'output', data: '! First copy your one-time code: AB12-CD34\n' })
     expect(sender.send).toHaveBeenCalledWith('signIn:event', windows[0], { type: 'output', data: '! First copy your one-time code: AB12-CD34\n' })
     expect(sender.send).toHaveBeenCalledWith('signIn:event', windows[0], { type: 'view', view: expect.objectContaining({ prompt: { code: 'AB12-CD34', url: null } }) })
+  })
+
+  it('tells the app when a sign-in ends signed in, and not when it ends otherwise', async () => {
+    // The setup check that opened the window reads its rows again on this.
+    const signedIn = vi.fn()
+    const ok = service(vi.fn(async (): Promise<Probe> => ({ result: 'ok', output: 'octo' })), signedIn)
+    await ok.s.open('github', null)
+    await ok.s.attach(ok.windows[0], { send: vi.fn(), isDestroyed: () => false })
+    ok.emit({ sessionId: ok.windows[0]!, type: 'exit', code: 0 })
+    await vi.waitFor(() => expect(ok.s.flow(ok.windows[0])!.view().phase).toBe('signedIn'))
+    expect(signedIn).toHaveBeenCalledTimes(1)
+
+    const not = service(undefined, signedIn)
+    await not.s.open('github', null)
+    await not.s.attach(not.windows[0], { send: vi.fn(), isDestroyed: () => false })
+    not.emit({ sessionId: not.windows[0]!, type: 'exit', code: 1 })
+    await vi.waitFor(() => expect(not.s.flow(not.windows[0])!.view().phase).toBe('ended'))
+    expect(signedIn).toHaveBeenCalledTimes(1)
   })
 
   it('the status check runs the table\'s check with the account\'s folder on the app\'s PATH', async () => {

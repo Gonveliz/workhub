@@ -137,6 +137,11 @@ describe('new rows', () => {
     // The command answers: its word wins over the file.
     expect(codexItem(ok('10.9.0'), ok('v22.3.0'), win, ok('Logged in using ChatGPT'), false)).toMatchObject({ status: 'ok', code: 'codexReady' })
     expect(codexItem(ok('10.9.0'), ok('v22.3.0'), win, FAILED, true)).toMatchObject({ status: 'missing', code: 'codexNotSignedIn' })
+    // Node.js missing too: still one install (the command comes with Node.js), not the adapter first and the command after.
+    expect(codexItem(NONE, NONE, win, NONE, false)).toMatchObject({ status: 'missing', code: 'codexNeedsCli', fix: { kind: 'install', installer: 'codex', managed: true } })
+    // Signed in some other way, or where Workhub cannot install the command itself: Node.js is what is missing.
+    expect(codexItem(NONE, NONE, win, NONE, true)).toMatchObject({ code: 'codexNeedsNode', fix: { installer: 'codexAdapter' } })
+    expect(codexItem(NONE, NONE, 'win32', NONE, false)).toMatchObject({ code: 'codexNeedsNode' })
   })
 
   it('opencode and gemini: version, missing with the right install, timeout', () => {

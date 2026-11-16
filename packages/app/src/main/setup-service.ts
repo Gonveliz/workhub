@@ -31,6 +31,11 @@ import { claudeAccounts, claudeConfigDirOf } from './claude-accounts'
 
 /** Seconds a command-line check may take. */
 export const SETUP_TIMEOUT_MS = 10_000
+/**
+ * A check that asks a server (GitHub, GitLab) waits less: every row is shown together, so a host
+ * that does not answer (a rate limit, no network) would hold the whole list for the full time.
+ */
+export const SETUP_NETWORK_TIMEOUT_MS = 5_000
 
 /** The file a Windows shell would run for `command` (PATH folders, then PATHEXT extensions), or null. */
 export function findOnWindowsPath(command: string, env: NodeJS.ProcessEnv): string | null {
@@ -148,14 +153,14 @@ export class SetupService {
     const github = (async () => {
       const version = await run('gh', ['--version'], { env: base })
       if (version.result === 'notFound' || version.result === 'timeout') return githubItem(version, null, null, ctx)
-      const user = await run('gh', ['api', 'user', '--jq', '.login'], { env: base })
+      const user = await run('gh', ['api', 'user', '--jq', '.login'], { env: base, timeoutMs: SETUP_NETWORK_TIMEOUT_MS })
       if (user.result === 'ok' && user.output) return githubItem(version, user, null, ctx)
       return githubItem(version, user, await run('gh', ['auth', 'token'], { env: base }), ctx)
     })()
     const gitlab = (async () => {
       const version = await run('glab', ['--version'], { env: base })
       if (version.result === 'notFound' || version.result === 'timeout') return gitlabItem(version, null, ctx)
-      return gitlabItem(version, await run('glab', ['auth', 'status'], { env: base }), ctx)
+      return gitlabItem(version, await run('glab', ['auth', 'status'], { env: base, timeoutMs: SETUP_NETWORK_TIMEOUT_MS }), ctx)
     })()
 
     const needs = setupNeeds(config, this.deps.agents?.(config))
