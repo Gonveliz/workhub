@@ -125,6 +125,11 @@ export interface FolderOptions {
   subfoldersAreProjects?: boolean
   /** New sessions in this folder use a worktree (true) or not (false); unset: the profile's setting. */
   worktrees?: boolean
+  /**
+   * A shell command the user typed that runs once in each new session worktree of a repository in
+   * this folder, after the `.worktreeinclude` copy (e.g. `npm ci`). Typed here, never read from the repository.
+   */
+  setupCommand?: string
 }
 
 /** Where the value of a profile's environment variable is kept (the secret store, never the config file). */

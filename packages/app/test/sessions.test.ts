@@ -793,6 +793,7 @@ describe('SessionManager worktrees', () => {
     const worktrees: Worktrees = {
       repoRootOf: vi.fn(async (p: string) => (p.startsWith('/w/acme') ? '/w/acme' : null)),
       create: vi.fn(async (repoRoot, o) => void created.push({ repoRoot, ...o })),
+      copyIncluded: vi.fn(async () => ({ copied: [], skipped: [], bytes: 0, found: false })),
       status: vi.fn(async () => ({ dirty: false, unpushed: 0, branch: 'feat/login' })),
       remove: vi.fn(async (repoRoot, path, o) => void removed.push([repoRoot, path, o.force])),
       ...over
@@ -809,6 +810,23 @@ describe('SessionManager worktrees', () => {
     // The subfolder does not exist in the fake worktree, so the session starts at its root.
     expect(view.cwd).toBe(wt('acme-feat-login'))
     expect(view.profileId).toBe('work')
+  })
+
+  it('bootstraps a new worktree: the copy, then the folder setup command with the session environment, and reports it', async () => {
+    const copyIncluded = vi.fn(async () => ({ copied: ['.env'], skipped: [], bytes: 10, found: true }))
+    const { worktrees } = fake({ copyIncluded })
+    const run = vi.fn(async () => ({ exitCode: 1, output: 'boom\n', timedOut: false }))
+    const cfg = config()
+    cfg.profiles[0]!.folderOptions = { '/w': { setupCommand: 'npm ci' } }
+    const { manager, events } = setup(cfg, false, { worktrees, setupRunner: run, sessionEnv: () => ({ WORKHUB_SESSION: 'x' }) })
+    const view = await manager.start({ profileId: 'work', agentKey: 'claude', cwd: '/w/acme', worktree: { branch: 'login' } })
+    await vi.waitFor(() => expect(events.some((e) => e.type === 'notice')).toBe(true))
+    expect(copyIncluded).toHaveBeenCalledWith('/w/acme', wt('acme-feat-login'))
+    expect(run).toHaveBeenCalledWith('npm ci', expect.objectContaining({ cwd: wt('acme-feat-login'), env: expect.objectContaining({ WORKHUB_SESSION: 'x' }) }))
+    const notice = events.find((e) => e.type === 'notice')
+    expect(notice).toMatchObject({ sessionId: view.id, failed: true, kind: 'warning' })
+    expect(notice && 'text' in notice ? notice.text : '').toContain('boom')
+    expect(view.state).not.toBe('error')
   })
 
   it('never creates one unasked, for a reviewer, a resumed or a reopened session', async () => {

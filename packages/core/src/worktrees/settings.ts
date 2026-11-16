@@ -54,6 +54,22 @@ export function worktreeDefault(profile: Pick<Profile, 'worktrees' | 'folderOpti
 }
 
 /**
+ * The setup command of the deepest folder option holding `cwd` that has one (typed by the user in
+ * Settings → Profiles; a repository can never supply it). Undefined when none is set.
+ */
+export function worktreeSetupCommand(profile: Pick<Profile, 'folderOptions'> | null | undefined, cwd: string, home?: string): string | undefined {
+  const target = normalizeFolder(cwd, home)
+  let best: { depth: number; value: string } | undefined
+  for (const [key, options] of Object.entries(profile?.folderOptions ?? {})) {
+    const command = options.setupCommand?.trim()
+    if (!command) continue
+    const folder = normalizeFolder(key, home)
+    if (isInsideFolder(target, folder) && (!best || folder.length > best.depth)) best = { depth: folder.length, value: command }
+  }
+  return best?.value
+}
+
+/**
  * A branch name git accepts out of what the user typed: spaces become `-`, characters git refuses
  * are dropped, and no part starts with `.` or ends with `.lock`. Empty when nothing usable is left.
  */

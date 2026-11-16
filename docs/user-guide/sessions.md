@@ -21,7 +21,7 @@ declares what it supports, and the screen shows only the controls that agent has
   when Workhub starts, without sending a prompt, so a model gained since the last session (a
   Claude Code update, the `fable` alias moving to a newer Fable) is offered without opening one.
   Codex and OpenCode list theirs only when a session starts. **Use a worktree** and **Branch** start the session in its own git worktree;
-  see [Worktree per session](profiles.md#worktree-per-session). **Group** lists the sidebar's
+  see [Worktree per session](profiles.md#worktree-per-session), which also covers `.worktreeinclude` (ignored files copied into the new worktree) and the setup command that prepares it; a notice at the start of the session reports both. **Group** lists the sidebar's
   session groups (a sub-group by its path, such as "Work / Backend"); it starts on **No group**.
   **New group…** shows a field for the name of a new group (a group with that name, if there is
   one, is reused). The session starts in the group picked.

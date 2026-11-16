@@ -21,6 +21,7 @@ import {
   worktreeBranch,
   worktreeFolderName,
   worktreeSettings,
+  worktreeSetupCommand,
   worktreesLocation,
   type AgentAccount,
   type McpServerLaunch,
@@ -48,6 +49,8 @@ import { ConsoleActivity } from './console-activity'
 import { NO_CONTROL_ENV } from './control-server'
 import { pathInsideFolder } from './reveal'
 import { SendGate } from './send-gate'
+import { translate, type MessageKey } from '../renderer/i18n/translate'
+import { bootstrapWorktree, type SetupRunner } from './worktree-bootstrap'
 import { cleanSessionName, type SessionNameStore } from './session-names'
 
 /** What runs the session right now: the agent's runtime (app) or the agent's own TUI in a PTY (console). */
@@ -159,8 +162,19 @@ export interface SessionManagerDeps {
   onAgentOptions?: (agentId: string, accountId: string | null, options: { models: ModelOption[]; modes: SessionModeOption[] }) => void
   /** Creates and removes the worktrees of sessions that ask for one; without it they start in the folder. */
   worktrees?: Worktrees
+  /** Words a session notice in the user's language (the renderer's dictionaries); English without it. */
+  text?: (key: string, params?: Record<string, string | number>) => string
+  /** Runs the setup command of a new worktree; tests pass a fake. */
+  setupRunner?: SetupRunner
   /** The main log: a session that failed to start or ended on its own, with the agent's last stderr lines (never prompt text). */
   log?: (message: string) => void
+}
+
+/** Where a new session runs; `created` when its worktree was made for it just now (it gets bootstrapped). */
+interface PlacedSession {
+  cwd: string
+  worktree?: SessionWorktree
+  created?: { setupCommand?: string }
 }
 
 /** What closing a session with its worktree did: `blocked` when the worktree has work removing it would lose (nothing was closed). */
@@ -281,6 +295,21 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Prepares a worktree made for a session: the `.worktreeinclude` copy, then the user's setup
+   * command with the session's environment. Reported as a notice; never stops the session.
+   */
+  private async bootstrap(s: ManagedSession, worktree: SessionWorktree, command: string | undefined): Promise<void> {
+    if (!this.deps.worktrees) return
+    const text = this.deps.text ?? ((key: string, params?: Record<string, string | number>) => translate('en', key as MessageKey, params))
+    const report = await bootstrapWorktree(
+      { worktrees: this.deps.worktrees, t: text, ...(this.deps.setupRunner ? { run: this.deps.setupRunner } : {}), ...(this.deps.log ? { log: this.deps.log } : {}) },
+      { repoRoot: worktree.repoRoot, path: worktree.path, command, env: s.env }
+    ).catch(() => null)
+    if (!report) return
+    this.deps.emitEvent({ sessionId: s.view.id, type: 'notice', noticeId: `${s.view.id}:worktree`, kind: report.failed ? 'warning' : 'info', title: report.title, text: report.text, ...(report.failed ? { failed: true } : {}) })
+  }
+
   /** A live session (starting, running or idle) that runs this agent session id or identity. */
   private liveWith(key: string | undefined): ManagedSession | undefined {
     if (!key) return undefined
@@ -299,7 +328,7 @@ export class SessionManager {
     account: AgentAccount | null,
     runtime: AgentRuntime,
     input: StartSessionInput,
-    placed: { cwd: string; worktree?: SessionWorktree },
+    placed: PlacedSession,
     internal: { env?: Record<string, string>; origin?: SessionOrigin; restored?: boolean; handOver?: boolean; dormant?: boolean; title?: string }
   ): Promise<SessionView> {
 
@@ -405,6 +434,7 @@ export class SessionManager {
     // session id starts fresh, as Workhub 1 does. An agent without a transcript reader cannot be
     // checked, so a manual reopen of it keeps resuming.
     const starting = async () => {
+      if (placed.created && placed.worktree && this.deps.worktrees) await this.bootstrap(session, placed.worktree, placed.created.setupCommand)
       const resume = internal.restored
         ? await this.hasTranscript(session).catch(() => false)
         : input.resumeAgentSessionId
@@ -426,7 +456,7 @@ export class SessionManager {
    * one (never for a reviewer, a reopened or a resumed session), else the folder asked for. The
    * folder's place inside the repository is kept (`repo/src` starts in `<worktree>/src`).
    */
-  private async placeInWorktree(input: StartSessionInput, config: WorkhubConfig, internal: { restored?: boolean; worktree?: SessionWorktree }): Promise<{ cwd: string; worktree?: SessionWorktree }> {
+  private async placeInWorktree(input: StartSessionInput, config: WorkhubConfig, internal: { restored?: boolean; worktree?: SessionWorktree }): Promise<PlacedSession> {
     if (internal.worktree) return { cwd: input.cwd, worktree: internal.worktree }
     const asked = input.worktree
     const worktrees = this.deps.worktrees
@@ -446,7 +476,7 @@ export class SessionManager {
     await worktrees.create(repoRoot, { path, branch, base: settings.baseRef })
     const inside = relative(repoRoot, input.cwd)
     const cwd = inside && !inside.startsWith('..') && !isAbsolute(inside) ? join(path, inside) : path
-    return { cwd: existsSync(cwd) ? cwd : path, worktree: { repoRoot, path, branch } }
+    return { cwd: existsSync(cwd) ? cwd : path, worktree: { repoRoot, path, branch }, created: { setupCommand: worktreeSetupCommand(profile, repoRoot, home) } }
   }
 
   /**

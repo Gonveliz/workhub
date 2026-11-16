@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CONFIG_VERSION, cleanBranchName, parseConfig, visibleChildren, worktreeBranch, worktreeDefault, worktreeFolderName, worktreeSettings, worktreesLocation } from '../src'
+import { CONFIG_VERSION, cleanBranchName, parseConfig, visibleChildren, worktreeBranch, worktreeDefault, worktreeFolderName, worktreeSettings, worktreeSetupCommand, worktreesLocation } from '../src'
 
 describe('worktree settings', () => {
   it('are off with defaults when the profile has none', () => {
@@ -54,5 +54,20 @@ describe('worktree names', () => {
 
   it('hide the worktrees folder from folder lists', () => {
     expect(visibleChildren([{ name: 'acme' }, { name: '_worktrees' }, { name: '.git' }], {})).toEqual(['acme'])
+  })
+})
+
+describe('worktree setup command', () => {
+  it('comes from the deepest folder option that has one, never from the profile alone', () => {
+    const profile = { folderOptions: { '~/work': { setupCommand: 'npm ci' }, '~/work/acme-api': { setupCommand: ' pnpm i ' }, '~/work/docs': { onlyGitRepos: true } } }
+    expect(worktreeSetupCommand(profile, '/home/u/work/acme-api/src', '/home/u')).toBe('pnpm i')
+    expect(worktreeSetupCommand(profile, '/home/u/work/acme-web', '/home/u')).toBe('npm ci')
+    expect(worktreeSetupCommand(profile, '/home/u/elsewhere', '/home/u')).toBeUndefined()
+    expect(worktreeSetupCommand(undefined, '/w')).toBeUndefined()
+  })
+
+  it('is kept by the config schema', () => {
+    const parsed = parseConfig({ version: CONFIG_VERSION, profiles: [{ id: 'acme', name: 'Acme', folderOptions: { '~/work': { setupCommand: ' make setup ' } } }] })
+    expect(parsed.profiles[0]?.folderOptions).toEqual({ '~/work': { setupCommand: 'make setup' } })
   })
 })

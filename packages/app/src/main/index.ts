@@ -570,6 +570,7 @@ const sessions = new SessionManager({
   config: configuration,
   log: (m) => diagnostics.log.warn(m),
   worktrees: new GitWorktrees(),
+  text: (key, params) => trayText(trayLocale).t(key, params),
   sessionEnv: (sessionId) => controlEnv(sessionId, controlEndpoint),
   // Workhub's MCP server (Settings → Agents → Workhub tools), for sessions that reach the endpoint.
   sessionMcp: async (env) => {

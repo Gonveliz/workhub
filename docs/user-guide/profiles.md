@@ -25,7 +25,7 @@ environment variables). Editing a profile never changes the active one. See [Set
 | Symbol, Colour | The icon of the profile in the sidebar (default: the first letter of its name) and the colour that marks its sessions down the left edge of their rows. |
 | Folders | A list of folders on this computer: **Add folder…** opens the system folder picker (once per folder, as many times as you need), each row shows the short and the full path, and ✕ removes it. New sessions offer them first, and the pull request search falls back to their repositories. |
 | Default folder | Where **New session** starts without asking: one of the folders, **Home folder**, or **Another folder…**. Empty means the first folder. |
-| Folder options | Per folder: **Only git repos**, and **Each subfolder is its own project** (**Automatic**, **On** or **Off**). With it on, sessions in a subfolder group under a project named after it; Automatic splits this way unless the folder is itself a git repository. **Worktree for new sessions** (**As the profile**, **On** or **Off**) overrides the profile's worktree setting for sessions in that folder. |
+| Folder options | Per folder: **Only git repos**, and **Each subfolder is its own project** (**Automatic**, **On** or **Off**). With it on, sessions in a subfolder group under a project named after it; Automatic splits this way unless the folder is itself a git repository. **Worktree for new sessions** (**As the profile**, **On** or **Off**) overrides the profile's worktree setting for sessions in that folder. **Setup command for new worktrees** runs a command you type in each new worktree (see [Worktree per session](#worktree-per-session)). |
 | Accounts | The agent accounts offered when you start a session in this profile. |
 | Agents offered | Which agents appear in the **New session** menu. |
 | Agent order | The first agent is the default, and the one Workhub picks on its own (opening a session from a pull request or ticket, asking Claude to review). |
@@ -56,6 +56,20 @@ itself. It is off by default.
   ref such as `origin/develop`, empty for the repository's default branch. A branch that already
   exists is checked out instead. A new branch has no upstream, so a plain `git push` from the
   session never goes to the branch it started from; push it with `git push -u origin <branch>`.
+- **Files a new worktree needs.** A new worktree has no git-ignored files (`.env`, local config).
+  Put a `.worktreeinclude` in the repository's main checkout, gitignore-style (one pattern per
+  line, `#` for comments, `!` to leave something out), and every file that matches a pattern and
+  that git ignores is copied to the same place in the new worktree. Tracked files are never
+  overwritten, nor is any file the worktree already has. Patterns that point outside the repository
+  (`..`) are dropped, and a symlink that leads outside it is not copied. At most 500 files and 50 MiB
+  are copied; the rest is left out. The log lists what was copied.
+- **Setup command.** Under **Folder options**, each folder has a **Setup command for new
+  worktrees** (for example `npm ci`). It runs once in each new session worktree of a repository in
+  that folder, after the copy, in your shell and with the session's environment; the deepest folder
+  that sets one wins. Only what you type here runs: a command is never read from the repository. It
+  is stopped after 5 minutes. Whether it succeeds, fails or times out, the session starts; its last
+  lines show in a notice at the start of the session when something went wrong, and its output goes
+  to the log.
 - Repository hooks run in a session's worktree, as in any checkout you make.
 - The session stays in the profile of the folder you started it from, wherever the worktree is.
 - Reviewers, resumed sessions and sessions reopened at launch never get a new worktree; a reopened

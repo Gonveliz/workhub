@@ -16,6 +16,18 @@ export interface SessionWorktree {
   branch: string
 }
 
+/** What copying the `.worktreeinclude` files did. */
+export interface IncludeCopyResult {
+  /** Relative paths copied. */
+  copied: string[]
+  /** Relative paths left out, with why. */
+  skipped: { path: string; reason: 'tracked' | 'exists' | 'symlink-outside' | 'not-a-file' | 'too-many' | 'too-big' | 'error' }[]
+  /** Bytes copied. */
+  bytes: number
+  /** There was a `.worktreeinclude` in the main checkout. */
+  found: boolean
+}
+
 /** Creates and removes git worktrees for sessions. Repository hooks run, as in any checkout the user makes. */
 export interface Worktrees {
   /** The root of the main repository holding `path` (a linked worktree resolves to its main repository); null outside a repository. */
@@ -26,6 +38,11 @@ export interface Worktrees {
    * repository is added to the repository's local exclude file.
    */
   create(repoRoot: string, opts: { path: string; branch: string; base?: string }): Promise<void>
+  /**
+   * Copies the git-ignored files of the main checkout that its `.worktreeinclude` lists into the
+   * worktree at `path` (same relative paths). Never overwrites a file the worktree has or tracks.
+   */
+  copyIncluded(repoRoot: string, path: string): Promise<IncludeCopyResult>
   status(path: string): Promise<WorktreeStatus>
   /** Removes the worktree (its branch stays). Without `force`, git refuses one with changes. */
   remove(repoRoot: string, path: string, opts: { force: boolean }): Promise<void>

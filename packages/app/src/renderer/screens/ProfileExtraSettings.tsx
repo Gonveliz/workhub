@@ -200,7 +200,8 @@ export function prunedFolderOptions(options: Profile['folderOptions'], folders: 
     const set: FolderOptions = {
       ...(typeof o.onlyGitRepos === 'boolean' ? { onlyGitRepos: o.onlyGitRepos } : {}),
       ...(typeof o.subfoldersAreProjects === 'boolean' ? { subfoldersAreProjects: o.subfoldersAreProjects } : {}),
-      ...(typeof o.worktrees === 'boolean' ? { worktrees: o.worktrees } : {})
+      ...(typeof o.worktrees === 'boolean' ? { worktrees: o.worktrees } : {}),
+      ...(typeof o.setupCommand === 'string' && o.setupCommand.trim() ? { setupCommand: o.setupCommand.trim() } : {})
     }
     if (Object.keys(set).length) out[folder] = set
   }
@@ -296,6 +297,15 @@ export function ProfileExtraFields({ form, onChange, env, parts = ALL_PARTS }: {
                 ]}
               />
             </SwitchRow>
+            <Field label={t('profileExtra.folderSetup')} hint={t('profileExtra.folderSetupHint')}>
+              <Input
+                aria-label={t('profileExtra.folderSetup')}
+                value={form.folderOptions?.[folder]?.setupCommand ?? ''}
+                placeholder="npm ci"
+                spellCheck={false}
+                onChange={(e) => setFolder(folder, { setupCommand: e.target.value })}
+              />
+            </Field>
           </div>
         ))}
       </FieldGroup>

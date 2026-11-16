@@ -440,7 +440,7 @@ const planner = z.object({
   agentMilestones: z.enum(AGENT_MILESTONE_MODES).optional()
 })
 
-const folderOptions = z.object({ onlyGitRepos: z.boolean().optional(), subfoldersAreProjects: z.boolean().optional(), worktrees: z.boolean().optional() })
+const folderOptions = z.object({ onlyGitRepos: z.boolean().optional(), subfoldersAreProjects: z.boolean().optional(), worktrees: z.boolean().optional(), setupCommand: z.string().trim().min(1).max(2000).optional() })
 
 // Optional with defaults on every field, so it needs no config version bump: an older file simply has none.
 const worktrees = z.object({
