@@ -182,9 +182,12 @@ on Linux). Workhub puts it first on the `PATH` of its sessions, terminals, sign-
 On macOS and Linux, `git` stays what you have (Homebrew, Apple's tools, your distribution): there is
 no official archive to unpack. Claude Code and Kiro keep their official install scripts, which
 publish no checksum. The Codex CLI is what signs Codex in: a Codex row with no saved sign-in and no
-Codex CLI asks to install it first, then offers **Sign in**. For large tools the list shows the
-download and the space they take once installed (OpenCode: about 160 MB to download, about 610 MB
-installed). **Settings → Advanced → Tools installed by Workhub** lists what
+Codex CLI asks to install it first, then offers **Sign in**. When Workhub's Node.js is missing too,
+that one install brings Node.js along. A row's own **Install** shows the same list as **Install what
+is missing**: every download, Node.js included when it comes along, with where it comes from. For
+large tools the list shows the download and the space they take once installed (OpenCode: about
+160 MB to download, about 610 MB installed). Only one install runs at a time: starting another one
+meanwhile stops with "Another install is running". **Settings → Advanced → Tools installed by Workhub** lists what
 is in the folder, with its version and size, and **Remove** for each one (removing Node.js removes
 the agents installed with it).
 
@@ -214,8 +217,9 @@ account, it signs in to that account's config folder.
   and **Open browser**. Open the browser, enter the code and approve. When the tool only prints a
   web address, **Open browser** opens it.
 - The window checks every few seconds whether you are signed in, and shows **Signed in** when you
-  are; the row you started from (in the Welcome, the setup check or Home) then updates by itself. Workhub answers the questions GitHub and GitLab ask before their browser step, with their
-  own default (GitHub: let Git use this sign-in; GitLab: its usual registry addresses). If the
+  are; the row you started from (in the Welcome, the setup check or Home) then updates by itself.
+  Workhub answers the questions GitHub and GitLab ask before their browser step, with their own
+  default (GitHub: let Git use this sign-in; GitLab: its usual registry addresses). If the
   tool asks anything else in the terminal, answer it there.
 - For GitLab, Workhub opens the sign-in page in your browser itself and keeps **Open browser** in
   the window, in case the page did not open.

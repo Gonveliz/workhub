@@ -51,23 +51,39 @@ Then follow [Getting started](docs/user-guide/getting-started.md).
   (ACP), or any CLI in a PTY. Each session switches between **App** (chat), **Terminal** (the
   agent's own TUI, same conversation) and **Shell** (a shell in the session folder).
 - Composer with the model and permission mode under the input, a queue (type while the agent
-  works), pasted images, a timestamp on every message, rename, detach a session into its own
-  window, reopen the sessions that were open at quit, resume from History.
+  works), pasted images, file mentions with `@`, earlier prompts with ↑, a timestamp on every
+  message, rename, detach a session into its own window, reopen the sessions that were open at
+  quit, resume from History.
+- Find in the conversation (⌘/Ctrl+F) and export it as Markdown. A window that reloads, by itself
+  after a crash or from the View menu, gets its chats back; the agents keep running.
 - Sidebar with folders, session groups (drag or Alt+Up/Down to reorder), sub-agents, profile colors
-  and attention flags (replied, needs an answer, failed); optional OS notifications and app badge.
+  and attention flags (replied, needs an answer, failed); a command palette (⌘/Ctrl+K) and
+  shortcuts to jump between sessions; optional OS notifications and app badge.
+- A notice when a working session has sent nothing for a while (10 minutes by default), and a
+  question before quitting while sessions are busy.
+- Agents can propose a new session or send a message to another session of the profile; nothing
+  happens until you approve it.
 - Read replies aloud with the OS voices, per session.
 - A git worktree and branch per session (off by default, per profile or folder), so parallel
-  sessions in one repository do not step on each other.
-- **History** search over past sessions, and **Usage and reports**: how many tokens and how much
-  time went into each project, filtered and grouped.
+  sessions in one repository do not step on each other. A folder can list ignored files to copy
+  into a new worktree and a setup command to run there.
+- Terminal scrollback of 10,000 lines by default (up to 100,000).
+- **History** search over past sessions, and **Usage and reports**: how many tokens, dollars and
+  how much time went into each project, filtered and grouped, with CSV export.
 - **Workhub Remote**: a phone app (a web app served by a relay) to see and drive the sessions
-  running on your desktop, end-to-end encrypted. See [Remote access](docs/user-guide/remote-access.md).
+  running on your desktop, end-to-end encrypted. Pairing ends with a 6-digit code the phone shows
+  and you type on the desktop. The phone can also show a session's changes and its review loop,
+  run or stop automations, and deny a permission request from its notification. See
+  [Remote access](docs/user-guide/remote-access.md).
 
 **Accounts and usage**
 - Several accounts per agent (a Claude account is a config folder), per-profile agent order, and
   failover or hand-off to another account or agent when one runs out.
 - Usage cards for Claude (5 h / weekly windows), Kiro (credits) and Codex (rate limits), usage
-  ceilings and alerts, API-key spend, and a usage limit per session.
+  ceilings and alerts, API-key spend with dollar ceilings, a usage limit per session, and a
+  monthly budget per project (dollars, tokens or both).
+- Usage detail is kept for 12 months, then summed per day; **Settings → Advanced → Data** shows
+  what each kind of data takes and can compact the database.
 
 **Monitor**
 - Per session: context window, tokens (per request too), active time, activity, MCP servers
@@ -86,12 +102,15 @@ Then follow [Getting started](docs/user-guide/getting-started.md).
 
 **Work around the agent** (Slack, Automations and Health are optional modules, off by default, enabled per profile)
 - **Pull requests** (GitHub through `gh`, GitLab through `glab`): list, PR window, review state, CI,
-  Slack tab, close with comment, notifications.
-- **Tickets**: Jira Cloud and Linear.
+  Slack tab, create, merge, close with comment, notifications; send failing checks or review
+  comments to the session that works on the pull request.
+- **Tickets**: Jira Cloud, Linear and GitHub Issues.
 - **Slack** (module): follows channels and threads through a Claude account's Slack connector,
-  read-only; wakes the session that owns a thread; opens message links in the Slack app (macOS).
-  No Slack app and no token.
-- **Automations** (module): send a prompt to a dedicated session on a Slack event or a schedule.
+  read-only; wakes the session that owns a thread (optionally only on replies from people you
+  list); shows what the reads cost; opens message links in the Slack app (macOS). No Slack app
+  and no token.
+- **Automations** (module): send a prompt to a dedicated session on a Slack event, a pull request
+  event or a schedule.
 - **Health** (module): Elastic APM and Kibana - errors, pods, slow endpoints, alerts - with
   "investigate with an agent", plus metric alerts with a lifecycle (jumps, sustained trends, new
   subjects, rate changes, missing data; track, snooze, resolve) from a source-agnostic engine.
@@ -104,9 +123,21 @@ Then follow [Getting started](docs/user-guide/getting-started.md).
 
 **App**
 - Profiles with folders, a default folder, per-folder options, the browser or Chrome profile (or a
-  custom command) that opens their links, and per-profile session environment; a settings modal
-  with a save bar; menu bar / tray popover; setup check and welcome windows.
-- A rotated log of errors, stalls and slow calls (Help > Reveal Logs).
+  custom command) that opens their links, and per-profile session environment; a settings window
+  with a save bar; menu bar / tray popover.
+- A guided first run (**Welcome**) for people who just want to talk with an AI about their files
+  and for developers, and a setup check that lists as needed only what the chosen goal uses.
+- **Install what is missing**: Workhub installs Node.js, Git (on Windows), the GitHub and GitLab
+  command line tools, OpenCode, Gemini CLI and the Codex command line into its own tools folder,
+  with no administrator rights, after showing what it downloads, from where and how large. Settings
+  → Advanced → Tools installed by Workhub lists them, with **Remove**.
+- Sign in inside the app to Claude, Codex, Kiro, GitHub and GitLab: a small window runs the tool's
+  own sign-in and shows its one-time code; the rows that asked for it update by themselves.
+- A rotated log of errors, stalls and slow calls (Help > Reveal Logs), and a diagnostics
+  folder for bug reports, with secrets redacted (Help > Export Diagnostics…).
+- Daily database backups with **Restore from a backup** in Settings, and a copy of `config.json`
+  before an upgrade changes it. A window that fails to draw shows an error with **Reload window**
+  instead of going blank.
 - Light/dark and 485 terminal color schemes; English and Spanish.
 - Flows from Workhub 1 are intentionally not ported.
 
@@ -120,6 +151,9 @@ Then follow [Getting started](docs/user-guide/getting-started.md).
   install it. The Claude Agent SDK and its `claude` binary ship inside the app, so Claude sessions
   need no separate Claude Code install (sign in with a Claude account in the app's Setup check).
 - `gh` (and `glab` for GitLab) signed in, for pull requests.
+- Nothing has to be installed first: the setup check can install Node.js, Git (on Windows), `gh`,
+  `glab`, OpenCode, Gemini CLI and the Codex command line into Workhub's own folder, and sign you in
+  from the app. See [Getting started](docs/user-guide/getting-started.md#tools-workhub-installs-for-itself).
 
 ## Install by hand
 
@@ -169,17 +203,21 @@ Elsewhere (the `.deb`, or a macOS app outside a writable folder) it opens the re
 
 ## First run
 
-1. Open **Settings** (⌘/Ctrl+,) or the **Setup check** from the Help menu. It checks Node, `gh`,
-   Claude sign-ins, Jira, Slack, Health and usage, with a fix button per item.
-2. **Accounts**: add the agent accounts you use (a Claude account is a config folder; Kiro and
+1. The **Welcome** window opens the first time. It asks what you want to do (talk with an AI about
+   your files, work on code, or both), which AI to use, signs you in, picks a folder and, for code,
+   connects GitHub or GitLab. Open it again from **Help → Welcome…**.
+2. **Help → Setup Check…** lists what your goal needs: agents and their sign-in, Node.js, `git`,
+   `gh` or `glab`, a profile with folders. Each row has a fix button (**Install**, **Sign in** or a
+   link); **Install what is missing** installs every needed item it can, one after another.
+3. **Accounts**: add the agent accounts you use (a Claude account is a config folder; Kiro and
    Codex use their own CLI sign-in).
-3. **Profiles**: create a profile, give it folders (and a default folder, where New session starts
+4. **Profiles**: create a profile, give it folders (and a default folder, where New session starts
    the preferred agent), accounts and connections, and turn on the optional modules you want
    (Slack, Automations, Health).
-4. **Connections / Trackers / Health**: add Jira or Linear, GitHub or GitLab, and Elastic
-   environments. Secrets typed here (API tokens) go to `secrets.json`, encrypted with Electron
-   `safeStorage` (macOS Keychain, Windows DPAPI, Linux libsecret/kwallet). If OS encryption is
-   unavailable Workhub refuses to store a secret.
+5. **Connections / Trackers / Health**: add a tracker (Jira, Linear or GitHub Issues), a code host
+   (GitHub or GitLab) and Elastic environments. Secrets typed here (API tokens) go to
+   `secrets.json`, encrypted with Electron `safeStorage` (macOS Keychain, Windows DPAPI, Linux
+   libsecret/kwallet). If OS encryption is unavailable Workhub refuses to store a secret.
 
 ## Using it
 
@@ -187,14 +225,14 @@ The [user guide](docs/user-guide/README.md) has one page per area:
 
 | | |
 |---|---|
-| [Getting started](docs/user-guide/getting-started.md) | Install, first run, setup check |
+| [Getting started](docs/user-guide/getting-started.md) | Install, the Welcome, setup check, tools Workhub installs, sign-in |
 | [Profiles](docs/user-guide/profiles.md) | Folders, accounts, link opening, environment |
 | [Sessions](docs/user-guide/sessions.md) | App / Terminal / Shell, composer, resume, windows, sidebar |
 | [Monitor](docs/user-guide/monitor.md) | Per-session panel and Home |
 | [Review before PR](docs/user-guide/review-before-pr.md) | Agent-briefs-reviewer loop, review loop, local diff review |
 | [Pull requests](docs/user-guide/pull-requests.md), [Tickets](docs/user-guide/tickets.md) | Code host and tracker |
 | [Slack](docs/user-guide/slack.md), [Health](docs/user-guide/health.md), [Flow maps](docs/user-guide/flow-maps.md), [Plan](docs/user-guide/plan.md), [Automations](docs/user-guide/automations.md) | Optional modules |
-| [History](docs/user-guide/history.md), [Usage and budgets](docs/user-guide/usage.md) | Past sessions, plan usage and ceilings |
+| [History](docs/user-guide/history.md), [Usage and budgets](docs/user-guide/usage.md) | Past sessions, plan usage, ceilings and budgets |
 | [Remote access](docs/user-guide/remote-access.md) | Workhub Remote: the phone app, pairing, self-hosting the relay |
 | [Settings](docs/user-guide/settings.md), [Keyboard shortcuts](docs/user-guide/keyboard-shortcuts.md) | Reference |
 
