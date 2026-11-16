@@ -69,6 +69,15 @@ path and size. `config.json` and `secrets.json` stay separate files.
 - **Flow maps** are no longer read from a `flow-maps/` folder: import them in **Settings → Profiles → (profile) → Screens → Flow maps**
   or post them with the `workhub-flow-map` skill.
 
+## A settings upgrade went wrong
+
+When a new version has to convert `config.json` to a newer format, it keeps the original next to it as
+`config.json.v<old>.bak` (for example `config.json.v7.bak`, readable by you only) before the first save
+after the upgrade. The data folder is the one **Settings → Advanced → Data** shows. Only the 3 newest
+copies are kept, and an existing copy of the same version is never overwritten. To go back, quit
+Workhub, copy the `.bak` file over `config.json` (keep the current one aside if you want it), and start
+the older version that wrote it; this version converts the file again on its next start.
+
 ## Health is unreachable or returns 401
 
 On the Health screen, an environment that cannot be read shows the reason and **Try again**.
