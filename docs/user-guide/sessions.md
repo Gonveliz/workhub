@@ -106,6 +106,13 @@ terminal's output to the screen in batches of about one frame, so a command that
   of your messages begins; **Show earlier messages** at the top shows the next 200 above, without
   moving what you are reading. The conversation follows new output while you are at its bottom;
   scroll up while the agent writes and **Jump to latest** takes you back down.
+- **Copy**: under each message of yours and each reply, next to its time.
+- **Find in the conversation**: **⌘/Ctrl+F** (View → **Find in Conversation**) opens a find bar over
+  the chat. It ignores case, shows which match you are on (**3 of 12**), and **Return** /
+  **Shift+Return** or the arrows go to the next and previous match, wrapping around at the ends.
+  Matches are highlighted and the chat scrolls to the current one. It searches your messages, the
+  replies, errors and the names of tool calls, not collapsed thinking or tool output. **Esc** closes
+  the bar. It works in the App view; the Terminal and Shell views are not searched.
 - **Listen**: next to **Copy** under each agent message. A short message (under about 400
   characters once code, links and formatting are left out) is read aloud as it is. A longer one is
   first summarized into a few spoken sentences, in the message's language, by a small Claude model
@@ -182,6 +189,10 @@ brings it back; its icon shows whether the panel is open.
   them.
 - **Rename**: **Rename…** in the session's menu, or double-click its name, or `/rename <name>` in
   the chat. Leave the name empty to show the agent's name again.
+- **Export conversation…**: in the session's menu in the sidebar. A save dialog asks where; the
+  file is Markdown named after the session and the date (`my-session-2026-11-05.md`). It has your
+  messages and the agent's replies in order with their times (UTC), each tool call as one line
+  with its status, and no tool output.
 - **Sign in** (Claude): `/login` in the chat opens the Terminal view and runs `/login` there, since
   Claude Code only signs in from its terminal UI. Once signed in, go back to App (⌘⌥1).
 - **Close**: the close button on the row. A session that is working asks first (**Stop and

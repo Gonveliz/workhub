@@ -63,6 +63,7 @@ import { useSessionSlack } from '../../lib/slackLinks'
 import { Field } from '../molecules/Field'
 import type { SessionData } from '../../store'
 import { errorText } from '../../lib/errorText'
+import { exportConversation } from '../../lib/chatExportAction'
 import { closeAsks } from '../../lib/closeSession'
 import { currentConfig } from '../../configStore'
 import { CloseSessionDialog } from './CloseSessionDialog'
@@ -224,6 +225,7 @@ export function SessionList({ sessions, groups, selectedId, active, onSelect, on
     if (!entry || entry.data.view.state === 'stopped') items.push({ label: t('groups.reopen'), onSelect: () => onReopen(member) }, { separator: true })
     if (entry && onRename) items.push({ label: t('session.rename'), onSelect: () => onRename(entry.data.view) })
     if (entry && onOpenInWindow && entry.data.view.state !== 'stopped') items.push({ label: t('window.openInNew'), hint: shortcutLabel({ key: 'n', shift: true }, platform), onSelect: () => onOpenInWindow(entry.data.view.id) })
+    if (entry) items.push({ label: t('session.exportConversation'), onSelect: () => void exportConversation(entry.data, t).then((r) => !r.ok && !r.canceled && pushItem(entry.data.view.id, 'error', t('session.exportFailed', { message: r.error })), (e: unknown) => pushItem(entry.data.view.id, 'error', t('session.exportFailed', { message: errorText(e) }))) })
     if (entry) items.push({ label: t('sessions.close'), onSelect: () => requestClose(entry.data) }, { separator: true })
     if (entry && entry.data.view.state !== 'stopped') {
       const reading = isSessionReadAloud(entry.data.view.id)

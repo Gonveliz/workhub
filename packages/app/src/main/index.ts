@@ -108,6 +108,7 @@ import { broadcastToWindowsAndDevices, isRemoteSender, pageHistory, promptFromDe
 import { rendererReporter, startDiagnostics } from './diagnostics'
 import { createDiagnosticsExporter } from './diagnostics-export-app'
 import { createUsageCsvExporter } from './usage-csv'
+import { createConversationExporter } from './chat-export'
 import { jobReports } from './job-reporter'
 import { ReloadGuard, watchRenderer } from './render-recovery'
 import { ChatJournals } from './chat-journal'
@@ -1529,6 +1530,7 @@ function registerIpc(): void {
   })
   // The usage reports and session tags (main window only: not in the remote allowlist).
   registerAnalyticsIpc(ipc, { db, records: sessionRecords, scan: () => tokenSpend.scanNow(), reports: (r) => usageReports.report(r), exportCsv: createUsageCsvExporter({ window: () => (win && !win.isDestroyed() ? win : null) }) })
+  ipc.handle('sessions:exportConversation', createConversationExporter({ window: () => (win && !win.isDestroyed() ? win : null) }))
   ipc.handle('storage:backup', async (): Promise<StorageBackupResult> => {
     try {
       const path = await backupDb(true)
@@ -2116,6 +2118,8 @@ function runMenuCommand(command: MenuCommand): void {
   const sessionWindow = sessionWindows.sessionOf(focused) !== undefined
   const sessionCommand = isSessionCommand(command)
   if (sessionCommand && sessionWindow && focused) return focused.webContents.send('menu:command', command)
+  // ⌘F is also Settings' own search: another window gets the key back instead of losing it.
+  if (command.kind === 'findInChat' && focused && focused !== win) return focused.webContents.send('menu:command', command)
   if (sessionCommand && focused !== win) return
   if (command.kind === 'navigate' && command.route === 'settings') return settingsWindow.open()
   showMain()

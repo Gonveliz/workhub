@@ -33,6 +33,7 @@ import { slashCommandsEn } from './slashCommands.en'
 import { storageEn } from './storage.en'
 import { usageReportsEn } from './usageReports.en'
 import { keyboardEn } from './keyboard.en'
+import { chatToolsEn } from './chatTools.en'
 import { sessionRequestsEn } from './sessionRequests.en'
 import { localReviewEn } from './localReview.en'
 import { unsavedEn } from './unsaved.en'
@@ -517,5 +518,6 @@ export const en = {
   ...webEn,
   ...usageReportsEn,
   ...keyboardEn,
+  ...chatToolsEn,
   ...sessionRequestsEn
 } as const

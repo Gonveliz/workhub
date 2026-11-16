@@ -66,6 +66,7 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
     },
     sessions: {
       list: () => invoke('sessions:list'),
+      exportConversation: (conversation) => invoke('sessions:exportConversation', conversation),
       journal: (id) => invoke('sessions:journal', id),
       ready: () => send('sessions:ready'),
       start: (input) => invoke('sessions:start', input),

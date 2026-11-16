@@ -6,6 +6,7 @@ export const keyboardEs: Record<keyof typeof keyboardEn, string> = {
   'menu.previousSession': 'Sesión anterior',
   'menu.nextNeedsYou': 'Siguiente sesión que te necesita',
   'menu.answerRequest': 'Responder la solicitud pendiente',
+  'menu.findInChat': 'Buscar en la conversación',
   'menu.commandPalette': 'Paleta de comandos…',
   'keyboard.noneNeedsYou': 'Ninguna otra sesión te necesita',
   'palette.title': 'Paleta de comandos',

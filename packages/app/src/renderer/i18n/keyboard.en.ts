@@ -4,6 +4,7 @@ export const keyboardEn = {
   'menu.previousSession': 'Previous Session',
   'menu.nextNeedsYou': 'Next Session That Needs You',
   'menu.answerRequest': 'Answer Pending Request',
+  'menu.findInChat': 'Find in Conversation',
   'menu.commandPalette': 'Command Palette…',
   'keyboard.noneNeedsYou': 'No other session needs you',
   'palette.title': 'Command palette',

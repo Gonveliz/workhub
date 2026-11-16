@@ -330,6 +330,14 @@ export interface UsageAlert {
 /** Marks the error of a prompt dropped before it was sent because its session was interrupted. */
 export const PROMPT_WITHDRAWN = 'workhub:prompt-withdrawn'
 
+/** The chat as Markdown plus the session's name (for the file name); the path is chosen in main's save dialog. */
+export interface ConversationExport {
+  name: string
+  markdown: string
+}
+
+export type ConversationExportResult = { ok: true; path: string } | { ok: false; canceled: true } | { ok: false; canceled: false; error: string }
+
 export interface SessionsApi {
   list(): Promise<SessionView[]>
   /**
@@ -405,6 +413,8 @@ export interface SessionsApi {
   localChanges(id: string): Promise<LocalChanges | null>
   /** Names the session (empty or null: back to its agent's name); stored by the session's identity. */
   rename(id: string, name: string | null): Promise<void>
+  /** Saves a conversation as a Markdown file the user picks in a save dialog (desktop windows only). */
+  exportConversation(conversation: ConversationExport): Promise<ConversationExportResult>
   /** `seq`: the event's number in main's chat journal, when it belongs to the chat (see `journal`). */
   onEvent(cb: (e: AgentEvent, seq?: number) => void): () => void
   onChanged(cb: (s: SessionView) => void): () => void

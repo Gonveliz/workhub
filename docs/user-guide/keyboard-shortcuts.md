@@ -31,6 +31,7 @@ On macOS the modifier is ⌘. On Windows and Linux use Ctrl in its place.
 | ⌘/Ctrl+Alt+1 / 2 / 3 | Show as App / Show as Console (Terminal) / Show as Shell |
 | ⌘/Ctrl+Alt+↓ / ⌘/Ctrl+Alt+↑ | Next / previous session, in sidebar order (wraps around; sessions in folded groups count) |
 | ⌘/Ctrl+J | Next session that needs you (a question or permission waiting, an unread reply, a failure); press again to cycle through them |
+| ⌘/Ctrl+F | Find in the session's conversation: opens the find bar; Return / Shift+Return go to the next / previous match, Esc closes it |
 | ⌘/Ctrl+Shift+A | Answer the session's pending permission request or question: the focus moves to the oldest one |
 | 1-9 | With the focus on a permission request, pick its first, second… button |
 

@@ -32,6 +32,7 @@ import { readPrefs, setPrefs, usePrefs } from './lib/prefs'
 import { useAppearance } from './lib/appearance'
 import { historyLookupKeys, listSessions, lookUpHistory, memberOf, sessionLabel, sessionRows, sidebarSessionOrder, updateGroups, useSessionRows } from './lib/sessionGroups'
 import { requestAnswerFocus } from './lib/pendingFocus'
+import { requestFind } from './lib/chatReveal'
 import { SETTINGS_INDEX, hitKey } from './screens/settings/settings-index'
 import { SETTINGS_SECTIONS, sectionMeta } from './screens/settings/sections'
 import { ROUTE_LABEL } from './lib/routes'
@@ -330,6 +331,9 @@ function Shell() {
           }
           case 'answerRequest':
             if (current) requestAnswerFocus(current.view.id)
+            return
+          case 'findInChat':
+            if (current) requestFind(current.view.id)
             return
           case 'commandPalette':
             setPaletteOpen(true)

@@ -21,6 +21,8 @@ export type MenuCommand =
   | { kind: 'commandPalette' }
   /** Moves the focus to the session's oldest pending permission request or question. */
   | { kind: 'answerRequest' }
+  /** Opens the find bar of the session's chat (⌘F). */
+  | { kind: 'findInChat' }
 
 /**
  * What the main window's renderer holds about a session and main does not: the chat items, the

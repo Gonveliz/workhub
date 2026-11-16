@@ -5,6 +5,7 @@ import { Button, IconButton } from '../../components/atoms'
 import { CopyButton, Markdown, type MarkdownActions } from '../../components/molecules'
 import { useToast } from '../../components/molecules/Toast'
 import { BrandMark, ToolCallCard } from '../../components/organisms'
+import { ChatFind } from './ChatFind'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { MessageKey } from '../../i18n/translate'
 import { cn } from '../../lib/cn'
@@ -271,7 +272,10 @@ const ChatBlock = memo(function ChatBlock({ item, onAnswer, sessionId, cwd, hasS
           )}
           {typeof item.images === 'number' && <span className="text-xs text-subtle">{tn('chat.images', item.images)}</span>}
           {item.text && <UserText text={item.text} />}
-          <SentAt at={item.at} align="right" />
+          <div className="flex items-center gap-1">
+            <SentAt at={item.at} align="right" />
+            {item.text && <CopyButton text={() => item.text} />}
+          </div>
         </div>
       )
     case 'agent':
@@ -818,7 +822,8 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="relative flex min-h-0 flex-1 flex-col">
-        <div ref={log} onScroll={onLogScroll} className="min-h-0 flex-1 overflow-y-auto text-[length:var(--wh-chat-font-size,13px)]" aria-live="polite" aria-label={t('chat.log')} role="log">
+        <ChatFind sessionId={v.id} items={data.items} active={active} log={log} />
+        <div ref={log} data-chat-log={v.id} onScroll={onLogScroll} className="min-h-0 flex-1 overflow-y-auto text-[length:var(--wh-chat-font-size,13px)]" aria-live="polite" aria-label={t('chat.log')} role="log">
           <div className="flex w-full min-w-0 flex-col gap-3.5 px-6 py-5">
             {data.items.length === 0 && !v.origin && <p className="py-10 text-center text-sm text-subtle">{t('chat.empty')}</p>}
             {start > 0 && (

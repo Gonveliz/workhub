@@ -113,12 +113,12 @@ describe('application menu', () => {
   it('View: next and previous session, next one that needs you, answer a pending request and the command palette', () => {
     const { template, ran } = menu()
     const view = items(byLabel(template, 'menu.view'))
-    const keys = ['menu.nextSession', 'menu.previousSession', 'menu.nextNeedsYou', 'menu.answerRequest', 'menu.commandPalette'].map((label) => view.find((i) => i.label === label))
-    expect(keys.map((i) => i?.accelerator)).toEqual(['CmdOrCtrl+Alt+Down', 'CmdOrCtrl+Alt+Up', 'CmdOrCtrl+J', 'CmdOrCtrl+Shift+A', 'CmdOrCtrl+K'])
+    const keys = ['menu.nextSession', 'menu.previousSession', 'menu.nextNeedsYou', 'menu.answerRequest', 'menu.findInChat', 'menu.commandPalette'].map((label) => view.find((i) => i.label === label))
+    expect(keys.map((i) => i?.accelerator)).toEqual(['CmdOrCtrl+Alt+Down', 'CmdOrCtrl+Alt+Up', 'CmdOrCtrl+J', 'CmdOrCtrl+Shift+A', 'CmdOrCtrl+F', 'CmdOrCtrl+K'])
     for (const i of keys) click(i)
-    expect(ran).toEqual([{ kind: 'stepSession', step: 1 }, { kind: 'stepSession', step: -1 }, { kind: 'nextNeedsYou' }, { kind: 'answerRequest' }, { kind: 'commandPalette' }])
+    expect(ran).toEqual([{ kind: 'stepSession', step: 1 }, { kind: 'stepSession', step: -1 }, { kind: 'nextNeedsYou' }, { kind: 'answerRequest' }, { kind: 'findInChat' }, { kind: 'commandPalette' }])
     // Answering acts on the focused session window's session; the others go to the main window.
-    expect(ran.map(isSessionCommand)).toEqual([false, false, false, true, false])
+    expect(ran.map(isSessionCommand)).toEqual([false, false, false, true, true, false])
   })
 
   it('never gives two items the same accelerator', () => {

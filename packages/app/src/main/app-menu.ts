@@ -45,7 +45,7 @@ export const MENU_ROUTES: readonly { route: string; key: string; label: string }
 
 /** Commands that act on a session: the focused session window runs them, else the main window's selection. */
 export function isSessionCommand(command: MenuCommand): boolean {
-  return command.kind === 'closeSession' || command.kind === 'showMode' || command.kind === 'openInWindow' || command.kind === 'answerRequest'
+  return command.kind === 'closeSession' || command.kind === 'showMode' || command.kind === 'openInWindow' || command.kind === 'answerRequest' || command.kind === 'findInChat'
 }
 
 const MODES = [
@@ -116,6 +116,7 @@ export function buildAppMenuTemplate(input: AppMenuInput): MenuItemConstructorOp
       { label: t('menu.previousSession'), accelerator: 'CmdOrCtrl+Alt+Up', click: () => run({ kind: 'stepSession', step: -1 }) },
       { label: t('menu.nextNeedsYou'), accelerator: 'CmdOrCtrl+J', click: () => run({ kind: 'nextNeedsYou' }) },
       { label: t('menu.answerRequest'), accelerator: 'CmdOrCtrl+Shift+A', click: () => run({ kind: 'answerRequest' }) },
+      { label: t('menu.findInChat'), accelerator: 'CmdOrCtrl+F', click: () => run({ kind: 'findInChat' }) },
       { label: t('menu.commandPalette'), accelerator: 'CmdOrCtrl+K', click: () => run({ kind: 'commandPalette' }) },
       { type: 'separator' },
       ...MODES.map((m): MenuItemConstructorOptions => ({ label: t(m.label), accelerator: `CmdOrCtrl+Alt+${m.key}`, click: () => run({ kind: 'showMode', mode: m.mode }) })),

@@ -34,6 +34,7 @@ import { slashCommandsEs } from './slashCommands.es'
 import { storageEs } from './storage.es'
 import { usageReportsEs } from './usageReports.es'
 import { keyboardEs } from './keyboard.es'
+import { chatToolsEs } from './chatTools.es'
 import { sessionRequestsEs } from './sessionRequests.es'
 import { localReviewEs } from './localReview.es'
 import { unsavedEs } from './unsaved.es'
@@ -516,5 +517,6 @@ export const es: Record<keyof typeof en, string> = {
   ...webEs,
   ...usageReportsEs,
   ...keyboardEs,
+  ...chatToolsEs,
   ...sessionRequestsEs
 }
