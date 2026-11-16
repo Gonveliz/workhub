@@ -67,12 +67,16 @@ export class CodeHostService {
   private readonly cache = new Map<string, { at: number; value: CodeHostLists }>()
   private readonly logins = new Map<string, string>()
   private readonly demoHost: CodeHost | null
+  /** Reads under way, so concurrent callers of `lists` share one. */
+  private readonly inflight = new Map<string, Promise<CodeHostLists>>()
+  private readonly onListsChanged: (() => void) | undefined
 
   constructor(
     private readonly loadConfig: () => Promise<WorkhubConfig>,
-    options: { demo: boolean; /** Demo only: the step the synthetic pull requests are at (see the GitHub demo). */ demoStep?: () => number }
+    options: { demo: boolean; /** Called when a read stored lists that differ from the cached ones (the tray shows the cached lists and never reads). */ onListsChanged?: () => void; /** Demo only: the step the synthetic pull requests are at (see the GitHub demo). */ demoStep?: () => number }
   ) {
     this.run = createCliRunner()
+    this.onListsChanged = options.onListsChanged
     this.demoHost = options.demo ? new GitHubCodeHost({ run: createDemoRunner(Date.now(), options.demoStep) }) : null
   }
 
@@ -141,6 +145,25 @@ export class CodeHostService {
     if (!resolved) return { state: 'notConnected', ...empty }
     const cached = this.cache.get(resolved.key)
     if (cached && !force && Date.now() - cached.at < LIST_TTL_MS) return cached.value
+    const running = this.inflight.get(resolved.key)
+    if (running) return running
+    const read = this.read(resolved, cached?.value)
+    this.inflight.set(resolved.key, read)
+    try {
+      return await read
+    } finally {
+      if (this.inflight.get(resolved.key) === read) this.inflight.delete(resolved.key)
+    }
+  }
+
+  /** The lists this service already holds for the profile, whatever their age; null when none. Never reads the host. */
+  async cachedLists(profileId: string | null): Promise<CodeHostLists | null> {
+    const resolved = await this.resolve(profileId)
+    return (resolved && this.cache.get(resolved.key)?.value) || null
+  }
+
+  private async read(resolved: Resolved, previous: CodeHostLists | undefined): Promise<CodeHostLists> {
+    const empty = { mine: [], toReview: [] }
     const { host, cli } = resolved
     const demo = this.demoHost !== null
     const status = await host.status()
@@ -156,7 +179,6 @@ export class CodeHostService {
     this.logins.set(resolved.key, status.login)
     const query = { scope: await this.scopeOf(resolved) }
     const [mine, toReview] = await Promise.allSettled([loadMyPullRequests(host, query), loadReviewQueue(host, query)])
-    const previous = cached?.value
     const failures = [mine, toReview].flatMap((r) => (r.status === 'rejected' ? [messageOf(r.reason)] : []))
     const value: CodeHostLists = {
       state: mine.status === 'rejected' && toReview.status === 'rejected' ? 'error' : 'ready',
@@ -171,6 +193,7 @@ export class CodeHostService {
       demo
     }
     this.cache.set(resolved.key, { at: Date.now(), value })
+    if (!previous || JSON.stringify({ ...previous, updatedAt: 0 }) !== JSON.stringify({ ...value, updatedAt: 0 })) this.onListsChanged?.()
     return value
   }
 

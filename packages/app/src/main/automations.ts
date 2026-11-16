@@ -75,6 +75,8 @@ export class AutomationService {
   private config: WorkhubConfig | null = null
   private timer: ReturnType<typeof setInterval> | null = null
   private emitQueued = false
+  /** The snapshot last pushed, serialized: an identical tick pushes nothing. */
+  private lastEmitted: string | null = null
 
   constructor(private readonly deps: AutomationServiceDeps) {
     this.engine = new AutomationEngine(this.host(), deps.state.load(EMPTY_AUTOMATIONS_STATE))
@@ -299,13 +301,17 @@ export class AutomationService {
     return { automations, runs: state.runs }
   }
 
-  /** Coalesces the snapshot pushes of one tick into one. */
+  /** Coalesces the snapshot pushes of one tick into one, and drops it when nothing changed since the last push. */
   private changed(): void {
     if (this.emitQueued) return
     this.emitQueued = true
     queueMicrotask(() => {
       this.emitQueued = false
-      this.deps.emit(this.snapshot())
+      const snap = this.snapshot()
+      const key = JSON.stringify(snap)
+      if (key === this.lastEmitted) return
+      this.lastEmitted = key
+      this.deps.emit(snap)
     })
   }
 }

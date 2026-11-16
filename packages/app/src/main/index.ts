@@ -304,7 +304,7 @@ let sessionsWanted = false
 // WORKHUB_DEMO_CODEHOST=1 reads synthetic pull requests instead of a real host (screenshots, demos).
 // The demo moves on one step at a time (`prEvents.demoAdvance`) so pull request events can be seen.
 let demoPrStep = 0
-const codeHost = new CodeHostService(() => configuration.current(), { demo: process.env['WORKHUB_DEMO_CODEHOST'] === '1', demoStep: () => demoPrStep })
+const codeHost = new CodeHostService(() => configuration.current(), { demo: process.env['WORKHUB_DEMO_CODEHOST'] === '1', demoStep: () => demoPrStep, onListsChanged: () => scheduleTray() })
 const prEvents = new PrEventService({
   source: codeHost,
   store: new SqlitePrEventStore(db),
@@ -1751,7 +1751,7 @@ async function trayState(): Promise<TrayState> {
   const stamped = stampSince(sessionSince, listed, Date.now())
   sessionSince = stamped.since
   const sessionsNow = stamped.sessions
-  const [lists, today] = await Promise.all([codeHost.lists(profileId).catch(() => null), trayToday.read(profileId)])
+  const [lists, today] = await Promise.all([codeHost.cachedLists(profileId).catch(() => null), trayToday.read(profileId)])
   const agentNames = new Map(knownAgents(config).map((a) => [a.id, a.name]))
   const slackOn = lastSlack && lastSlack.health !== 'off'
   const me = lastSlack?.me ?? ''

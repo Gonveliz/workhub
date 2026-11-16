@@ -1,10 +1,10 @@
 import { tmpdir } from 'node:os'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { emptyConfig, newAutomation, parseConfig, type AutomationDefinition, type ConfigurationService } from '@workhub/core'
 import { AutomationService } from '../src/main/automations'
 import type { StartSessionInput } from '../src/shared/api'
 
-function setup(def: AutomationDefinition) {
+function setup(def: AutomationDefinition, emit: () => void = () => undefined) {
   const started: StartSessionInput[] = []
   const config = { ...emptyConfig(), automations: [def] }
   const service = new AutomationService({
@@ -18,7 +18,7 @@ function setup(def: AutomationDefinition) {
     state: { load: (empty: unknown) => empty, save: () => undefined, flush: () => undefined } as never,
     home: '/tmp',
     usage: () => [],
-    emit: () => undefined,
+    emit,
     configChanged: () => undefined,
     notice: () => undefined
   })
@@ -43,6 +43,22 @@ describe('automation session start', () => {
     expect(started[0]).not.toHaveProperty('effort')
     expect(started[0]).not.toHaveProperty('modeId')
     expect(started[0]).not.toHaveProperty('model')
+  })
+})
+
+describe('automation snapshots', () => {
+  it('emits once for identical ticks and again when the state changes', async () => {
+    const emit = vi.fn()
+    const { service } = setup(newAutomation('a3', { folder: tmpdir() }), emit)
+    await service.start()
+    await service.tick()
+    await service.tick()
+    await service.tick()
+    expect(emit).toHaveBeenCalledTimes(1)
+    await service.runNow('a3')
+    await service.tick()
+    service.stop()
+    expect(emit.mock.calls.length).toBeGreaterThan(1)
   })
 })
 
