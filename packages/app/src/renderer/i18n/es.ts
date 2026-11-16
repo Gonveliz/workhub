@@ -292,6 +292,11 @@ export const es: Record<keyof typeof en, string> = {
 
   'settings.saved': 'Guardado',
   'settings.loadError': 'No se pudo cargar el archivo de configuración; la edición está desactivada hasta que se corrija.',
+  'configLoad.title': 'Workhub no pudo leer su archivo de configuración',
+  'configLoad.body': 'Tus perfiles, cuentas y conexiones no se muestran y no se guarda nada hasta que el archivo cargue. Corregí el archivo (o restaurá una copia) y probá de nuevo.',
+  'configLoad.file': 'Archivo: {path}',
+  'configLoad.retry': 'Reintentar',
+  'configLoad.stillFailing': 'El archivo de configuración todavía no se pudo cargar',
   'settings.general': 'General',
   'settings.appearance': 'Apariencia',
   'settings.profiles': 'Perfiles',

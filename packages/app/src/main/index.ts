@@ -294,10 +294,13 @@ const configChanged = () => {
   remoteHub.tap('config:changed', [])
 }
 // Every write tells every window (`config:changed`): a change in the Settings window shows in the main window.
-const configStore = broadcastingConfigStore(new JsonConfigStore(join(dataDir, 'config.json')), configChanged)
+const configPath = join(dataDir, 'config.json')
+const configStore = broadcastingConfigStore(new JsonConfigStore(configPath), configChanged)
 const secrets = new SafeStorageSecretStore(join(dataDir, 'secrets.json'), safeStorage)
 const configuration = new ConfigurationService(configStore, secrets)
 let loadError: string | undefined
+// The main window asked for the sessions of the last run; they are reopened once the config loads.
+let sessionsWanted = false
 // WORKHUB_DEMO_CODEHOST=1 reads synthetic pull requests instead of a real host (screenshots, demos).
 // The demo moves on one step at a time (`prEvents.demoAdvance`) so pull request events can be seen.
 let demoPrStep = 0
@@ -905,8 +908,32 @@ async function snapshot(): Promise<ConfigSnapshot> {
     providers: [...CONNECTION_PROVIDERS],
     connectionsWithSecret: withSecret.filter((x): x is string => x !== null),
     dataDir,
-    loadError
+    configPath,
+    loadError,
+    ...(loadError ? { loadIssues: configuration.loadFailure()?.issues ?? [] } : {})
   }
+}
+
+/** Loads the config file again: after the user fixed it, the app works with it without a restart. */
+async function reloadConfig(): Promise<ConfigSnapshot> {
+  try {
+    await configuration.load()
+    loadError = undefined
+    const moved = await configuration.migrateAccountEnv()
+    if (moved) diagnostics.log.info(`moved ${moved} account environment value(s) to the secret store`)
+  } catch (err) {
+    loadError = err instanceof Error ? err.message : String(err)
+  }
+  configChanged()
+  scheduleMenu()
+  void refreshOptionsCache()
+  if (!loadError && sessionsWanted) restoreSessions()
+  return snapshot()
+}
+
+/** Never against the empty stand-in config: its start-up would drop every stored session. */
+function restoreSessions(): void {
+  void openSessions.restore().catch((err: unknown) => diagnostics.log.warn(`could not reopen the sessions of the last run: ${err instanceof Error ? err.message : String(err)}`))
 }
 
 /** Every config write is refused while the file on disk could not be read, so it is never clobbered. */
@@ -1087,6 +1114,7 @@ function registerIpc(): void {
   })
 
   ipc.handle('config:get', () => snapshot())
+  ipc.handle('config:reload', () => reloadConfig())
   ipc.handle('config:saveConnection', guarded((c, s) => configuration.saveConnection(c, s)))
   ipc.handle('config:deleteConnection', guarded((id: string) => configuration.deleteConnection(id)))
   ipc.handle('config:saveAccount', guarded((a) => configuration.saveAccount(a)))
@@ -1250,7 +1278,9 @@ function registerIpc(): void {
 
   ipc.handle('sessions:list', () => sessions.list())
   ipc.on('sessions:ready', (e) => {
-    if (win && !win.isDestroyed() && e.sender === win.webContents) void openSessions.restore()
+    if (!win || win.isDestroyed() || e.sender !== win.webContents) return
+    sessionsWanted = true
+    if (!loadError) restoreSessions()
   })
   // The New session dialog's Group: main saves the place, so it follows the session's identity.
   ipc.handle('sessions:start', (_e, input: StartSessionInput) =>

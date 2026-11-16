@@ -17,7 +17,7 @@ const saved = (identity: string, over: Partial<SavedOpenSession> = {}): SavedOpe
   ...over
 })
 
-function harness(stored: SavedOpenSessions, opts: { enabled?: boolean; atLaunch?: boolean; groups?: SessionGroups; missing?: string[]; failing?: string[] } = {}) {
+function harness(stored: SavedOpenSessions, opts: { enabled?: boolean; atLaunch?: boolean; groups?: SessionGroups; missing?: string[]; failing?: string[]; broken?: { config: boolean } } = {}) {
   let file = stored
   let flushed = 0
   const live: SessionView[] = []
@@ -48,7 +48,10 @@ function harness(stored: SavedOpenSessions, opts: { enabled?: boolean; atLaunch?
       modes.push([id, mode])
     },
     folderExists: async (path) => !opts.missing?.includes(path),
-    enabled: async () => opts.enabled ?? true,
+    enabled: async () => {
+      if (opts.broken?.config) throw new Error('Invalid config')
+      return opts.enabled ?? true
+    },
     startAtLaunch: async () => opts.atLaunch ?? true,
     groups: async () => opts.groups
   })
@@ -135,6 +138,27 @@ describe('open sessions across launches', () => {
     h.live.push(view('x'))
     h.open.changed()
     expect(h.file().sessions.map((s) => s.identity)).toEqual(['agent-x'])
+  })
+
+  it('keeps the stored list when the restore fails, and restores on a later try', async () => {
+    const broken = { config: true }
+    const h = harness({ sessions: [saved('a'), saved('b')] }, { broken })
+    await expect(h.open.restore()).rejects.toThrow('Invalid config')
+    // Sessions opened meanwhile, and the quit, must not replace the list that was never restored.
+    h.live.push(view('x'))
+    h.open.changed()
+    expect(h.file().sessions.map((s) => s.identity)).toEqual(['a', 'b'])
+    broken.config = false
+    await h.open.restore()
+    expect(h.starts.map((s) => s.resumeAgentSessionId)).toEqual(['a', 'b'])
+    expect(h.file().sessions.map((s) => s.identity)).toEqual(['agent-x', 'a', 'b'])
+  })
+
+  it('never saves when the restore failed and the app quits', async () => {
+    const h = harness({ sessions: [saved('a')] }, { broken: { config: true } })
+    await h.open.restore().catch(() => undefined)
+    h.open.freeze()
+    expect(h.file().sessions.map((s) => s.identity)).toEqual(['a'])
   })
 
   it('keeps the list of the moment the app quits while the sessions stop', async () => {

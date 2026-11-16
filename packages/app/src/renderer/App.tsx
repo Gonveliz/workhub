@@ -11,6 +11,7 @@ import { CloseSessionDialog } from './components/organisms/CloseSessionDialog'
 import { closeAsks } from './lib/closeSession'
 import { UpdatePromptDialog } from './components/organisms/UpdatePromptDialog'
 import { ResumeSheet } from './components/organisms/ResumeSheet'
+import { ConfigLoadErrorBanner } from './components/organisms/ConfigLoadErrorBanner'
 import { DetachedSessionNotice } from './screens/sessions/DetachedSessionNotice'
 import { useDetachedSessions } from './lib/windows'
 import type { MenuCommand } from '@shared/windows-api'
@@ -484,6 +485,7 @@ function Shell() {
           sidebarHidden={layout.sidebarHidden}
           onToggleSidebar={() => setPrefs({ sidebarHidden: !layout.sidebarHidden })}
         />
+        <ConfigLoadErrorBanner snap={snap} />
         <main className="relative min-h-0 flex-1">
           {/* Sessions stay mounted so terminals and chats survive a visit to another screen. */}
           <div className={route === 'sessions' ? 'relative h-full' : 'hidden'}>

@@ -188,5 +188,8 @@ Verify the download against its `.sha256` file if you want to be sure it is the 
   include now. Reads also wait when the account is over the usage guard or a ceiling.
 - **A secret cannot be saved**: Workhub refuses to store secrets when the operating system cannot
   encrypt them (on Linux that needs libsecret or kwallet).
-- **Settings cannot be edited**: the config file failed to load; the message names the problem, and
-  editing stays off until it is fixed.
+- **Settings cannot be edited**: the config file failed to load (invalid JSON, a value it does not
+  accept, or a file written by a newer version). The app still starts, with no profiles, accounts or
+  connections, and a banner at the top of the main window names the problem and the file's path.
+  Nothing is saved, so the file is never overwritten, and the sessions of the last run are kept for
+  later. Fix the file (or restore a copy), then press **Try again** in the banner.

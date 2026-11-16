@@ -69,10 +69,16 @@ export interface ConfigSnapshot {
   dataDir: string
   /** Set when the config file could not be loaded; editing is disabled until it is fixed. */
   loadError?: string
+  /** With `loadError`: the problems the file has, one line each (empty when the error says it all). */
+  loadIssues?: string[]
+  /** The config file's path, so a load error can say which file to fix. */
+  configPath?: string
 }
 
 export interface ConfigApi {
   get(): Promise<ConfigSnapshot>
+  /** Reads the config file again (after the user fixed it); every window gets `config:changed`. */
+  reload(): Promise<ConfigSnapshot>
   saveConnection(connection: Connection, secret: SecretChange): Promise<Result<WorkhubConfig>>
   deleteConnection(id: string): Promise<Result<WorkhubConfig>>
   saveAccount(account: AgentAccount): Promise<Result<WorkhubConfig>>

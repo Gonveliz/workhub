@@ -293,6 +293,11 @@ export const en = {
 
   'settings.saved': 'Saved',
   'settings.loadError': 'The config file could not be loaded; editing is off until it is fixed.',
+  'configLoad.title': 'Workhub could not read its config file',
+  'configLoad.body': 'Your profiles, accounts and connections are not shown and nothing is saved until the file loads. Fix the file (or restore a backup), then try again.',
+  'configLoad.file': 'File: {path}',
+  'configLoad.retry': 'Try again',
+  'configLoad.stillFailing': 'The config file still could not be loaded',
   'settings.general': 'General',
   'settings.appearance': 'Appearance',
   'settings.profiles': 'Profiles',

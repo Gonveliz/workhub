@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  ConfigParseError,
   ConfigurationService,
+  ConfigVersionError,
   createAccount,
   createConnection,
   createProfile,
@@ -261,6 +263,67 @@ describe('ConfigurationService concurrency', () => {
     await expect(first).rejects.toThrow('disk full')
     expect((await second).ok).toBe(true)
     expect(store.saved.at(-1)?.options?.readAloud).toBe(true)
+  })
+})
+
+describe('ConfigurationService after a failed load', () => {
+  /** A store whose file is broken until `fixed` is set. */
+  class BrokenStore extends MemoryConfigStore {
+    error: Error = new ConfigParseError(['profiles.0.id: Required'])
+    fixed = false
+    override async load(): Promise<WorkhubConfig> {
+      if (!this.fixed) throw this.error
+      return super.load()
+    }
+  }
+
+  it('serves an empty config instead of throwing, and reports why', async () => {
+    const store = new BrokenStore(config({ connections: [github] }))
+    const svc = new ConfigurationService(store, new MemorySecrets())
+    await expect(svc.load()).rejects.toThrow('Invalid config')
+    const fallback = await svc.current()
+    expect(fallback.profiles).toEqual([])
+    expect(fallback.connections).toEqual([])
+    expect(await svc.issues()).toEqual([])
+    expect(svc.loadFailure()).toEqual({ message: 'Invalid config: profiles.0.id: Required', issues: ['profiles.0.id: Required'] })
+  })
+
+  it('does not throw from current() when it is the first read', async () => {
+    const store = new BrokenStore()
+    store.error = new ConfigVersionError(999)
+    const svc = new ConfigurationService(store, new MemorySecrets())
+    expect((await svc.current()).profiles).toEqual([])
+    expect(svc.loadFailure()?.message).toContain('999')
+    expect(svc.loadFailure()?.issues).toEqual([])
+  })
+
+  it('refuses every write, so the broken file is never overwritten', async () => {
+    const store = new BrokenStore()
+    const secrets = new MemorySecrets()
+    const svc = new ConfigurationService(store, secrets)
+    await svc.load().catch(() => undefined)
+    const writes = [
+      svc.saveOptions({ readAloud: true }),
+      svc.saveAccount(kiroWork),
+      svc.saveConnection(github, { action: 'set', value: 'token' }),
+      svc.saveSessionGroups({ top: [], groups: [] })
+    ]
+    for (const r of await Promise.all(writes)) expect(messages(r)[0]).toContain('config file not loaded')
+    expect(await svc.migrateAccountEnv()).toBe(0)
+    expect(store.saved).toHaveLength(0)
+    expect(secrets.values.size).toBe(0)
+  })
+
+  it('recovers when a later load succeeds', async () => {
+    const store = new BrokenStore(config({ connections: [github] }))
+    const svc = new ConfigurationService(store, new MemorySecrets())
+    await svc.load().catch(() => undefined)
+    store.fixed = true
+    expect((await svc.load()).connections).toHaveLength(1)
+    expect(svc.loadFailure()).toBeNull()
+    expect((await svc.current()).connections).toHaveLength(1)
+    expect((await svc.saveOptions({ readAloud: true })).ok).toBe(true)
+    expect(store.saved.at(-1)?.connections).toHaveLength(1)
   })
 })
 

@@ -34,6 +34,7 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
     chromeProfiles: (app) => invoke('links:chromeProfiles', app),
     config: {
       get: () => invoke('config:get'),
+      reload: () => invoke('config:reload'),
       saveConnection: (c, s) => invoke('config:saveConnection', c, s),
       deleteConnection: (id) => invoke('config:deleteConnection', id),
       saveAccount: (a) => invoke('config:saveAccount', a),
