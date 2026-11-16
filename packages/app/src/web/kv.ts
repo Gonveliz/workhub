@@ -6,6 +6,10 @@ const STORE = 'kv'
 export const SEED_KEY = 'seed'
 /** The paired desktops' public identities by fingerprint: what a pushed notification's signature is checked against. */
 export const DESKTOPS_KEY = 'desktops'
+/** The relay each paired desktop is reached through, by fingerprint: where an answer from a notification goes. */
+export const RELAYS_KEY = 'relays'
+/** The phone's language (`en`, `es`), for the buttons and messages the worker shows. */
+export const LOCALE_KEY = 'locale'
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

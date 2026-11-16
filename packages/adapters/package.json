@@ -19,6 +19,7 @@
     "./codehost-gitlab": "./src/codehost-gitlab/index.ts",
     "./cli": "./src/shared/cli.ts",
     "./git-hardening": "./src/git-hardening.ts",
+    "./session-files": "./src/session-files/index.ts",
     "./login-path": "./src/shared/login-path.ts",
     "./notification-permission": "./src/shared/notification-permission.ts",
     "./tracker-jira": "./src/tracker-jira/index.ts",

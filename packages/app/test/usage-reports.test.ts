@@ -37,6 +37,8 @@ import {
   foldSmallProjects,
   type ReportState
 } from '../src/renderer/lib/usageReports'
+import type { ProjectBudgets } from '@workhub/core'
+import { ProjectBudgetsCard } from '../src/renderer/screens/usage/ProjectBudgetsCard'
 import { UsageReportsView, withProfile, type ReportData } from '../src/renderer/screens/UsageReportsScreen'
 import { ReportSessions, ReportTable, WeeklySummaryView } from '../src/renderer/screens/usage/ReportParts'
 import type { ReportSession, ReportSessionPage } from '../src/shared/analytics-api'
@@ -799,5 +801,23 @@ describe('sessions paging', () => {
     // An emptied later page keeps Previous reachable.
     expect(list(25, false, 2, [])).toContain('data-testid="report-sessions-pager"')
     expect(list(25, false, 0, [])).toContain('No session matches')
+  })
+})
+
+describe('monthly project budgets card', () => {
+  const total = (group: string, usd: number, tokensIn: number): SpendTotals => ({ group, tokensIn, tokensOut: 0, cacheRead: 0, cacheWrite: 0, usd, unpricedTokens: 0, activeMs: 0, turns: 1, sessions: 1 })
+  const card = (budgets: ProjectBudgets, month: SpendTotals[]) =>
+    render(createElement(ProjectBudgetsCard, { budgets, month, projects: ['/w/acme/notes-api'], now: NOW, onSave: async () => true }))
+
+  it('marks a project ok, warned from 80 % and over from 100 %', () => {
+    const html = card({ '/w/acme/ok': { usd: 100 }, '/w/acme/warn': { usd: 100 }, '/w/acme/over': { tokens: 1000 } }, [total('/w/acme/ok', 79, 0), total('/w/acme/warn', 80, 0), total('/w/acme/over', 0, 1500)])
+    expect(html.match(/data-state="(ok|warn|over)"/g)).toEqual(['data-state="ok"', 'data-state="warn"', 'data-state="over"'])
+    expect(html).toContain('Warning: 80 % reached')
+    expect(html).toContain('Over budget')
+  })
+
+  it('says the dollars are a lower bound when tokens had no price, and invites a first budget when empty', () => {
+    expect(card({ '/w/acme/a': { usd: 10 } }, [{ ...total('/w/acme/a', 1, 0), unpricedTokens: 5000 }])).toContain('project-budget-unpriced')
+    expect(card({}, [])).toContain('project-budgets-empty')
   })
 })

@@ -30,6 +30,7 @@ import { agentsEn } from './agents.en'
 import { toolViewEn } from './toolView.en'
 import { windowsEn } from './windows.en'
 import { slashCommandsEn } from './slashCommands.en'
+import { fileMentionsEn } from './fileMentions.en'
 import { storageEn } from './storage.en'
 import { usageReportsEn } from './usageReports.en'
 import { keyboardEn } from './keyboard.en'
@@ -506,6 +507,7 @@ export const en = {
   ...toolViewEn,
   ...windowsEn,
   ...slashCommandsEn,
+  ...fileMentionsEn,
   ...storageEn,
   ...localReviewEn,
   ...unsavedEn,

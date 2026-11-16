@@ -84,6 +84,13 @@ never breaks the session.
   else is rejected. `timeIpc` times each handler and logs slow or failing ones, never their
   arguments. `recordIpc` (`main/remote/`) keeps every handler by channel so a paired device can
   reach the same code without Electron IPC.
+- The main process's composition root is `main/index.ts`: it builds the services and wires them to
+  a few modules. `windows.ts` creates the main and secondary windows and installs the navigation and
+  permission guards; `broadcast.ts` is the one way events go to the windows and paired devices;
+  the IPC handlers live in one `register…Ipc` function per domain (`main/ipc/<domain>.ts` and the
+  services' own registrars), all called from `registerIpc` in `index.ts`; `tray-controller.ts`
+  and `notifications.ts` hold the tray's state and where a notification click leads; and
+  `lifecycle.ts` lists the order services start in and stop in at quit.
 - Remote access (`main/remote/dispatcher.ts`): a paired device calls `hub` methods and gets main's
   events over a transport of its own. The `RemoteHub` only routes channels in its allowlist
   (`main/remote/allowlist.ts`), each tied to a capability the user granted the device (sessions,
@@ -132,6 +139,23 @@ never breaks the session.
   their text cut, both in live `session:event` monitor updates and in `remote:activity` (one
   session, or a list after a reconnect; `main/remote/activity.ts`); a waiting permission
   request's title and detail are cut too.
+- Answering from a notification (`main/remote/permission-tickets.ts`, `web/notification-answer.ts`,
+  `web/sw.ts`): a `needsAnswer` push to a device whose session waits on exactly one request that
+  has a reject option and no questions carries an `ask` (session, request id, offered answers, a
+  random ticket kept in memory for ten minutes for that device and request), signed by the desktop
+  apart from the payload (`signPushAsk`) so a phone that ignores it still verifies the rest. The
+  only answer offered is `deny`: `PendingPermission` does not mark dangerous requests, so Allow
+  stays in the app. The service worker shows the answers as notification actions where
+  `Notification.maxActions` is above 0; a tap on one opens its own relay connection with the
+  device identity (no channel: a handshake would replace the page's live link), sends one
+  `permission-answer` box sealed to the desktop and signed by the device, waits for the sealed
+  `permission-answered` reply naming the ticket, and closes. The desktop opens boxes from paired
+  devices outside pairing only for this; it checks the signature, the answer's age, that the ticket
+  is the device's, unused and unexpired, names the same request and offers that answer, and that
+  the request still waits, then sends `sessions:permission` through `RemoteHub.answerPermission`
+  (the same allowlist entry, capability and budget as the chat's buttons). A ticket is used by the
+  first answer that names it. The page mirrors each desktop's relay and the phone's language to
+  IndexedDB for the worker.
 - Windows stay on the app's renderer: navigations and redirects away from it are refused (web links
   go to the default browser through the link service instead), `window.open` is denied and
   `<webview>` never attaches. This keeps a window that rendered untrusted Markdown (a pull request,

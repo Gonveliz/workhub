@@ -1,9 +1,8 @@
-import { app, autoUpdater as nativeUpdater, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, safeStorage, screen, session, shell, utilityProcess, type BrowserWindowConstructorOptions } from 'electron'
-import { existsSync, mkdirSync } from 'node:fs'
+import { app, autoUpdater as nativeUpdater, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, safeStorage, screen, shell, utilityProcess } from 'electron'
+import { existsSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
-import { delimiter, isAbsolute, join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { delimiter, join, resolve } from 'node:path'
 import { AcpRuntime, agentAvailability, discoverKiroOptions } from '@workhub/adapters/agent-acp'
 import { CLAUDE_PERMISSION_MODES, ClaudeNativeRuntime, ClaudePlanUsageReader, ClaudeSessionHistory, discoverClaudeOptions } from '@workhub/adapters/agent-claude-native'
 import { DemoChatSource, SlackAgentChatSource, SlackTrackingHook } from '@workhub/adapters/chat-slack'
@@ -33,65 +32,34 @@ import {
   factsFromHistory,
   knownAgents,
   placeBeside,
-  hasUnread,
-  historyOfSessions,
-  isNotificationKind,
-  pauseUntil,
   fillDefaultFolders,
   linkAutomationHistory,
   type HistoryEntry,
   type HistoryMessage,
-  TRAY_ROUTES,
   resolveEffectiveAgents,
   startOfLocalDay,
   usageAccountKey,
   validateConfig,
-  type FlowAlert,
-  type MetricAlert,
-  type HealthAlert,
-  type HealthAlertChannel,
   quietNow,
   moduleScreens,
-  type FlowTraceSort,
-  type HealthDetailRequest,
   type CreditSpend,
   type Result,
-  type TicketChange,
-  buildTrayPopover,
-  parseTrayAction,
-  stampSince,
-  type SinceEntry,
-  type TrayAction,
-  type TrayPrEvent,
-  type TrayRoute,
-  type TraySession,
-  type TrayState,
   sessionIdentity,
-  setSessionCeiling,
   type SessionCeilings,
   type WorkhubConfig
 } from '@workhub/core'
-import type { AccountUsage, ConfigSnapshot, HistorySearchOptions, HistorySearchResult, SessionMode, SessionNotification, StartSessionInput, ThemePreference, StorageBackupResult, StorageInfo, UsageAlert } from '../shared/api'
-import type { PrNotification } from '../shared/pr-events-api'
-import type { SlackSnapshot } from '../shared/chat-api'
-import { TRAY_POPOVER_HASH, type TrayRendererState } from '../shared/tray-api'
-import type { PullRequestWindowTab } from '../shared/codehost-api'
+import type { AccountUsage, ConfigSnapshot, HistorySearchOptions, HistorySearchResult, UsageAlert } from '../shared/api'
 import { Notifier } from './notifier'
 import { createQuitGuard, watchSystemShutdown } from './quit-guard-electron'
-import { TrayService } from './tray'
-import { TrayPopover } from './tray-popover'
 import { TrayToday } from './tray-today'
-import { flowAlertWords, healthAlertWords, isLocale, metricAlertWords, trayText } from './tray-text'
-import { reminderNotifications, viewedSessions } from './permission-reminders'
+import { trayText } from './tray-text'
 import { AppBadge, attentionBadgeCount } from './app-badge'
 import { profileWorkspaces } from './workspaces'
-import { startPlaced } from './session-placement'
 import { NotificationPermissionCheck } from './notification-permission'
-import { testNotification } from './notification-test'
 import { FlowAlertWatcher, HealthWatcher, TicketWatcher, ticketSummaryWords } from './watchers'
-import type { Locale } from '../renderer/i18n/translate'
 import { AutomationService } from './automations'
 import { registerChatIpc } from './chat-ipc'
+import { registerSessionFilesIpc } from './session-files-ipc'
 import { AgentOptionsService, listableAgentTargets, runsKiroCli } from './agent-options'
 import { agentKeyBudget, AgentUsageService, DemoUsageProvider, usageAccounts } from './agent-usage'
 import { AgentReviewService, registerAgentReviewIpc, reviewLoopWindows } from './agent-review'
@@ -102,18 +70,15 @@ import { CodeHostService, registerCodeHostIpc } from './codehost'
 import { PullRequestCreateService, registerPullRequestCreateIpc } from './pull-request-create'
 import { ContinuityService, type ContinuityDeps } from './continuity'
 import { HealthService } from './health-service'
-import { guardIpc, isTrustedRendererUrl, rendererDevServerUrl } from './ipc-guard'
+import { guardIpc, isTrustedRendererUrl } from './ipc-guard'
 import { timeIpc } from './ipc-timing'
-import { broadcastToWindowsAndDevices, isRemoteSender, pageHistory, promptFromDevice, readActivity, recordIpc, RemoteActivityLog, RemoteHub, RemoteService, registerRemoteIpc, readRemoteFile, touchedPaths, type RemoteHubDeps, type RemoteState } from './remote'
-import { rendererReporter, startDiagnostics } from './diagnostics'
+import { recordIpc, RemoteActivityLog, RemoteHub, RemoteService, type RemoteHubDeps, type RemoteState } from './remote'
+import { startDiagnostics } from './diagnostics'
 import { createDiagnosticsExporter } from './diagnostics-export-app'
 import { createUsageCsvExporter } from './usage-csv'
-import { createConversationExporter } from './chat-export'
 import { jobReports } from './job-reporter'
-import { ReloadGuard, watchRenderer } from './render-recovery'
 import { ChatJournals } from './chat-journal'
-import { permissionAllowed } from './permissions'
-import { HISTORY_LIST_DEPTH, historySearchOptions, listAllHistory, searchAllHistory } from './history'
+import { HISTORY_LIST_DEPTH, listAllHistory, searchAllHistory } from './history'
 import { HistoryIndexer } from './history-indexer'
 import { createTranscriptReader } from './transcript-worker-electron'
 import { RecentCall } from './recent-call'
@@ -124,16 +89,14 @@ import { SessionDriver } from './session-driver'
 import { OwnerStarts } from './owner-starts'
 import { resolveChoice, SessionManager, ticketPrefixes } from './session-manager'
 import { registerLinksIpc } from './links'
-import { LocalReviewService, opensAsProgram, registerLocalReviewIpc } from './local-review'
-import { RemoteChanges, registerRemoteChangesIpc } from './remote/changes'
-import { registerRemoteReviewIpc } from './remote/review'
+import { LocalReviewService, registerLocalReviewIpc } from './local-review'
 import { CONTROL_ENV_KEYS, controlEnv, controlSocketPath, newControlToken, reviewPathOutside, startControlServer, startLoopbackControlServer, usesLoopbackControl, type ControlDeps, type ControlEndpoint } from './control-server'
 import { createAnalyticsControl } from './analytics-control'
 import { ControlTokens } from './control-auth'
 import { kiroUsageProbeEnabled } from './kiro-usage-probe'
 import { AnalyticsQueries, type QueryWorker } from './analytics-queries'
-import { registerStorageMaintenanceIpc, StorageMaintenance } from './storage-maintenance'
-import { DatabaseRestore, registerDatabaseRestoreIpc } from './database-restore'
+import { StorageMaintenance } from './storage-maintenance'
+import { DatabaseRestore } from './database-restore'
 import { createAutomationControl } from './automation-control'
 import { createAgentChanges, journalControl, registerAgentChangesIpc, type AgentChangeState } from './agent-changes'
 import { createPlanControl, resolveControlProfile } from './plan-control'
@@ -151,6 +114,7 @@ import type { SpendSources, WorktreeLink } from '@workhub/adapters/token-spend'
 import { ingestsTranscripts, spendSources, TokenSpendService, turnOwners, turnProjects } from './token-spend'
 import { AnalyticsRecorder } from './analytics-recorder'
 import { registerAnalyticsIpc, REPORT_BUDGET_MS } from './analytics-ipc'
+import { ProjectBudgetAlerts, type MonthRow } from './project-budget-alerts'
 import { ApiSpendService, CostLedger, spendAgentId, type CostLedgerState } from './api-spend'
 import { backgroundUsage } from './background-usage'
 import { UpdateService } from './updates'
@@ -158,29 +122,42 @@ import { readUpdatePromptState, shouldPromptUpdate, type UpdatePromptState } fro
 import { buildAppMenuTemplate, isSessionCommand } from './app-menu'
 import { SessionNames } from './session-names'
 import { OpenSessions, type SavedOpenSessions } from './open-sessions'
-import { boundsOnScreen, SessionWindows, type SavedSessionWindows, type WindowBounds } from './session-windows'
+import { boundsOnScreen, SessionWindows, type SavedSessionWindows } from './session-windows'
 import { SettingsWindow, settingsSectionArg, type SavedSettingsWindow } from './settings-window'
-import { chromeColorsFrom, type ChromeColors } from './chrome-colors'
 import { broadcastingConfigStore } from './config-broadcast'
-import type { MenuCommand, SessionSnapshot } from '../shared/windows-api'
+import type { MenuCommand } from '../shared/windows-api'
 import { createLinkService } from './link-service'
-import { listChromeProfiles, systemLinkDeps } from './link-system'
-import { accountSessionEnv, profileSessionEnv, saveAccountEnv, saveProfileEnv, storedAccountEnvNames, storedProfileEnvNames } from './profile-env'
+import { systemLinkDeps } from './link-system'
+import { accountSessionEnv, profileSessionEnv } from './profile-env'
 import { showMainOnActivate } from './activation'
-import { AgentToolsService, registerAgentToolsIpc, WORKHUB_MCP_SCRIPT, workhubMcpLaunch } from './agent-tools'
+import { AgentToolsService, WORKHUB_MCP_SCRIPT, workhubMcpLaunch } from './agent-tools'
 import { SetupInstaller } from './setup-install'
-import { registerSetupInstallIpc } from './setup-ipc'
 import { probe, SetupService } from './setup-service'
 import { CalendarService, usableRead } from './calendar-service'
 import { CalendarStateStore, CalendarWatcher } from './calendar-watcher'
 import { demoScenario, seedScenarioAnalytics, seedScenarioConfig, seedScenarioState } from './demo-scenario'
 import { BriefService } from './plan-briefs'
-import { meetingReminderWords, planView, registerPlanIpc } from './plan-ipc'
+import { planView, registerPlanIpc } from './plan-ipc'
 import { PlannerService, type PlannerState } from './planner-service'
 import { addControlInboxItems, registerPlannerIpc } from './planner-ipc'
 import { expandHome } from './automations'
-import { defaultStartMode, gatePrompt, owningProfile, profileFolderPaths, profileRefreshMs, productCalendarEvents, ticketsInProgress, type CalendarState, type DueAction } from '@workhub/core'
-import type { SetupPage } from '../shared/setup-api'
+import { defaultStartMode, gatePrompt, owningProfile, profileFolderPaths, profileRefreshMs, productCalendarEvents, ticketsInProgress, type CalendarState } from '@workhub/core'
+import { createWindows, FILE_WINDOW_SIZE, PLAN_ITEM_WINDOW_SIZE, REVIEW_LOOP_WINDOW_SIZE } from './windows'
+import { createBroadcast } from './broadcast'
+import { createTrayController } from './tray-controller'
+import { createNotifications } from './notifications'
+import { startServices, stopServices } from './lifecycle'
+import { registerHubIpc } from './ipc/hub'
+import { registerConfigIpc } from './ipc/config'
+import { registerNotificationsIpc } from './ipc/notifications'
+import { registerUpdatesIpc } from './ipc/updates'
+import { registerHistoryIpc } from './ipc/history'
+import { registerUsageIpc } from './ipc/usage'
+import { registerSetupIpc } from './ipc/setup'
+import { registerSessionsIpc } from './ipc/sessions'
+import { registerHealthIpc } from './ipc/health'
+import { registerStorageIpc } from './ipc/storage'
+import { registerRemoteAccessIpc } from './ipc/remote'
 
 // The control endpoint of a Workhub this one was started from (a dev run launched from a session of
 // the installed app) must not leak into this app's processes: sessions get this app's own endpoint
@@ -306,7 +283,7 @@ const databaseRestore = new DatabaseRestore({
 /** Help → Export diagnostics…: logs, versions, job table, database size and the redacted config in a folder. */
 jobReports.attach(diagnostics.log)
 const exportDiagnostics = createDiagnosticsExporter({
-  window: () => (win && !win.isDestroyed() ? win : null),
+  window: () => windows.liveMain(),
   logsDir: diagnostics.logsDir,
   flush: () => diagnostics.flush(),
   jobs: () => jobReports.table(),
@@ -336,7 +313,7 @@ const startModeOf: RemoteHubDeps['startMode'] = async (input) => {
   }
 }
 /** Every window's handlers, reachable by a paired device too (Settings → Remote access); filled by registerIpc. */
-const recordedIpc = recordIpc(timeIpc(guardIpc(ipcMain, (url) => isTrustedRendererUrl(url, rendererOrigin)), diagnostics))
+const recordedIpc = recordIpc(timeIpc(guardIpc(ipcMain, (url) => isTrustedRendererUrl(url, windows.rendererOrigin)), diagnostics))
 /** The latest sub-agents and background tasks of each session, for a device that connects late. */
 const remoteActivity = new RemoteActivityLog()
 const remoteHub = new RemoteHub({
@@ -349,9 +326,31 @@ const remoteHub = new RemoteHub({
   startMode: startModeOf,
   log: diagnostics.log
 })
+/** The main window, the secondary windows and the guards every window gets (windows.ts). */
+const windows = createWindows({
+  preload: join(__dirname, '../preload/index.js'),
+  rendererFile: join(__dirname, '../renderer/index.html'),
+  mainCreated: () => appBadge.refresh(),
+  allowMainClose: () => allowWindowClose || !tray.keepInTray() || !tray.running(),
+  syncPopoverTheme: () => tray.popover()?.syncTheme(),
+  openLink: (url) => void openLink(null, url),
+  log: diagnostics.log
+})
+const { showMain, createAuxWindow, openSetupWindow, openPullRequestWindow, openLocalReviewWindow } = windows
+// Every session's chat, so a window that loads later rebuilds it; chat messages go out numbered.
+const chatJournal = new ChatJournals()
+/** Every send to the windows and paired devices goes through here (broadcast.ts). */
+const broadcast = createBroadcast({
+  journal: chatJournal,
+  main: () => windows.liveMain(),
+  sessionWindows: () => sessionWindows,
+  settingsWindow: () => settingsWindow,
+  hub: remoteHub
+})
+const send = broadcast.send
 /** Tells every window, and every paired device, that the config changed. */
 const configChanged = () => {
-  broadcastToWindowsAndDevices(BrowserWindow.getAllWindows(), remoteHub, 'config:changed')
+  broadcast.toWindowsAndDevices('config:changed')
 }
 // Every write tells every window (`config:changed`): a change in the Settings window shows in the main window.
 const configPath = join(dataDir, 'config.json')
@@ -385,32 +384,13 @@ const ticketService = new TicketService(configuration, secrets, process.env['WOR
 // WORKHUB_DEMO_CALENDAR=1 serves synthetic meetings around now, so Plan can be shown without a calendar address.
 const calendar = new CalendarService({ configuration, secrets, source: new IcsCalendarSource(), demo: process.env['WORKHUB_DEMO_CALENDAR'] === '1' ? new DemoCalendarSource(Date.now, scenario ? productCalendarEvents : undefined) : null })
 
-let win: BrowserWindow | null = null
-/** What session and sub-agent windows follow too: the sessions' live state and what their screens show. */
-const SHARED_CHANNELS = new Set(['session:event', 'session:changed', 'session:removed', 'session:replay', 'automations:prompted', 'automations:turnEnded', 'aiReview:changed', 'agentReview:changed', 'usage:changed', 'sessionRequests:changed'])
-// Every session's chat, so a window that loads later rebuilds it; chat messages go out numbered.
-const chatJournal = new ChatJournals()
-const send = (channel: string, ...message: unknown[]) => {
-  const args = chatJournal.tap(channel, message)
-  if (win && !win.isDestroyed()) win.webContents.send(channel, ...args)
-  if (SHARED_CHANNELS.has(channel)) sessionWindows.broadcastShared(channel, args)
-  settingsWindow.send(channel, args)
-  remoteHub.tap(channel, args)
-}
 // Terminal output goes out batched (one message per frame per channel), only to the windows that can show it; everything else at once.
-const sessionOutput = new OutputCoalescer((e) =>
-  routeSessionEvent(e, {
-    everywhere: (ev) => send('session:event', ev),
-    main: (ev) => win && !win.isDestroyed() && win.webContents.send('session:event', ev),
-    sessionWindow: (id, ev) => sessionWindows.sendToSession(id, 'session:event', [ev]),
-    devices: (ev) => remoteHub.tap('session:event', [ev])
-  })
-)
+const sessionOutput = new OutputCoalescer((e) => routeSessionEvent(e, broadcast.sessionEvents))
 // Sessions in windows of their own ("Open in New Window"); the session's runtime stays here, shared.
 const sessionWindows = new SessionWindows({
   create: (hash, size, bounds) =>
     createAuxWindow(hash, 'Workhub 2', size, boundsOnScreen(bounds, screen.getAllDisplays().map((d) => d.workArea), size)),
-  mainWindow: () => (win && !win.isDestroyed() ? win : null),
+  mainWindow: () => windows.liveMain(),
   showMain: () => showMain(),
   exists: (id) => sessions.list().some((s) => s.id === id),
   identityOf: (id) => {
@@ -427,32 +407,43 @@ const settingsWindow = new SettingsWindow({
   store: db.state<SavedSettingsWindow>('settings-window', 500)
 })
 
-// Menu bar / notification area icon (tray.ts) and what it shows that main does not keep elsewhere.
-let trayService: TrayService | null = null
-/** The window a click on the icon opens (macOS, Windows); Linux keeps the native menu. */
-let trayPopover: TrayPopover | null = null
-/** Since when each session shows its state (the popover's times). */
-let sessionSince = new Map<string, SinceEntry>()
-let trayLocale: Locale = 'en'
-/** True once the renderer reported its language; until then the tray follows the system locale. */
-let trayLocaleFromRenderer = false
-/** The sessions with their unseen flags, as the renderer last reported them. */
-let rendererSessions: TraySession[] | null = null
-let lastSlack: SlackSnapshot | null = null
-const recentPrEvents: TrayPrEvent[] = []
-/** Options read synchronously (closing the window); refreshed on every options save and tray refresh. */
-let keepInTray = true
-const scheduleTray = () => trayService?.schedule()
+// Menu bar / notification area icon (tray-controller.ts) and what it shows that main does not keep elsewhere.
+const tray = createTrayController({
+  preload: join(__dirname, '../preload/index.js'),
+  iconDir: app.isPackaged ? join(process.resourcesPath, 'tray') : join(appRoot, 'build', 'tray'),
+  configuration,
+  codeHost,
+  sessions: () => sessions,
+  usage: () => usage,
+  health: () => healthWatcher,
+  automations: () => automations,
+  notifier: () => notifier,
+  today: () => trayToday,
+  updates: () => updates,
+  showMain,
+  loadPopover: windows.loadPopover,
+  openPullRequestWindow,
+  openSettings: (section) => settingsWindow.open(settingsSectionArg(section)),
+  navigate: (route, section) => navigate(route, section),
+  openLink: (profileId, url) => openLink(profileId, url),
+  send,
+  loadError: () => loadError,
+  configChanged,
+  scheduleMenu: () => scheduleMenu(),
+  setBadgeCount: (rendered) => appBadge.setCount(attentionBadgeCount(rendered))
+})
+const scheduleTray = tray.schedule
 
 /** The number of sessions that need a look, on the app icon (Dock, taskbar button, launcher). */
 const appBadge = new AppBadge({
   platform: process.platform,
   setBadgeCount: (count) => void app.setBadgeCount(count),
   setOverlay: (bitmap, description) => {
-    if (!win || win.isDestroyed()) return
+    const win = windows.liveMain()
+    if (!win) return
     win.setOverlayIcon(bitmap ? nativeImage.createFromBitmap(bitmap.data, { width: bitmap.size, height: bitmap.size, scaleFactor: 2 }) : null, description)
   },
-  describe: (count) => trayText(trayLocale).tn('tray.tooltip.attention', count)
+  describe: (count) => trayText(tray.locale()).tn('tray.tooltip.attention', count)
 })
 
 /** Whether macOS shows this app's notifications (Settings warns when it does not). */
@@ -488,8 +479,31 @@ const remoteService = new RemoteService({
   connect: (url) => new WebSocket(url),
   defaultName: () => hostname().replace(/\.local$/, ''),
   onChanged: (status) => send('remote:changed', status),
-  log: diagnostics.log
+  log: diagnostics.log,
+  // A pushed notification about a waiting request may deny it (main/remote/permission-tickets.ts).
+  pendingPermissions: (id) => sessions.list().find((s) => s.id === id)?.pendingPermissions ?? []
 })
+
+/** The OS notifications Workhub words itself and where a click leads (notifications.ts). */
+const notifications = createNotifications({
+  configuration,
+  notifier: () => notifier,
+  sessions: () => sessions,
+  automations: () => automations,
+  sessionWindows: () => sessionWindows,
+  liveMain: () => windows.liveMain(),
+  showMain,
+  openSettings: (section) => settingsWindow.open(settingsSectionArg(section)),
+  openPullRequestWindow,
+  openTicketWindow: () => openTicketWindow,
+  openLink: (profileId, url) => openLink(profileId, url),
+  send,
+  locale: () => tray.locale(),
+  notePrEvent: (event) => tray.notePrEvent(event),
+  scheduleTray,
+  log: (m) => diagnostics.log.warn(m)
+})
+const { navigate, showPullRequestInMain, showSessionNotification, showUsageNotification, showPullRequestNotification, ticketNotification, healthNotification, flowAlertNotification, meetingReminder, demoBriefNotice, metricAlertNotification } = notifications
 
 // Workhub 1's Agent SDK bridge, run with Electron's own Node. Packaged: staged into the resources
 // folder with its node_modules (scripts/stage-bridge.mjs); dev: straight from the adapters source.
@@ -585,6 +599,16 @@ const turnIngest = new TurnIngest(db, {
   projects: (paths) => (projects ? projects(paths) : repoProjects(paths, turnWorktrees)),
   log: (m) => diagnostics.log.info(m)
 })
+// A project crossing 80 % or 100 % of its monthly budget is announced after the scan that read the turn.
+const projectBudgetAlerts = new ProjectBudgetAlerts({
+  options: async () => appOptions(await configuration.current()),
+  month: async (since, until) => (await usageReports.report({ name: 'totals', query: { since, until, groupBy: 'project' } })) as MonthRow[],
+  store: db.state<unknown>('project-budget-alerts', 500),
+  text: () => trayText(tray.locale()),
+  locale: () => tray.locale(),
+  show: (words) => showUsageNotification(words),
+  log: (m) => diagnostics.log.warn(m)
+})
 async function scanTurns(sources: SpendSources): Promise<void> {
   const config = await configuration.current()
   owners = turnOwners(config, homedir())
@@ -597,6 +621,7 @@ async function scanTurns(sources: SpendSources): Promise<void> {
   } catch (err) {
     diagnostics.log.warn(`turn scan failed: ${err instanceof Error ? err.message : String(err)}`)
   }
+  void projectBudgetAlerts.check()
 }
 // The model runs Workhub starts by itself (Slack reads, Listen summaries) as usage: one turn each.
 const background = backgroundUsage(new BackgroundRuns(db), { log: (m) => diagnostics.log.warn(m) })
@@ -632,7 +657,7 @@ const sessions = new SessionManager({
   config: configuration,
   log: (m) => diagnostics.log.warn(m),
   worktrees: new GitWorktrees(),
-  text: (key, params) => trayText(trayLocale).t(key, params),
+  text: (key, params) => trayText(tray.locale()).t(key, params),
   sessionEnv: (sessionId) => controlEnv(sessionId, controlEndpoint, () => controlTokens.mint(sessionId)),
   // Workhub's MCP server (Settings → Agents → Workhub tools), for sessions that reach the endpoint.
   sessionMcp: async (env) => {
@@ -720,13 +745,6 @@ const kiroUsageProbe = kiroUsageProbeEnabled(app.isPackaged, process.env)
 if (!kiroUsageProbe && !demoUsage) diagnostics.log.info('Kiro plan usage is off in development (set WORKHUB_KIRO_USAGE=1 to read it)')
 // Each session's own usage ceilings, by session identity (set from the session's side panel).
 const sessionBudgets = db.state<Record<string, SessionCeilings>>('session-budgets', 200)
-/** Only windows with a valid ceiling (1-100) from what the renderer sent. */
-function cleanSessionCeilings(raw: unknown): SessionCeilings {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
-  let out: SessionCeilings = {}
-  for (const [window, value] of Object.entries(raw)) if (typeof value === 'number') out = setSessionCeiling(out, window, value)
-  return out
-}
 const usage = new AgentUsageService({
   providers: demoUsage
     ? [new DemoUsageProvider('claude'), new DemoUsageProvider('codex'), new DemoUsageProvider('kiro')]
@@ -775,7 +793,7 @@ const budgetOf = (agentId: string, accountId: string | null) => usage.budgetOf(a
 const quitGuard = createQuitGuard({
   views: () => sessions.list(),
   queuedPrompts: () => sessions.queuedPromptCount(),
-  text: () => trayText(trayLocale),
+  text: () => trayText(tray.locale()),
   publish: (pending) => send('quit:pending', pending),
   showMain: () => showMain()
 })
@@ -794,7 +812,7 @@ async function automaticUpdateCheck(): Promise<void> {
   const state = readUpdatePromptState(updatePromptFile.load({}))
   if (status.state !== 'available' || !shouldPromptUpdate(state, status.version, Date.now())) return
   // With the window closed (menu bar only) the prompt waits for the next check.
-  if (!win || win.isDestroyed()) return
+  if (!windows.liveMain()) return
   saveUpdatePrompt({ lastPromptAt: Date.now() })
   send('updates:prompt', status)
 }
@@ -816,7 +834,7 @@ const sessionRequests = new SessionRequests({
   deliver: (id, text) => driver.deliver(id, text),
   notify: (n) => showSessionNotification(n),
   changed: (requests) => send('sessionRequests:changed', requests),
-  text: (key, params) => trayText(trayLocale).t(key, params),
+  text: (key, params) => trayText(tray.locale()).t(key, params),
   log: (m) => diagnostics.log.warn(m)
 })
 driver.onTurnEnded = (id, stopReason) => send('automations:turnEnded', id, stopReason)
@@ -849,9 +867,9 @@ const slack = new SlackWatcherService({
     return r.ok ? r.view.detail.state : undefined
   },
   emit: (snap) => {
-    lastSlack = snap
+    tray.setSlack(snap)
     // PR windows show Slack badges and a Slack tab too: every window gets the snapshot.
-    BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('slack:changed', snap))
+    broadcast.toWindows('slack:changed', snap)
     scheduleTray()
   },
   notice: (n) => send('slack:notice', n)
@@ -909,7 +927,7 @@ const briefs = new BriefService({
       tickets: tickets.ok ? ticketsInProgress(tickets.value).map((t) => ({ key: t.key, title: t.title, status: t.status, ...(t.assignee ? { assignee: t.assignee } : {}) })) : []
     }
   },
-  formatTime: (ms) => new Intl.DateTimeFormat(trayLocale, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(ms),
+  formatTime: (ms) => new Intl.DateTimeFormat(tray.locale(), { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(ms),
   resolveFolder: async (folder) => {
     const path = resolve(expandHome(folder || '~', homedir()))
     return (await stat(path).then((s) => s.isDirectory(), () => false)) ? path : null
@@ -952,7 +970,7 @@ const localReview = new LocalReviewService({
     const lists = await Promise.race([codeHost.lists(profileId), new Promise<null>((r) => setTimeout(() => r(null), 5_000))]).catch(() => null)
     return lists?.mine ?? []
   },
-  emit: (sessionId, delivery) => BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('localReview:delivery', sessionId, delivery)),
+  emit: (sessionId, delivery) => broadcast.toWindows('localReview:delivery', sessionId, delivery),
   history: (sessionId) => sessions.history(sessionId)
 })
 
@@ -1070,47 +1088,6 @@ function guarded<A extends unknown[]>(fn: (...args: A) => Promise<Result<Workhub
   }
 }
 
-/** Toolbar colors per theme; they match the renderer's --wh-bg and --wh-text tokens. */
-const CHROME = {
-  dark: { color: '#0e1014', symbolColor: '#e8eaef' },
-  light: { color: '#f5f6f8', symbolColor: '#14171c' }
-} as const
-const TITLE_BAR_HEIGHT = 48
-
-/** The renderer's own colors, once it reported them (a terminal theme applied to the app changes them). */
-let chromeOverride: ChromeColors | null = null
-
-function chromeColors(): ChromeColors {
-  return chromeOverride ?? (nativeTheme.shouldUseDarkColors ? CHROME.dark : CHROME.light)
-}
-
-/**
- * Window chrome per platform: macOS keeps its traffic lights inset into the sidebar; Windows and
- * Linux draw their window controls as an overlay on the right of the toolbar.
- */
-function windowChrome(): BrowserWindowConstructorOptions {
-  if (process.platform === 'darwin') return { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 16 } }
-  return { titleBarStyle: 'hidden', titleBarOverlay: { ...chromeColors(), height: TITLE_BAR_HEIGHT } }
-}
-
-/**
- * The overlay controls (Windows, Linux) of every window follow the theme: nativeTheme fires
- * `updated` on a light/dark change and the renderer reports its colors on every theme change.
- */
-function syncTitleBarOverlay(): void {
-  if (process.platform === 'darwin') return
-  // The tray popover has no overlay, but its solid background follows the light or dark look.
-  trayPopover?.syncTheme()
-  for (const w of BrowserWindow.getAllWindows()) {
-    if (w.isDestroyed()) continue
-    try {
-      w.setTitleBarOverlay({ ...chromeColors(), height: TITLE_BAR_HEIGHT })
-    } catch {
-      // A window without the overlay (the tray popover, the file viewer) throws; nothing to sync there.
-    }
-  }
-}
-
 /** Every external link goes through here (see link-service.ts). */
 const links = createLinkService(systemLinkDeps(() => configuration.current(), sessionPath))
 const openLink = (profileId: string | null, url: string): Promise<void> => links.open(url, profileId)
@@ -1139,27 +1116,6 @@ const setup = new SetupService({
     return snapshot.health === 'failing' ? (snapshot.lastError ?? 'failing') : null
   }
 })
-
-/** Setup windows (welcome, setup check, how Workhub works): one of each at a time. */
-const setupWindows = new Map<SetupPage, BrowserWindow>()
-const SETUP_HASH: Record<SetupPage, { hash: string; size: AuxWindowSize }> = {
-  welcome: { hash: '#welcome', size: { width: 760, height: 640, minWidth: 620, minHeight: 520 } },
-  check: { hash: '#setup', size: { width: 720, height: 680, minWidth: 560, minHeight: 440 } },
-  help: { hash: '#howitworks', size: { width: 720, height: 680, minWidth: 560, minHeight: 440 } }
-}
-
-function openSetupWindow(page: SetupPage): void {
-  const open = setupWindows.get(page)
-  if (open && !open.isDestroyed()) {
-    if (open.isMinimized()) open.restore()
-    open.focus()
-    return
-  }
-  const { hash, size } = SETUP_HASH[page]
-  const created = createAuxWindow(hash, 'Workhub 2', size)
-  setupWindows.set(page, created)
-  created.on('closed', () => setupWindows.delete(page))
-}
 
 // Listing the history starts a process per account that reads the newest transcripts' heads: calls
 // made meanwhile share it, and the sidebar's lookups (several right after start-up) take one up to
@@ -1211,362 +1167,119 @@ async function searchPastSessions(query: string, options: HistorySearchOptions):
   return searchAllHistory(listing, historyIndex, query, options, historyIndexer.progress())
 }
 
+/**
+ * Every window's IPC, one registrar per domain (`ipc/<domain>.ts` and the services' own `register…Ipc`).
+ * New wiring: a new domain adds its registrar call here; a new channel of an existing domain goes in its file.
+ */
 function registerIpc(): void {
   // Every handler answers only the app's own renderer (see ipc-guard.ts).
   // Every handler is timed too: a slow one or one that fails is logged by its channel (see ipc-timing.ts).
   const ipc = recordedIpc.ipc
-  const report = rendererReporter(diagnostics.log)
-  ipc.on('diag:report', (e, r: unknown) => report(e.sender === win?.webContents ? 'main' : 'aux', r))
-  ipc.on('diag:revealLogs', revealLogs)
-  ipc.handle('diag:export', exportDiagnostics)
-  ipc.on('hub:setTheme', (_e, theme: ThemePreference, chrome?: unknown) => {
-    if (theme === 'system' || theme === 'light' || theme === 'dark') nativeTheme.themeSource = theme
-    // The same light/dark with another palette fires no `updated`: sync here as well.
-    if (chrome !== undefined) chromeOverride = chromeColorsFrom(chrome)
-    syncTitleBarOverlay()
+  registerHubIpc(ipc, {
+    log: diagnostics.log,
+    mainWindow: windows.main,
+    revealLogs,
+    exportDiagnostics,
+    setChromeOverride: windows.setChromeOverride,
+    syncTitleBarOverlay: windows.syncTitleBarOverlay,
+    configuration,
+    openLink: (url, profileId) => links.open(url, profileId)
   })
-  nativeTheme.on('updated', syncTitleBarOverlay)
-  ipc.handle('hub:defaultCwd', () => homedir())
-  ipc.handle('hub:pickFolder', async (e) => {
-    // The picker sits on the window that asked (Settings has a window of its own), not always on the main one.
-    const owner = BrowserWindow.fromWebContents(e.sender) ?? win!
-    const r = await dialog.showOpenDialog(owner, { properties: ['openDirectory', 'createDirectory'], defaultPath: homedir() })
-    return r.canceled ? null : (r.filePaths[0] ?? null)
+  registerConfigIpc(ipc, {
+    configuration,
+    secrets,
+    snapshot,
+    reloadConfig,
+    guarded,
+    configChanged,
+    refreshUsage: () => void usage.refresh(),
+    refreshOptionsCache: () => void refreshOptionsCache()
   })
-  // Only the folders the profile lists (and their children) are read: never a path the renderer names.
-  ipc.handle('hub:profileFolders', async (_e, profileId: unknown) => {
-    const config = await configuration.current()
-    const profile = typeof profileId === 'string' ? config.profiles.find((p) => p.id === profileId) : undefined
-    return profile ? profileWorkspaces(profile, homedir()) : []
+  registerNotificationsIpc(ipc, { showSessionNotification, notificationPermission, showMain })
+  registerUpdatesIpc(ipc, { updates, quitGuard, saveUpdatePrompt })
+  registerHistoryIpc(ipc, {
+    named: namedHistory,
+    deepen: () => {
+      historyDepth += HISTORY_LIST_DEPTH
+    },
+    listedShallower: () => listedDepth < historyDepth,
+    search: searchPastSessions,
+    indexer: historyIndexer
   })
-
-  ipc.handle('config:get', () => snapshot())
-  ipc.handle('config:reload', () => reloadConfig())
-  ipc.handle('config:saveConnection', guarded((c, s) => configuration.saveConnection(c, s)))
-  ipc.handle('config:deleteConnection', guarded((id: string) => configuration.deleteConnection(id)))
-  ipc.handle('config:saveAccount', guarded((a) => configuration.saveAccount(a)))
-  ipc.handle('config:deleteAccount', guarded((id: string) => configuration.deleteAccount(id)))
-  ipc.handle(
-    'config:saveProfile',
-    guarded(async (p) => {
-      const r = await configuration.saveProfile(p)
-      // A profile saved in the welcome window shows up in the main window too.
-      if (r.ok) configChanged()
-      return r
-    })
-  )
-  ipc.handle(
-    'config:deleteProfile',
-    guarded(async (id: string) => {
-      const names = (await configuration.current()).profiles.find((p) => p.id === id)?.envNames ?? []
-      const r = await configuration.deleteProfile(id)
-      if (r.ok && names.length) await saveProfileEnv(id, {}, names, secrets)
-      return r
-    })
-  )
-  ipc.handle('config:setActiveProfile', guarded((id: string) => configuration.setActiveProfile(id)))
-  ipc.handle('config:effectiveAgents', async (_e, profileId: string | null) =>
-    resolveEffectiveAgents(await configuration.current(), profileId)
-  )
-  ipc.handle(
-    'config:saveOptions',
-    guarded(async (o) => {
-      const r = await configuration.saveOptions(o)
-      if (r.ok) {
-        void usage.refresh()
-        void refreshOptionsCache()
-      }
-      return r
-    })
-  )
-  ipc.handle('config:saveSessionGroups', guarded((g) => configuration.saveSessionGroups(g)))
-  ipc.on('notifications:show', (_e, n: SessionNotification) => showSessionNotification(n))
-  ipc.on('hub:openExternal', (_e, url: unknown, profileId: unknown) => {
-    if (typeof url === 'string') void links.open(url, typeof profileId === 'string' ? profileId : null)
-  })
-  ipc.handle('links:chromeProfiles', (_e, app: unknown) => listChromeProfiles(typeof app === 'string' ? app : undefined))
-
-  ipc.handle('updates:status', () => updates.status())
-  ipc.handle('updates:check', () => updates.check())
-  ipc.handle('updates:install', () => updates.install())
-  ipc.handle('updates:restart', () => quitGuard.request('restart', () => updates.restart()))
-  ipc.handle('quit:pending', () => quitGuard.pending)
-  ipc.handle('quit:cancelPending', () => quitGuard.cancelPending())
-  ipc.handle('updates:skip', (_e, version: unknown) => {
-    if (typeof version === 'string' && version) saveUpdatePrompt({ skippedVersion: version })
-  })
-  ipc.handle('history:list', () => namedHistory.get())
-  ipc.handle('history:listOlder', async () => {
-    historyDepth += HISTORY_LIST_DEPTH
-    const result = await namedHistory.get()
-    // A listing already under way went only as deep as before: list once more.
-    return listedDepth < historyDepth ? namedHistory.get() : result
-  })
-  ipc.handle('history:search', (_e, query: unknown, options: unknown) => searchPastSessions(typeof query === 'string' ? query.slice(0, 500) : '', historySearchOptions(options)))
-  ipc.handle('history:indexProgress', () => historyIndexer.progress())
-  ipc.handle('history:find', async (_e, keys: unknown) => {
-    if (!Array.isArray(keys)) return []
-    const wanted = new Set(keys.filter((k): k is string => typeof k === 'string'))
-    if (!wanted.size) return []
-    return historyOfSessions((await namedHistory.get(10_000)).entries, wanted)
-  })
-  ipc.handle('history:revealFolder', async (_e, path: string) => {
-    if (typeof path !== 'string' || !isAbsolute(path)) return false
-    const isFolder = await stat(path).then((s) => s.isDirectory(), () => false)
-    if (!isFolder) return false
-    // A macOS bundle (`Some.app`) is a folder that opening would launch: it is shown in its folder instead.
-    if (opensAsProgram(path, { isDirectory: true })) {
-      shell.showItemInFolder(path)
-      return true
-    }
-    return (await shell.openPath(path)) === ''
-  })
-  ipc.handle('agents:availability', async () =>
-    agentAvailability(knownAgents(await configuration.current()), {
-      extraPath,
-      path: [sessionPath() ?? process.env['PATH'] ?? '', ...fallbackPath].filter(Boolean).join(delimiter)
-    })
-  )
-  ipc.handle('agents:options', async (_e, agentKey: string, refresh?: boolean) => {
-    const config = await configuration.current()
-    const choice = typeof agentKey === 'string' ? resolveChoice(config, config.activeProfileId ?? null, agentKey) : null
-    if (!choice) return { models: [], modes: [], source: 'none', modeSemantics: 'none' }
-    return agentOptions.get(choice.agent, choice.account, refresh === true)
-  })
-  ipc.handle('usage:get', (_e, refresh?: boolean) => (refresh ? usage.refresh() : usage.current()))
-  ipc.handle('usage:refreshNow', () => usage.refresh({ force: true }))
-  ipc.handle('usage:kiroSpend', () => kiroSpend())
-  ipc.handle('usage:apiSpend', () => apiSpend.summary())
-  ipc.handle('usage:folderSpend', (_e, profileId?: string | null) => tokenSpend.forProfile(typeof profileId === 'string' ? profileId : null))
-  ipc.handle('usage:sessionBudgets', () => sessionBudgets.load({}))
-  ipc.handle('usage:setSessionBudget', (_e, identity: unknown, ceilings: unknown) => {
-    if (typeof identity !== 'string' || !identity) return
-    const all = sessionBudgets.load({})
-    const own = cleanSessionCeilings(ceilings)
-    if (Object.keys(own).length) all[identity] = own
-    else delete all[identity]
-    // `load` merges over the fallback, so a removed entry must be written as a whole new object.
-    sessionBudgets.save({ ...all })
-    sessionBudgets.flush()
-    send('usage:sessionBudgetsChanged', all)
-  })
-  ipc.on('usage:notify', (_e, n: { title: string; body: string }) => showUsageNotification(n))
-  ipc.on('usage:ready', () => {
-    usageAlertsReady = true
-    if (pendingUsageAlerts.length) send('usage:alerts', pendingUsageAlerts.splice(0))
-  })
-
-  ipc.handle('setup:run', () => setup.run())
-  registerSetupInstallIpc(ipc, {
-    install: async (id) => {
-      try {
-        return await setupInstaller.install(id)
-      } finally {
-        await refreshCliPath()
-      }
+  registerUsageIpc(ipc, {
+    configuration,
+    extraPath,
+    agentPath: () => [sessionPath() ?? process.env['PATH'] ?? '', ...fallbackPath].filter(Boolean).join(delimiter),
+    agentOptions,
+    usage,
+    kiroSpend,
+    apiSpend,
+    tokenSpend,
+    sessionBudgets,
+    send,
+    showUsageNotification,
+    alertsReady: () => {
+      usageAlertsReady = true
+      if (pendingUsageAlerts.length) send('usage:alerts', pendingUsageAlerts.splice(0))
     }
   })
-  registerAgentToolsIpc(ipc, agentTools)
-  ipc.on('setup:openWindow', (_e, page: SetupPage) => {
-    if (page === 'welcome' || page === 'check' || page === 'help') openSetupWindow(page)
-  })
-  // A setup window's fix button (or a link inside Settings) asks for a Settings tab.
-  ipc.on('setup:openSettings', (_e, tab: unknown) => {
-    if (typeof tab === 'string') settingsWindow.open(settingsSectionArg(tab))
-  })
-  ipc.on('settings:open', (_e, section: unknown) => settingsWindow.open(settingsSectionArg(section)))
-  ipc.on('settings:setDirty', (e, dirty: unknown) => settingsWindow.setDirty(e.sender.id, dirty === true))
-  ipc.on('settings:close', (e) => settingsWindow.close(e.sender.id))
-  ipc.handle('setup:completeWelcome', async () => {
-    if (!loadError) await configuration.saveOptions({ welcomeDone: true })
-    configChanged()
-    setupWindows.get('welcome')?.close()
-  })
-  ipc.handle('profileEnv:stored', async (_e, profileId: string) => {
-    const config = await configuration.current()
-    return storedProfileEnvNames(config.profiles.find((p) => p.id === profileId), secrets)
-  })
-  ipc.handle('profileEnv:save', async (_e, profileId: string, values: Record<string, string>, removed: string[]) => {
-    if (typeof profileId !== 'string' || !values || typeof values !== 'object' || !Array.isArray(removed)) return
-    const clean = Object.fromEntries(Object.entries(values).filter(([, v]) => typeof v === 'string'))
-    await saveProfileEnv(profileId, clean, removed.filter((n) => typeof n === 'string'), secrets)
-  })
-  ipc.handle('accountEnv:stored', async (_e, accountId: string) => {
-    const config = await configuration.current()
-    return storedAccountEnvNames(config.accounts.find((a) => a.id === accountId), secrets)
-  })
-  ipc.handle('accountEnv:save', async (_e, accountId: string, values: Record<string, string>, removed: string[]) => {
-    if (typeof accountId !== 'string' || !values || typeof values !== 'object' || !Array.isArray(removed)) return
-    const clean = Object.fromEntries(Object.entries(values).filter(([, v]) => typeof v === 'string'))
-    await saveAccountEnv(accountId, clean, removed.filter((n) => typeof n === 'string'), secrets)
-  })
-  ipc.handle('systemNotifications:status', async () => ({ supported: await notificationPermission.allowed() }))
-  ipc.handle('systemNotifications:test', (_e, body: unknown) => {
-    if (!Notification.isSupported()) return { outcome: 'failed', error: 'notifications are not supported here' }
-    return testNotification(() => notificationPermission.observe(new Notification({ title: app.getName(), body: String(typeof body === 'string' ? body : '').slice(0, 200) })), showMain)
-  })
-  ipc.on('systemNotifications:openSettings', () => {
-    const target =
-      process.platform === 'darwin' ? 'x-apple.systempreferences:com.apple.Notifications-Settings.extension' : process.platform === 'win32' ? 'ms-settings:notifications' : null
-    if (target) void shell.openExternal(target)
+  registerSetupIpc(ipc, {
+    setup,
+    setupInstaller,
+    refreshCliPath,
+    agentTools,
+    openSetupWindow,
+    setupWindow: windows.setupWindow,
+    settingsWindow,
+    configuration,
+    loadError: () => loadError,
+    configChanged
   })
   openTicketWindow = registerTicketIpc({
     ipcMain: ipc,
     openLink,
     service: ticketService,
     createWindow: createAuxWindow,
-    mainWindow: () => win,
-    broadcast: (channel, ...args) => BrowserWindow.getAllWindows().forEach((w) => w.webContents.send(channel, ...args))
+    mainWindow: windows.main,
+    broadcast: broadcast.toWindows
   }).openWindow
-
-  ipc.handle('sessions:list', () => sessions.list())
-  ipc.handle('sessions:journal', (_e, id: unknown) => (typeof id === 'string' ? chatJournal.get(id) : null))
-  ipc.on('sessions:ready', (e) => {
-    if (!win || win.isDestroyed() || e.sender !== win.webContents) return
-    sessionsWanted = true
-    if (!loadError) restoreSessions()
+  registerSessionsIpc(ipc, {
+    sessions,
+    chatJournal,
+    send,
+    mainWindow: windows.main,
+    liveMain: windows.liveMain,
+    sessionsWanted: () => {
+      sessionsWanted = true
+      if (!loadError) restoreSessions()
+    },
+    configuration,
+    configChanged,
+    ownerStarts,
+    driver,
+    localGit,
+    sessionWindows,
+    continuity
   })
-  // The New session dialog's Group: main saves the place, so it follows the session's identity.
-  ipc.handle('sessions:start', (_e, input: StartSessionInput) =>
-    startPlaced(input, {
-      start: (rest) => sessions.start(rest),
-      groups: async () => (await configuration.current()).sessionGroups,
-      saveGroups: (g) => configuration.saveSessionGroups(g),
-      replaceIdentity: (oldKey, newKey) => configuration.replaceSessionIdentity(oldKey, newKey),
-      current: (id) => sessions.list().find((v) => v.id === id),
-      changed: configChanged
-    })
-  )
-  ipc.handle('sessions:reopen', (_e, identity: string, input: StartSessionInput) => {
-    if (typeof identity !== 'string' || !identity) throw new Error('an identity is required')
-    return ownerStarts.start(identity, input)
-  })
-  // A renderer's prompt carries a token: main says when it actually goes out (it may wait behind
-  // a review or a Slack wake) and the renderer can take it back until then.
-  ipc.handle('sessions:prompt', (e, id: string, text: string, images, token?: unknown) => {
-    // A paired phone shows its own bubble; the windows get it the way they get Workhub's own prompts.
-    if (isRemoteSender(e.sender.id)) {
-      return promptFromDevice(
-        {
-          prompt: (sid, t, imgs, options) => sessions.prompt(sid, t, imgs, options),
-          showPrompt: (sid, t) => send('automations:prompted', sid, t),
-          showTurnEnd: (sid, stopReason) => send('automations:turnEnded', sid, stopReason)
-        },
-        id,
-        text,
-        images
-      )
-    }
-    if (typeof token !== 'number') return sessions.prompt(id, text, images)
-    let started = false
-    const onStart = () => {
-      started = true
-      // The sender shows its own bubble (with its images) and learns its number first, so the
-      // broadcast that puts the prompt in the journal and every other window is not shown twice.
-      if (!e.sender.isDestroyed()) e.sender.send('sessions:promptStarted', id, token, chatJournal.nextSeq(id))
-      send('automations:prompted', id, text)
-    }
-    // Sent like the session's events (not with the invoke's answer, which can overtake them), so
-    // the window ends the turn after its last message.
-    const settled = () => {
-      if (!e.sender.isDestroyed()) e.sender.send('sessions:promptSettled', id, token)
-    }
-    return sessions
-      .prompt(id, text, images, { key: `${e.sender.id}:${token}`, onStart })
-      .then((stopReason) => {
-        if (started) send('automations:turnEnded', id, stopReason)
-        return stopReason
-      })
-      .finally(settled)
-  })
-  ipc.handle('sessions:withdrawPrompt', (e, id: string, token: unknown) => typeof token === 'number' && sessions.withdrawPrompt(id, `${e.sender.id}:${token}`))
-  ipc.handle('sessions:setMode', (_e, id: string, mode: SessionMode, options?: { now?: unknown }) => sessions.setMode(id, mode, { now: options?.now === true }))
-  ipc.handle('sessions:close', (_e, id: string) => sessions.close(id))
-  ipc.handle('sessions:closeRemovingWorktree', (_e, id: string, force: boolean) => sessions.closeRemovingWorktree(id, force === true))
-  ipc.handle('sessions:setModel', (_e, id: string, model: string | null) => sessions.setModel(id, model))
-  ipc.handle('sessions:setAgentMode', (_e, id: string, modeId: string) => {
-    if (typeof modeId !== 'string' || !modeId) throw new Error('a mode id is required')
-    return sessions.setAgentMode(id, modeId)
-  })
-  ipc.handle('sessions:login', async (_e, id: string) => {
-    await sessions.setMode(id, 'console', { now: true })
-    return driver.typeInConsoleWhenSettled(id, '/login')
-  })
-  ipc.on('sessions:mcp', (_e, id: string, action: 'refresh' | 'reconnect' | 'enable' | 'disable', server?: string) => sessions.mcp(id, action, server))
-  ipc.handle('sessions:subagent', (_e, id: string, subagentId: string) => sessions.subagent(id, subagentId))
-  ipc.handle('sessions:revealFile', async (_e, id: string, path: string) => {
-    const target = sessions.fileInSession(id, path)
-    if (!target || !(await stat(target).then(() => true, () => false))) return false
-    shell.showItemInFolder(target)
-    return true
-  })
-  ipc.handle('sessions:localChanges', async (_e, id: string) => {
-    const cwd = sessions.cwdOf(id)
-    return cwd ? localGit.localChanges(cwd, sessions.changePathsOf(id)) : null
-  })
-  ipc.handle('sessions:rename', (_e, id: string, name: string | null) => {
-    if (name !== null && typeof name !== 'string') throw new Error('a name is required')
-    sessions.rename(id, name)
-  })
-  ipc.on('windows:openSession', (_e, id: string) => sessionWindows.open(id))
-  ipc.on('windows:openSubagent', (_e, id: string, subagentId: string) => sessionWindows.openSubagent(id, subagentId))
-  ipc.on('windows:dock', (_e, id: string) => sessionWindows.dock(id))
-  ipc.handle('windows:detached', () => sessionWindows.detached())
-  ipc.handle('windows:snapshot', (e, id: string) => sessionWindows.snapshot(id, e.sender))
-  ipc.on('windows:snapshotReply', (_e, requestId: string, snapshot: SessionSnapshot | null) => sessionWindows.reply(requestId, snapshot))
-  ipc.handle('sessions:cancel', (_e, id: string) => sessions.cancel(id))
-  ipc.handle('sessions:keepWaiting', (_e, id: string) => sessions.keepWaiting(id))
-  ipc.handle('sessions:stop', (_e, id: string) => sessions.stop(id))
-  ipc.on('sessions:permission', (_e, id: string, requestId: string, optionId: string | null, answers?: unknown) =>
-    sessions.respondPermission(id, requestId, optionId, validAnswers(answers))
-  )
-  ipc.on('sessions:write', (_e, id: string, data: string) => sessions.write(id, data))
-  ipc.on('sessions:resize', (_e, id: string, cols: number, rows: number) => sessions.resize(id, cols, rows))
-
+  registerSessionFilesIpc(ipc, { cwdOf: (id) => sessions.cwdOf(id) ?? null })
   registerCodeHostIpc(ipc, { service: codeHost, openWindow: openPullRequestWindow, showInWorkhub: showPullRequestInMain, openExternal: (url, profileId) => openLink(profileId, url) })
   registerPullRequestCreateIpc(ipc, new PullRequestCreateService({ sessions: () => sessions.list(), codeHost, brief: (id) => agentReview.briefOf(id) }))
-  registerLinksIpc({ ipcMain: ipc, loadConfig: () => configuration.current(), mainWindow: () => win })
+  registerLinksIpc({ ipcMain: ipc, loadConfig: () => configuration.current(), mainWindow: windows.main })
   registerPrEventsIpc(ipc, { service: prEvents, notify: showPullRequestNotification, recognizes: (profileId, url) => codeHost.recognizes(profileId, url) })
-  ipc.handle('health:get', (_e, profileId: string | null, force?: boolean) => health.get(profileId, force === true))
-  ipc.handle('health:details', (_e, profileId: string | null, environmentId: string, request: HealthDetailRequest, force?: boolean) => health.details(profileId, environmentId, request, force === true))
-  ipc.handle('health:flowMaps', (_e, profileId: string | null) => health.flowMaps(profileId))
-  ipc.handle('health:flowMapStates', (_e, profileId: string | null, environmentId: unknown) => (typeof environmentId === 'string' ? health.flowMapStates(profileId, environmentId) : {}))
-  ipc.handle('health:flowMap', (_e, profileId: string | null, environmentId: string, mapId: string, hours: number, force?: boolean, storedOnly?: boolean) => health.flowMap(profileId, environmentId, mapId, hours, force === true, storedOnly === true))
-  ipc.handle('health:flowTraces', (_e, profileId: string | null, environmentId: string, mapId: string, hours: number, sort: FlowTraceSort) => health.flowTraces(profileId, environmentId, mapId, hours, sort))
-  ipc.handle('health:flowTrace', (_e, profileId: string | null, environmentId: string, mapId: string, traceId: string) => health.flowTrace(profileId, environmentId, mapId, traceId))
-  ipc.handle('health:flowTraceLogs', (_e, profileId: string | null, environmentId: string, mapId: string, traceId: string) => health.flowTraceLogs(profileId, environmentId, mapId, traceId))
-  ipc.handle('storage:info', (): StorageInfo => {
-    const backupFolder = join(dataDir, BACKUP_FOLDER)
-    return { path: db.path, sizeBytes: db.sizeBytes(), backupFolder, lastBackup: listBackups(backupFolder)[0] ?? null, recovered: db.recovered() }
-  })
+  registerHealthIpc(ipc, health)
+  registerStorageIpc(ipc, { db, dataDir, backupDb, storageMaintenance, databaseRestore })
   // The usage reports and session tags (main window only: not in the remote allowlist).
-  registerAnalyticsIpc(ipc, { db, records: sessionRecords, scan: () => tokenSpend.scanNow(), reports: (r) => usageReports.report(r), exportCsv: createUsageCsvExporter({ window: () => (win && !win.isDestroyed() ? win : null) }) })
-  ipc.handle('sessions:exportConversation', createConversationExporter({ window: () => (win && !win.isDestroyed() ? win : null) }))
-  ipc.handle('storage:backup', async (): Promise<StorageBackupResult> => {
-    try {
-      const path = await backupDb(true)
-      return path ? { ok: true, path } : { ok: false, error: 'no backup written' }
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
-    }
-  })
-  registerStorageMaintenanceIpc(ipc, storageMaintenance)
-  registerDatabaseRestoreIpc(ipc, databaseRestore)
+  registerAnalyticsIpc(ipc, { db, records: sessionRecords, scan: () => tokenSpend.scanNow(), reports: (r) => usageReports.report(r), exportCsv: createUsageCsvExporter({ window: windows.liveMain }) })
   registerSessionRequestsIpc(ipc, sessionRequests)
   registerAgentChangesIpc(ipc, agentChanges)
-  ipc.on('storage:revealBackups', () => {
-    const folder = join(dataDir, BACKUP_FOLDER)
-    mkdirSync(folder, { recursive: true, mode: 0o700 })
-    void shell.openPath(folder)
-  })
   registerFlowMapsIpc(ipc, {
     maps: flowMaps,
     pickFiles: async () => {
-      const r = await dialog.showOpenDialog(win!, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'JSON', extensions: ['json'] }], defaultPath: homedir() })
+      const r = await dialog.showOpenDialog(windows.main()!, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'JSON', extensions: ['json'] }], defaultPath: homedir() })
       return r.canceled ? [] : r.filePaths
     },
     createWindow: (hash, title) => createAuxWindow(hash, title, { width: 1320, height: 900, minWidth: 760, minHeight: 520 }),
-    mainWindow: () => win,
+    mainWindow: windows.main,
     writeImage: async (dataUrl) => {
       const image = nativeImage.createFromDataURL(dataUrl)
       if (image.isEmpty()) return false
@@ -1576,39 +1289,7 @@ function registerIpc(): void {
     }
   })
   registerMetricAlertsIpc(ipc, metricAlerts)
-  registerRemoteIpc(ipc, remoteService)
-  // A paired device reads a file the agent made inside the session's folder, or an image outside it that
-  // the session's own agent read or wrote (see remote/allowlist.ts). Containment is checked again on the
-  // real paths, symlinks resolved, and secret-like names are refused (remote/files.ts).
-  ipc.handle('remote:file', (_e, id: unknown, path: unknown) => {
-    if (typeof id !== 'string' || typeof path !== 'string') throw new Error('a session and a path are required')
-    const view = sessions.list().find((v) => v.id === id)
-    if (!view) throw new Error('the session is not open')
-    return readRemoteFile(view.cwd, path, async () => touchedPaths(view.cwd, await sessions.history(id)))
-  })
-  // A paired device reads an open session's conversation a page at a time (see remote/history.ts):
-  // it only sees live events, so this is how it shows what was said before it connected.
-  ipc.handle('remote:history', async (_e, id: unknown, before: unknown) => {
-    if (typeof id !== 'string') throw new Error('a session is required')
-    if (before !== undefined && (typeof before !== 'number' || !Number.isInteger(before) || before < 0)) throw new Error('before must be a message index')
-    if (!sessions.list().some((v) => v.id === id)) throw new Error('the session is not open')
-    return pageHistory(await sessions.history(id), before)
-  })
-  // A paired device that connected while sub-agents or background tasks ran reads them here, for one
-  // session or a list (see remote/activity.ts).
-  ipc.handle('remote:activity', (_e, ids: unknown) => readActivity(remoteActivity, () => sessions.list().map((v) => v.id), ids))
-  // A paired device reads what a session changed, through the desktop's own local review (remote/changes.ts),
-  // and takes the decisions its review loop offers while it waits for the person (remote/review.ts).
-  registerRemoteChangesIpc(ipc, new RemoteChanges({ sessions: () => sessions.list(), load: (id, scope) => localReview.load(id, scope, 'repo') }))
-  registerRemoteReviewIpc(ipc, {
-    sessions: () => sessions.list(),
-    reviews: () => aiReview.snapshot().reviews,
-    loops: () => agentReview.snapshot(),
-    continueReview: (id) => aiReview.continue(id),
-    stopReview: (id) => aiReview.stopReview(id),
-    approveLoop: (id, keep, note) => agentReview.approve(id, keep, note),
-    stopLoop: (id) => agentReview.stop(id)
-  })
+  registerRemoteAccessIpc(ipc, { remoteService, sessions, remoteActivity, localReview, aiReview, agentReview })
   registerChatIpc(ipc, { slack, automations, configuration, guarded })
   // The chat's Listen button: a long agent message is summarized (one small Haiku query) before it is read aloud.
   const listenSummarizer = new ListenSummarizer({ bridgeDir, cwd: dataDir })
@@ -1631,150 +1312,16 @@ function registerIpc(): void {
     writeClipboard: (text) => clipboard.writeText(text),
     pastedImagesDir: join(dataDir, 'pasted-images')
   })
-  ipc.handle('continuity:options', (_e, id: string) => continuity.options(id))
-  ipc.handle('continuity:failover', (_e, id: string, request) => continuity.failover(id, request))
-  ipc.handle('continuity:handoff', (_e, id: string, request) => continuity.handoff(id, request))
-  ipc.handle('health:test', (_e, connection, secret, indexToProbe?: string) => health.test(connection, secret, indexToProbe))
   registerPlanIpc(ipc, { calendar, briefs })
   registerPlannerIpc(ipc, planner, {
     alert: async (profileId, key) => (await metricAlerts.list(profileId)).alerts.find((a) => a.key === key),
     alertSent: (profileId, key) => metricAlerts.setStatus(profileId, key, { type: 'sendToInbox' }),
     createWindow: (hash, title) => createAuxWindow(hash, title, PLAN_ITEM_WINDOW_SIZE)
   })
-  ipc.on('tray:state', (_e, state: TrayRendererState) => {
-    if (isLocale(state?.locale) && state.locale !== trayLocale) {
-      trayLocale = state.locale
-      trayLocaleFromRenderer = true
-      scheduleMenu()
-    }
-    if (Array.isArray(state?.sessions)) rendererSessions = state.sessions.slice(0, 500).filter(validTraySession)
-    scheduleTray()
-    appBadge.setCount(attentionBadgeCount(rendererSessions ?? []))
-  })
-  // The popover's own channels; actions are checked again here, field by field.
-  ipc.handle('trayPopover:get', () => trayPopover?.currentView() ?? null)
-  ipc.on('trayPopover:perform', (_e, raw: unknown) => {
-    const action = parseTrayAction(raw)
-    if (!action) return
-    if (action.kind !== 'pause' && action.kind !== 'resume') trayPopover?.hide()
-    void performTrayAction(action)
-  })
-  ipc.on('trayPopover:hide', (e) => {
-    if (trayPopover?.owns(e.sender)) trayPopover.hide()
-  })
-}
-
-/** A question's answers from the renderer: question text to answer, strings only; anything else is dropped. */
-function validAnswers(v: unknown): Record<string, string> | undefined {
-  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined
-  const entries = Object.entries(v).filter((e): e is [string, string] => typeof e[1] === 'string' && e[1].length <= 10_000)
-  return entries.length > 0 ? Object.fromEntries(entries.slice(0, 10)) : undefined
-}
-
-const SESSION_STATES = new Set(['starting', 'ready', 'busy', 'stopped', 'error'])
-const ATTENTION_KINDS = new Set(['error', 'needsAnswer', 'replied'])
-function validTraySession(s: TraySession): boolean {
-  return (
-    !!s &&
-    typeof s.id === 'string' &&
-    typeof s.title === 'string' &&
-    SESSION_STATES.has(s.state) &&
-    (s.unseen === undefined || ATTENTION_KINDS.has(s.unseen)) &&
-    (s.awaitingAnswer === undefined || typeof s.awaitingAnswer === 'boolean') &&
-    (s.agentId === undefined || (typeof s.agentId === 'string' && s.agentId.length <= 100))
-  )
-}
-
-/** Brings the main window up (it may be hidden in the menu bar) and the app to the front. */
-function showMain(): void {
-  if (!win || win.isDestroyed()) createWindow()
-  const w = win!
-  if (w.isMinimized()) w.restore()
-  w.show()
-  w.focus()
-  if (process.platform === 'darwin') app.focus({ steal: true })
-}
-
-/** A PR window's "Show in Workhub": the main window comes up on Pull requests with that PR selected. */
-function showPullRequestInMain(url: string, profileId: string | null): void {
-  showMain()
-  send('codeHost:focus', url, profileId)
-}
-
-/** Where "Check for updates" takes the user: General, pointing at its Updates group. */
-const UPDATES_SETTINGS = 'general#updates'
-
-/** Brings the main window to `route`; Settings opens its own window on `section` (`general#updates` also points at one of its groups). */
-function navigate(route: TrayRoute, section?: string): void {
-  if (route === 'settings') return settingsWindow.open(settingsSectionArg(section))
-  showMain()
-  send('tray:navigate', route)
-}
-
-/** A notification worded by the renderer; a click opens its session, or its screen. */
-function showSessionNotification(n: SessionNotification): void {
-  if (!n || typeof n.title !== 'string' || typeof n.sessionId !== 'string') return
-  const kind = isNotificationKind(n.kind) ? n.kind : 'replied'
-  const route = n.route && TRAY_ROUTES.includes(n.route) ? n.route : undefined
-  // An automation's sessions follow its own Notify setting (default: only failures).
-  const view = sessions.list().find((s) => s.id === n.sessionId)
-  if (view && (kind === 'replied' || kind === 'needsAnswer' || kind === 'error') && !automations.notifies(sessionIdentity(view), kind)) return
-  void notifier.show(kind, n, () => {
-    if (route) return navigate(route)
-    showMain()
-    send('notifications:open', n.sessionId)
-  }, { sessionId: n.sessionId }, `session:${n.sessionId}`)
-}
-
-// Open permission requests and questions are announced again every N minutes (Settings →
-// Notifications, "Needs an answer") until answered, so one does not wait for hours unseen.
-const PERMISSION_REMINDER_TICK_MS = 60_000
-const remindedAt = new Map<string, number>()
-let permissionReminderTimer: ReturnType<typeof setInterval> | undefined
-async function remindWaitingSessions(): Promise<void> {
-  const options = appOptions(await configuration.current())
-  const main = win && !win.isDestroyed() ? win : null
-  const viewing = viewedSessions({ visible: !!main?.isVisible(), focused: !!main?.isFocused(), session: automations.viewing() }, sessionWindows.focusedSession())
-  const input = { views: sessions.list(), remindedAt, now: Date.now(), intervalMinutes: options.notifyNeedsAnswer ? options.remindNeedsAnswerMinutes : 0, viewing, t: trayText(trayLocale).t }
-  for (const n of reminderNotifications(input)) showSessionNotification(n)
-}
-
-/** A usage alert (worded by the renderer); a click brings the window up on Home. */
-function showUsageNotification(n: { title: string; body: string }): void {
-  void notifier.show('usage', n, () => {
-    showMain()
-    send('usage:open')
-  })
-}
-
-/** An OS notification about a pull request event; a click opens that pull request. */
-function showPullRequestNotification(n: PrNotification): void {
-  if (typeof n?.title !== 'string') return
-  recentPrEvents.unshift({ profileId: n.profileId, url: n.url, title: n.title })
-  recentPrEvents.splice(10)
-  scheduleTray()
-  void notifier.show('prEvent', n, () => {
-    if (win && !win.isDestroyed()) showMain()
-    openPullRequestWindow(n.profileId || null, n.url)
-  }, { url: n.url, profileId: n.profileId })
+  tray.registerIpc(ipc)
 }
 
 let openTicketWindow: ((profileId: string, key: string) => void) | null = null
-
-function ticketNotification(profileId: string, change: TicketChange): void {
-  const { t } = trayText(trayLocale)
-  const words =
-    change.kind === 'status'
-      ? { title: t('notify.ticket.status', { key: change.key, from: change.from, to: change.to }), body: t('notify.ticket.statusBody', { title: change.title }) }
-      : change.kind === 'assigned'
-        ? { title: t('notify.ticket.assigned', { key: change.key }), body: t('notify.ticket.assignedBody', { title: change.title, status: change.status }) }
-        : { title: t('notify.ticket.left', { key: change.key }), body: t('notify.ticket.leftBody', { title: change.title }) }
-  void notifier.show('tickets', words, () => openTicketWindow?.(profileId, change.key), { ticket: change.key })
-}
-
-function healthNotification(alert: HealthAlert, channels: HealthAlertChannel[]): void {
-  void notifier.show('health', healthAlertWords(alert, trayText(trayLocale).t), () => navigate('health'), { environmentId: alert.environmentId }, undefined, channels)
-}
 
 const healthWatcher = new HealthWatcher({
   activeProfileId: async () => (await configuration.current()).activeProfileId ?? null,
@@ -1787,10 +1334,6 @@ const healthWatcher = new HealthWatcher({
     return { load: () => file.load({ firedAt: {} }).firedAt ?? {}, save: (firedAt) => file.save({ firedAt }), flush: () => file.flush() }
   })()
 })
-
-function flowAlertNotification(alert: FlowAlert): void {
-  void notifier.show('flowMaps', flowAlertWords(alert, trayText(trayLocale).t), () => navigate('flowMaps'), { mapId: alert.mapId, environmentId: alert.environmentId })
-}
 
 const flowAlertWatcher = new FlowAlertWatcher({
   activeProfileId: async () => (await configuration.current()).activeProfileId ?? null,
@@ -1812,28 +1355,6 @@ const flowAlertWatcher = new FlowAlertWatcher({
   })()
 })
 
-/** A meeting reminder; a click joins the call when there is a link, else shows the Plan screen. */
-function meetingReminder(profileId: string, action: DueAction): void {
-  const now = Date.now()
-  const words = meetingReminderWords(action, now, trayText(trayLocale))
-  const url = action.event.meetingUrl
-  void notifier.show('meeting', words, () => {
-    if (url) return void openLink(profileId, url)
-    showMain()
-    send('plan:focus')
-  }, { eventId: action.event.id, rule: action.ruleId })
-}
-
-/** Demo calendar: a brief rule matched. Nothing starts; "Prepare brief" on the meeting does, on request. */
-async function demoBriefNotice(action: DueAction): Promise<void> {
-  const { t } = trayText(trayLocale)
-  const words = { title: t('notify.brief.demo', { title: action.event.title || t('plan.untitled') }), body: t('notify.brief.demoBody') }
-  void notifier.show('meeting', words, () => {
-    showMain()
-    send('plan:focus')
-  }, { eventId: action.event.id, rule: action.ruleId })
-}
-
 const calendarWatcher = new CalendarWatcher({
   profiles: () => calendar.plannerProfiles(),
   read: async (profileId) => {
@@ -1846,13 +1367,6 @@ const calendarWatcher = new CalendarWatcher({
     process.env['WORKHUB_DEMO_CALENDAR'] === '1' ? demoBriefNotice(action) : briefs.brief(profileId, action.event, { ruleId: action.ruleId, ...(action.automationId ? { automationId: action.automationId } : {}) }),
   log: (m) => diagnostics.log.warn(m)
 })
-
-function metricAlertNotification(profileId: string, alerts: MetricAlert[]): void {
-  void notifier.show('metricAlert', metricAlertWords(alerts, trayText(trayLocale).t), () => {
-    navigate('health')
-    send('metricAlerts:open', profileId)
-  }, { profileId, alerts: alerts.map((a) => a.key) })
-}
 
 const demoHealth = process.env['WORKHUB_DEMO_HEALTH'] === '1'
 /** Every profile with the Health module on, with its alert rules. */
@@ -1877,7 +1391,7 @@ const planner = new PlannerService({
   store: db.state<PlannerState>('planner-state', 500),
   tracker: (profileId, connectionId) => ticketService.trackerFor(profileId, connectionId),
   // Every window (the main one, and the windows of single inbox items and milestones) and every paired device.
-  changed: (profileId) => broadcastToWindowsAndDevices(BrowserWindow.getAllWindows(), remoteHub, 'planner:changed', profileId)
+  changed: (profileId) => broadcast.toWindowsAndDevices('planner:changed', profileId)
 })
 // What agents change over the control endpoint, kept for Keep or Revert on Home (desktop windows only).
 const agentChanges = createAgentChanges({ store: db.state<AgentChangeState>('agent-changes', 0), changed: (list) => send('agentChanges:changed', list), automations, flowMaps, planner, sessions: () => sessions.list() })
@@ -1890,13 +1404,13 @@ const ticketWatcher = new TicketWatcher({
   announce: ticketNotification,
   record: (profileId, changes, at) => void timelines.appendTicketChanges(profileId, changes, at),
   // A burst (a profile not read for a day, a capped list) folds into one notification.
-  announceSummary: (_profileId, changes) => void notifier.show('tickets', ticketSummaryWords(changes, trayText(trayLocale).t), () => navigate('tickets')),
+  announceSummary: (_profileId, changes) => void notifier.show('tickets', ticketSummaryWords(changes, trayText(tray.locale()).t), () => navigate('tickets')),
   intervalMs: async (profileId) => profileRefreshMs(await configuration.current(), profileId, 'tracker')
 })
 
 async function refreshOptionsCache(): Promise<void> {
   const options = appOptions(await configuration.current())
-  keepInTray = options.keepInTray
+  tray.setKeepInTray(options.keepInTray)
   quitGuard.setEnabled(options.confirmQuit)
   appBadge.setEnabled(options.showAppBadge)
   scheduleTray()
@@ -1905,236 +1419,8 @@ async function refreshOptionsCache(): Promise<void> {
 /** The popover's "Today": the active profile's next meetings and the Plan tasks due. */
 const trayToday = new TrayToday({ readCalendar: (profileId) => calendar.read(profileId), dueToday: (profileId) => planner.dueToday(profileId) })
 
-/** Everything the menu bar icon shows, read fresh. */
-async function trayState(): Promise<TrayState> {
-  const config = await configuration.current()
-  const options = appOptions(config)
-  keepInTray = options.keepInTray
-  const profileId = config.activeProfileId ?? null
-  const listed = rendererSessions ?? sessions.list().filter((v) => !v.readOnly).map((v) => ({ id: v.id, title: v.label, state: v.state, agentId: v.agentId }))
-  const stamped = stampSince(sessionSince, listed, Date.now())
-  sessionSince = stamped.since
-  const sessionsNow = stamped.sessions
-  const [lists, today] = await Promise.all([codeHost.cachedLists(profileId).catch(() => null), trayToday.read(profileId)])
-  const agentNames = new Map(knownAgents(config).map((a) => [a.id, a.name]))
-  const slackOn = lastSlack && lastSlack.health !== 'off'
-  const me = lastSlack?.me ?? ''
-  const openThreads = lastSlack?.threads.filter((th) => !th.closed) ?? []
-  return {
-    appName: app.getName(),
-    sessions: sessionsNow,
-    usage: usage.current().map((a) => ({ name: a.name || agentNames.get(a.agentId) || a.agentId, agentId: a.agentId, windows: a.windows, error: Boolean(a.error) })),
-    pullRequests: lists && lists.state !== 'notConnected' ? { toReview: lists.toReview.length, mine: lists.mine.length } : null,
-    prEvents: recentPrEvents,
-    health: healthWatcher.summary(),
-    slack: slackOn && lastSlack ? { health: lastSlack.health, open: openThreads.length, unread: openThreads.filter((th) => hasUnread(th, me)).length, error: lastSlack.lastError } : null,
-    automations: automations
-      .snapshot()
-      .automations.filter((a) => a.definition.enabled && a.active)
-      .map((a) => ({
-        id: a.definition.id,
-        name: a.definition.name,
-        health: a.health,
-        startedToday: a.startedToday,
-        ...(a.waitReason ? { waitReason: a.waitReason.split('.')[0]! } : {}),
-        ...(a.lastError ? { lastError: a.lastError } : {})
-      })),
-    notifications: notifier.recent().map((n) => ({ id: n.id, title: n.title, at: n.at, ...(n.sessionId ? { sessionId: n.sessionId } : {}) })),
-    calendar: today.calendar,
-    planDueToday: today.planDueToday,
-    popover: options.trayPopover,
-    pausedUntil: options.notificationsPausedUntil,
-    // WORKHUB_SHOW_UPDATE_MENU=1 shows the item in a dev run, to try where it leads (the check itself needs a packaged build).
-    canCheckForUpdates: app.isPackaged || process.env['WORKHUB_SHOW_UPDATE_MENU'] === '1'
-  }
-}
-
-async function performTrayAction(action: TrayAction): Promise<void> {
-  switch (action.kind) {
-    case 'open':
-      return showMain()
-    case 'openSession':
-      showMain()
-      return send('notifications:open', action.id)
-    case 'navigate':
-      return navigate(action.route)
-    case 'openPullRequest':
-      return openPullRequestWindow(action.profileId || null, action.url)
-    case 'openMeeting': {
-      // Only a link the popover was given for that meeting is opened; without one, Plan shows it.
-      const url = trayToday.joinUrl(action.id)
-      if (url) return void openLink((await configuration.current()).activeProfileId ?? null, url)
-      return navigate('plan')
-    }
-    case 'openSettings':
-      return settingsWindow.open(settingsSectionArg(action.section))
-    case 'openNotification':
-      notifier.openRecent(action.id)
-      return
-    case 'clearNotifications':
-      notifier.clearRecent()
-      return
-    case 'newSession':
-      showMain()
-      return send('tray:newSession')
-    case 'pause':
-    case 'resume': {
-      if (loadError) return
-      const until = action.kind === 'pause' ? pauseUntil(action.preset, new Date()) : 0
-      const r = await configuration.saveOptions({ notificationsPausedUntil: until })
-      if (r.ok) configChanged()
-      return scheduleTray()
-    }
-    case 'checkForUpdates':
-      // Straight to the Updates group, highlighted, where the check's result shows.
-      navigate('settings', UPDATES_SETTINGS)
-      void updates.check()
-      return
-    case 'quit':
-      return app.quit()
-  }
-}
-
-/** One window per pull request; opening an open one brings it to the front. */
-const prWindows = new Map<string, BrowserWindow>()
-
-function openPullRequestWindow(profileId: string | null, url: string, tab?: PullRequestWindowTab): void {
-  const open = prWindows.get(url)
-  if (open && !open.isDestroyed()) {
-    if (open.isMinimized()) open.restore()
-    open.focus()
-    if (tab) open.webContents.send('codeHost:showTab', tab)
-    return
-  }
-  const hash = `#pr?profile=${encodeURIComponent(profileId ?? '')}&url=${encodeURIComponent(url)}${tab ? `&tab=${tab}` : ''}`
-  // Wide by default: the conversation sits beside the description and the diff gets the full width.
-  const prWin = createAuxWindow(hash, 'Pull request', { width: 1280, height: 860, minWidth: 720, minHeight: 480 })
-  prWindows.set(url, prWin)
-  prWin.on('closed', () => prWindows.delete(url))
-}
-
-/** One review window per session; opening an open one brings it to the front. */
-const reviewWindows = new Map<string, BrowserWindow>()
-
-function openLocalReviewWindow(sessionId: string, reload = false): void {
-  const open = reviewWindows.get(sessionId)
-  if (open && !open.isDestroyed()) {
-    if (open.isMinimized()) open.restore()
-    // Drafts live in the main process, so a reload only refreshes the diff.
-    if (reload) open.webContents.reload()
-    open.focus()
-    return
-  }
-  const reviewWin = createAuxWindow(`#review?session=${encodeURIComponent(sessionId)}`, 'Workhub 2', { width: 1280, height: 820, minWidth: 900, minHeight: 560 })
-  reviewWindows.set(sessionId, reviewWin)
-  reviewWin.on('closed', () => reviewWindows.delete(sessionId))
-}
-
-interface AuxWindowSize {
-  width: number
-  height: number
-  minWidth: number
-  minHeight: number
-}
-
-const TICKET_WINDOW_SIZE: AuxWindowSize = { width: 820, height: 760, minWidth: 560, minHeight: 420 }
-const FILE_WINDOW_SIZE: AuxWindowSize = { width: 900, height: 760, minWidth: 420, minHeight: 320 }
-const REVIEW_LOOP_WINDOW_SIZE: AuxWindowSize = { width: 860, height: 820, minWidth: 480, minHeight: 400 }
-const PLAN_ITEM_WINDOW_SIZE: AuxWindowSize = { width: 720, height: 780, minWidth: 460, minHeight: 400 }
-
-/** A secondary window (a pull request, a ticket) on the same renderer, routed by its hash. */
-function createAuxWindow(hash: string, title: string, size: AuxWindowSize = TICKET_WINDOW_SIZE, bounds?: WindowBounds): BrowserWindow {
-  const aux = new BrowserWindow({
-    ...size,
-    ...(bounds ?? {}),
-    title,
-    backgroundColor: chromeColors().color,
-    ...windowChrome(),
-    webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false, sandbox: true }
-  })
-  // Links inside the app never navigate or open windows of their own.
-  aux.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  if (devServerUrl()) void aux.loadURL(devServerUrl() + hash)
-  else void aux.loadFile(rendererFile, { hash: hash.replace(/^#/, '') })
-  return aux
-}
-
-const rendererFile = join(__dirname, '../renderer/index.html')
-/** The dev server's address; always undefined in a packaged app, whatever its environment holds. */
-function devServerUrl(): string | undefined {
-  return rendererDevServerUrl(process.env, app.isPackaged)
-}
-/** The only pages allowed to talk to the main process. */
-const rendererOrigin = { fileUrl: pathToFileURL(rendererFile).href, devServerUrl: devServerUrl() }
-
-/**
- * Every window and webview the app ever creates stays on the app's renderer: navigations and
- * redirects away from it are refused (web links go to the default browser instead), new windows
- * are denied, and <webview> tags never attach. A window that rendered untrusted Markdown (a pull
- * request, a ticket) can then never turn into a remote page that still holds `window.hub`.
- */
-const reloadGuard = new ReloadGuard()
-app.on('web-contents-created', (_event, contents) => {
-  // Every BrowserWindow (main, auxiliary, popover) passes through here: one place for crash recovery.
-  watchRenderer(contents, diagnostics.log, reloadGuard)
-  contents.on('will-navigate', (event, url) => {
-    if (url === contents.getURL()) return
-    event.preventDefault()
-    void openLink(null, url)
-  })
-  contents.on('will-redirect', (event, url) => {
-    if (!isTrustedRendererUrl(url, rendererOrigin)) event.preventDefault()
-  })
-  contents.on('will-attach-webview', (event) => event.preventDefault())
-  // Links in agent replies open in the default browser, never inside the app.
-  contents.setWindowOpenHandler(({ url }) => {
-    void openLink(null, url)
-    return { action: 'deny' }
-  })
-})
-
-/** Web permission requests and checks are denied by default (see permissions.ts). */
-function denyWebPermissions(): void {
-  const trusted = (url: string | null) => isTrustedRendererUrl(url, rendererOrigin)
-  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) =>
-    callback(permissionAllowed(permission, details.requestingUrl || contents.getURL(), trusted))
-  )
-  session.defaultSession.setPermissionCheckHandler((contents, permission) => permissionAllowed(permission, contents?.getURL(), trusted))
-}
-
-function createWindow(): void {
-  win = new BrowserWindow({
-    width: 1280,
-    height: 820,
-    minWidth: 900,
-    minHeight: 560,
-    title: 'Workhub 2',
-    backgroundColor: chromeColors().color,
-    ...windowChrome(),
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true
-    }
-  })
-  // Navigation and new-window guards for every window: see 'web-contents-created' above.
-  if (devServerUrl()) void win.loadURL(devServerUrl()!)
-  else void win.loadFile(rendererFile)
-  appBadge.refresh()
-  // "Keep running in the menu bar": closing hides the window; sessions, watchers and notifications go on.
-  win.on('close', (event) => {
-    if (allowWindowClose || !keepInTray || !trayService) return
-    event.preventDefault()
-    win?.hide()
-  })
-}
-
-/** The renderer's popover route (main.tsx), in the dev server or the built files. */
-function loadPopover(popover: BrowserWindow): void {
-  if (devServerUrl()) void popover.loadURL(devServerUrl() + TRAY_POPOVER_HASH)
-  else void popover.loadFile(rendererFile, { hash: TRAY_POPOVER_HASH.slice(1) })
-}
+// Navigation, new-window and webview guards and crash recovery for every window the app creates (windows.ts).
+windows.guardWebContents()
 
 /**
  * Where a menu command runs: a session command in the focused session window (else the main
@@ -2146,8 +1432,8 @@ function runMenuCommand(command: MenuCommand): void {
   const sessionCommand = isSessionCommand(command)
   if (sessionCommand && sessionWindow && focused) return focused.webContents.send('menu:command', command)
   // ⌘F is also Settings' own search: another window gets the key back instead of losing it.
-  if (command.kind === 'findInChat' && focused && focused !== win) return focused.webContents.send('menu:command', command)
-  if (sessionCommand && focused !== win) return
+  if (command.kind === 'findInChat' && focused && focused !== windows.main()) return focused.webContents.send('menu:command', command)
+  if (sessionCommand && focused !== windows.main()) return
   if (command.kind === 'navigate' && command.route === 'settings') return settingsWindow.open()
   showMain()
   send('menu:command', command)
@@ -2166,7 +1452,7 @@ function scheduleMenu(): void {
 async function refreshMenu(): Promise<void> {
   const config = await configuration.current().catch(() => null)
   const agents = config ? resolveEffectiveAgents(config, config.activeProfileId ?? null) : []
-  const { t } = trayText(trayLocale)
+  const { t } = trayText(tray.locale())
   Menu.setApplicationMenu(
     Menu.buildFromTemplate(
       buildAppMenuTemplate({
@@ -2187,41 +1473,6 @@ async function refreshMenu(): Promise<void> {
 
 /** Help → the project's page (the release repository's README). */
 const HELP_URL = 'https://github.com/SoldierIced/workhub#readme'
-
-/** The menu bar / notification area icon; a dev run is named "Workhub 2 Dev" there too. */
-function startTray(): void {
-  // Linux (AppIndicator) sends no clicks, so it keeps the native menu only.
-  const popover =
-    process.platform === 'darwin' || process.platform === 'win32'
-      ? new TrayPopover({
-          platform: process.platform,
-          preload: join(__dirname, '../preload/index.js'),
-          load: loadPopover,
-          refresh: () => void trayService?.refresh(),
-          pinned: process.env['WORKHUB_TRAY_POPOVER_PIN'] === '1',
-          dark: () => nativeTheme.shouldUseDarkColors
-        })
-      : null
-  trayPopover = popover
-  trayService = new TrayService({
-    appName: app.getName(),
-    platform: process.platform,
-    iconDir: app.isPackaged ? join(process.resourcesPath, 'tray') : join(appRoot, 'build', 'tray'),
-    state: trayState,
-    text: () => trayText(trayLocale),
-    perform: (action) => void performTrayAction(action),
-    activate: showMain,
-    logPath: process.env['WORKHUB_TRAY_LOG'],
-    popover: popover ?? undefined,
-    onState: (state) => popover?.setView(buildTrayPopover(state))
-  })
-  trayService.start()
-  popover?.prepare()
-  // WORKHUB_TRAY_POPOVER_PIN=1 opens the popover once the page is up and keeps it open (screenshots).
-  if (popover && process.env['WORKHUB_TRAY_POPOVER_PIN'] === '1') setTimeout(() => popover.show(trayService?.bounds() ?? { x: 0, y: 0, width: 0, height: 0 }), 2500)
-  // Usage, pull request lists and Health change on their own; the menu catches up once a minute.
-  setInterval(scheduleTray, 60_000).unref?.()
-}
 
 /** Profiles with folders and no default folder get their first folder, so "New session" says where it starts. */
 async function fillDefaultFoldersOnStart(): Promise<void> {
@@ -2328,57 +1579,50 @@ void app.whenReady().then(async () => {
     }
   }
   const startup = diagnostics.activity.begin('startup')
-  denyWebPermissions()
+  windows.denyWebPermissions()
   registerIpc()
   void remoteService.start()
   await refreshMenu()
-  createWindow()
+  windows.createWindow()
   // One after the other: both rewrite profiles.
   void fillDefaultFoldersOnStart().catch(() => undefined)
   await refreshOptionsCache()
   watchSystemShutdown(quitGuard)
-  try {
-    startTray()
-  } catch {
-    // No status area (some Linux desktops): closing the window then quits, as without the option.
-    trayService = null
-    trayPopover?.destroy()
-    trayPopover = null
-  }
-  usage.start()
-  tokenSpend.start()
-  permissionReminderTimer = setInterval(() => void remindWaitingSessions().catch((err: unknown) => diagnostics.log.warn(`permission reminders: ${err instanceof Error ? err.message : String(err)}`)), PERMISSION_REMINDER_TICK_MS)
-  // Opt-in: nothing contacts GitHub unless the user turned this on (or presses "Check now").
-  // A version found by these automatic checks is announced in a prompt, at most once a day.
-  if (app.isPackaged) {
-    setTimeout(() => void automaticUpdateCheck(), 10_000)
-    setInterval(() => void automaticUpdateCheck(), UPDATE_RECHECK_MS)
-  }
-  prEvents.start()
-  slack.start()
-  void automations.start()
-  aiReview.start()
-  healthWatcher.start()
-  flowAlertWatcher.start()
-  metricAlerts.start()
-  ticketWatcher.start()
-  // The first calendar check runs before the renderer reports its language: word it in the system's.
-  if (!trayLocaleFromRenderer) {
-    const system = app.getLocale().slice(0, 2)
-    if (isLocale(system)) trayLocale = system
-  }
-  calendarWatcher.start()
-  // The network is often not up yet when the laptop wakes: read the calendars again a few seconds later.
-  powerMonitor.on('resume', () => {
-    setTimeout(() => {
-      void calendar.plannerProfiles().then(async (ps) => {
-        await Promise.all(ps.map((p) => calendar.read(p.id, true).catch(() => null)))
-        await calendarWatcher.tick()
-      })
-    }, 5_000)
+  tray.start()
+  // Each service's place in the order is in lifecycle.ts (START_ORDER).
+  startServices({
+    usage: () => usage.start(),
+    tokenSpend: () => tokenSpend.start(),
+    permissionReminders: notifications.startReminders,
+    // A version found by these automatic checks is announced in a prompt, at most once a day.
+    updateChecks: () => {
+      if (app.isPackaged) {
+        setTimeout(() => void automaticUpdateCheck(), 10_000)
+        setInterval(() => void automaticUpdateCheck(), UPDATE_RECHECK_MS)
+      }
+    },
+    prEvents: () => prEvents.start(),
+    slack: () => slack.start(),
+    automations: () => void automations.start(),
+    aiReview: () => aiReview.start(),
+    healthWatcher: () => healthWatcher.start(),
+    flowAlertWatcher: () => flowAlertWatcher.start(),
+    metricAlerts: () => metricAlerts.start(),
+    ticketWatcher: () => ticketWatcher.start(),
+    trayLocale: tray.adoptSystemLocale,
+    calendarWatcher: () => calendarWatcher.start(),
+    calendarOnResume: () =>
+      powerMonitor.on('resume', () => {
+        setTimeout(() => {
+          void calendar.plannerProfiles().then(async (ps) => {
+            await Promise.all(ps.map((p) => calendar.read(p.id, true).catch(() => null)))
+            await calendarWatcher.tick()
+          })
+        }, 5_000)
+      }),
+    planner: () => planner.start(),
+    historyIndexer: () => historyIndexer.start()
   })
-  planner.start()
-  historyIndexer.start()
   // First run: no profile yet and the welcome was not finished.
   const first = await configuration.current()
   if (!loadError && first.profiles.length === 0 && !appOptions(first).welcomeDone) openSetupWindow('welcome')
@@ -2418,25 +1662,30 @@ app.on('before-quit', (event) => {
   // Give agent processes a chance to exit before the app does.
   event.preventDefault()
   quitting = true
-  usage.stop()
-  if (permissionReminderTimer) clearInterval(permissionReminderTimer)
-  kiroUsageReader?.dispose()
-  tokenSpend.stop()
-  prEvents.stop()
-  slack.stop()
-  automations.stop()
-  aiReview.stop()
-  localReview.stop()
-  controlServer?.close()
-  healthWatcher.stop()
-  flowAlertWatcher.stop()
-  metricAlerts.stop()
-  ticketWatcher.stop()
-  calendarWatcher.stop()
-  planner.stop()
-  historyIndexer.stop()
-  sessionNames.flush()
-  if (firstInstance) db.flushAll()
+  // Each service's place in the order is in lifecycle.ts (STOP_ORDER).
+  stopServices({
+    usage: () => usage.stop(),
+    permissionReminders: notifications.stopReminders,
+    kiroUsage: () => kiroUsageReader?.dispose(),
+    tokenSpend: () => tokenSpend.stop(),
+    prEvents: () => prEvents.stop(),
+    slack: () => slack.stop(),
+    automations: () => automations.stop(),
+    aiReview: () => aiReview.stop(),
+    localReview: () => localReview.stop(),
+    controlServer: () => controlServer?.close(),
+    healthWatcher: () => healthWatcher.stop(),
+    flowAlertWatcher: () => flowAlertWatcher.stop(),
+    metricAlerts: () => metricAlerts.stop(),
+    ticketWatcher: () => ticketWatcher.stop(),
+    calendarWatcher: () => calendarWatcher.stop(),
+    planner: () => planner.stop(),
+    historyIndexer: () => historyIndexer.stop(),
+    sessionNames: () => sessionNames.flush(),
+    database: () => {
+      if (firstInstance) db.flushAll()
+    }
+  })
   void sessions.stopAll().finally(() => app.quit())
 })
 // Last: every pending state is written and the database closed once nothing else will write.
@@ -2464,13 +1713,14 @@ app.on('will-quit', (event) => {
 // Kept in the menu bar, the app outlives its windows (a window closed some other way than its
 // close button is opened again from the icon); otherwise closing the last window quits.
 app.on('window-all-closed', () => {
-  if (!(keepInTray && trayService) || allowWindowClose) app.quit()
+  if (!(tray.keepInTray() && tray.running()) || allowWindowClose) app.quit()
 })
 // The hidden popover is a window too: once every other window is closed, the rule above applies.
 app.on('browser-window-created', (_event, created) => {
   created.on('closed', () => {
+    const trayPopover = tray.popover()
     if (trayPopover?.isWindow(created)) return
     const others = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && w !== created && !trayPopover?.isWindow(w))
-    if (others.length === 0 && trayPopover && (!(keepInTray && trayService) || allowWindowClose)) app.quit()
+    if (others.length === 0 && trayPopover && (!(tray.keepInTray() && tray.running()) || allowWindowClose)) app.quit()
   })
 })

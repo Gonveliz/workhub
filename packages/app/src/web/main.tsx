@@ -6,7 +6,7 @@ import { buildHub } from '../shared/hub-client'
 import { startStore } from '../renderer/store'
 import { App } from './App'
 import type { WebApp } from './app-context'
-import { currentPushSubscription, defaultDeviceName, detectPlatform, DESKTOPS_KEY, kvSet, registerServiceWorker, SEED_KEY } from './browser'
+import { currentPushSubscription, defaultDeviceName, detectPlatform, DESKTOPS_KEY, kvSet, RELAYS_KEY, registerServiceWorker, SEED_KEY } from './browser'
 import { DEVICE_NAME_KEY } from './device'
 import { RemoteClient } from './remote-client'
 import { splitDesktop } from './routes'
@@ -44,9 +44,13 @@ hub.sessions.list = () => client.listSessions() as ReturnType<typeof hub.session
 window.hub = hub
 
 // The service worker opens pushed notifications with this identity, and shows only those the
-// paired desktops signed: it reads both from IndexedDB, which it shares with the page.
+// paired desktops signed: it reads both from IndexedDB, which it shares with the page. It answers
+// a permission request from a notification through the desktop's relay.
 void kvSet(SEED_KEY, toBase64Url(client.identity.seed)).catch(() => {})
-const mirrorDesktops = () => void kvSet(DESKTOPS_KEY, JSON.stringify(Object.fromEntries(client.desktops().map((d) => [d.id, d.public])))).catch(() => {})
+const mirrorDesktops = () => {
+  void kvSet(DESKTOPS_KEY, JSON.stringify(Object.fromEntries(client.desktops().map((d) => [d.id, d.public])))).catch(() => {})
+  void kvSet(RELAYS_KEY, JSON.stringify(Object.fromEntries(client.desktops().map((d) => [d.id, d.relay])))).catch(() => {})
+}
 mirrorDesktops()
 client.onStatus(mirrorDesktops)
 void registerServiceWorker().then(() => currentPushSubscription().then((sub) => sub && client.setPushSubscription(sub)))

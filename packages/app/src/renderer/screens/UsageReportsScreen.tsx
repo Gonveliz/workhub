@@ -1,12 +1,12 @@
 import { ChartColumn, CircleAlert, Download } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BACKGROUND_AGENT, type Profile } from '@workhub/core'
+import { appOptions, BACKGROUND_AGENT, monthBounds, type Profile, type ProjectBudgets } from '@workhub/core'
 import type { ReportFilterValues, ReportFilters, ReportSession, SpendPoint, SpendTotals, UsageCsvExport, UsageCsvResult, WeeklyReport } from '@shared/analytics-api'
 import { Button, Spinner } from '../components/atoms'
 import { Card, CardBody, CardHeader, EmptyState, HelpTip, RefreshButton, StatTile } from '../components/molecules'
 import { ShareBars, type ShareRow } from '../components/molecules/ShareBars'
 import { ChartLegend, seriesColor, StackedBarChart, type ChartSeries } from '../components/molecules/StackedBarChart'
-import { useConfig } from '../configStore'
+import { refreshConfig, useConfig } from '../configStore'
 import { useI18n } from '../i18n/I18nProvider'
 import type { MessageKey } from '../i18n/translate'
 import { cn } from '../lib/cn'
@@ -47,6 +47,7 @@ import {
   type TableView
 } from '../lib/usageReports'
 import { clampPage, PAGE_SIZE } from '../components/molecules/Pager'
+import { ProjectBudgetsCard } from './usage/ProjectBudgetsCard'
 import { ReportFiltersBar, ReportSessions, ReportTable, WeeklySummaryView } from './usage/ReportParts'
 
 /** What the screen read for the current filters. */
@@ -246,6 +247,27 @@ export function UsageReportsScreen({ profileId: activeProfileId = null, profiles
     setWeekStart(Math.min(thisWeek, startOfWeek(d.getTime() + 3_600_000)))
   }
 
+  // Budgets count the calendar month whatever period the report shows; read again with Refresh.
+  const snap = useConfig()
+  const budgets = snap ? (appOptions(snap.config).projectBudgets ?? {}) : {}
+  const month = monthBounds(now)
+  const [monthSpend, setMonthSpend] = useState<SpendTotals[]>([])
+  useEffect(() => {
+    let alive = true
+    window.hub.analytics.totals({ since: month.since, until: month.until, groupBy: 'project' }).then(
+      (rows) => alive && setMonthSpend(rows),
+      () => undefined
+    )
+    return () => {
+      alive = false
+    }
+  }, [month.key, reloads])
+  const saveBudgets = async (next: ProjectBudgets) => {
+    const r = await window.hub.config.saveOptions({ projectBudgets: next })
+    if (r.ok) await refreshConfig()
+    return r.ok
+  }
+
   return (
     <UsageReportsView
       state={state}
@@ -263,6 +285,7 @@ export function UsageReportsScreen({ profileId: activeProfileId = null, profiles
       sessionsLoading={sessionsLoading}
       onOpenSession={(s) => onShowInHistory(s.id)}
       onTagsChanged={refresh}
+      budgets={<ProjectBudgetsCard budgets={budgets} month={monthSpend} projects={values?.projects ?? []} now={now} disabled={!snap || !!snap.loadError} onSave={saveBudgets} />}
       weekly={
         <WeeklySummaryView
           week={week}
@@ -306,12 +329,14 @@ export interface UsageReportsViewProps {
   onTagsChanged?: () => void
   /** The custom period actually shown, when it differs from the dates typed. */
   effective?: { since: number; until: number } | null
+  /** The monthly project budgets card (its own data). */
+  budgets?: React.ReactNode
   /** The weekly summary card (its own data). */
   weekly?: React.ReactNode
 }
 
 /** The screen without its data loading: what the tests render. */
-export function UsageReportsView({ state, onChange, range, data, values, loading, error, names, onRefresh, onExportCsv, onSessionsPage, sessionsLoading = false, onOpenSession, onTagsChanged, effective, weekly }: UsageReportsViewProps) {
+export function UsageReportsView({ state, onChange, range, data, values, loading, error, names, onRefresh, onExportCsv, onSessionsPage, sessionsLoading = false, onOpenSession, onTagsChanged, effective, budgets, weekly }: UsageReportsViewProps) {
   const { t, tn, locale, formatDate, formatNumber } = useI18n()
   // The totals table's sort and page: back to the first page with a new sort, grouping or filters.
   const [table, setTable] = useState<TableView>(INITIAL_TABLE)
@@ -406,6 +431,8 @@ export function UsageReportsView({ state, onChange, range, data, values, loading
         </header>
 
         <ReportFiltersBar state={state} values={values} names={names} onChange={onChange} effective={effective} />
+
+        {budgets}
 
         {error && data !== null && (
           <p role="alert" className="flex items-center gap-2 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">

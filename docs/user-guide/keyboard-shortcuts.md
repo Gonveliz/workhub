@@ -46,6 +46,8 @@ On macOS the modifier is ⌘. On Windows and Linux use Ctrl in its place.
 | ↓ | While going through earlier prompts: the next one, then back to what you were typing |
 | Esc | While going through earlier prompts: back to what you were typing |
 | Paste | Attach images |
+| @ | Open the file menu (a path after the `@`): ↑/↓ choose, Return or Tab inserts the path, Esc closes it |
+| / | At the start of the composer: the command menu, with the same keys |
 
 ## Other
 

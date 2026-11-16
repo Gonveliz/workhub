@@ -225,6 +225,22 @@ export class RemoteHub {
     handler(this.event(entry) as IpcMainEvent, ...args)
   }
 
+  /**
+   * An answer given on a notification (service.ts checked its ticket, signature and that the
+   * request still waits). The device may not be connected, so it is named with what it was
+   * granted; the answer goes through the same allowlisted message, checks and budget as the
+   * chat's buttons.
+   */
+  answerPermission(device: { id: string; capabilities: ReadonlySet<RemoteCapability> }, sessionId: string, requestId: string, optionId: string): void {
+    const channel = 'sessions:permission'
+    if (!remoteAllows(REMOTE_MESSAGES, channel, device.capabilities)) throw this.refuse(device.id, channel)
+    const handler = this.deps.handlers.message(channel)
+    if (!handler) throw this.refuse(device.id, channel)
+    this.spend(device.id, channel, this.limitsOf(device.id), false)
+    this.validateMessage(channel, [sessionId, requestId])
+    handler({ sender: null, senderFrame: null } as unknown as IpcMainEvent, sessionId, requestId, optionId)
+  }
+
   /** One-way messages carry plain tokens. */
   private validateMessage(channel: string, args: unknown[]): void {
     if (channel === 'sessions:permission') {

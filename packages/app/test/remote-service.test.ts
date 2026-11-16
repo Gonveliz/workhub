@@ -12,6 +12,7 @@ import {
   parseChannelMessage,
   parsePushPayload,
   parseRelayMessage,
+  verifyPushAsk,
   verifyPushPayload,
   sealBox,
   startHandshake,
@@ -20,12 +21,16 @@ import {
   type ChannelMessage,
   type Identity,
   type PairingOffer,
+  type PermissionAnswer,
+  type PushPayload,
   type RelayMessage,
   type SecureChannel
 } from '@workhub/protocol'
 import type { IpcRegistrar } from '../src/main/ipc-guard'
-import { recordIpc, RemoteHub, RemoteService, relayWebClientUrl, relayWebSocketUrl, type RemoteState, type WebSocketLike } from '../src/main/remote'
+import { recordIpc, RemoteHub, RemoteService, relayWebClientUrl, relayWebSocketUrl, type RemoteServiceDeps, type RemoteState, type WebSocketLike } from '../src/main/remote'
 import type { RemoteStatusView } from '../src/shared/remote-api'
+import type { PendingPermission } from '../src/shared/api'
+import { answerMessage, askOf, sendAnswer } from '../src/web/notification-answer'
 
 const NOW = 1_800_000_000_000
 
@@ -168,7 +173,7 @@ class ScriptedDevice {
   }
 }
 
-function harness(initial: Partial<RemoteState> = {}) {
+function harness(initial: Partial<RemoteState> = {}, extra: Pick<RemoteServiceDeps, 'pendingPermissions'> & { now?: () => number } = {}) {
   const log = { info: vi.fn(), warn: vi.fn() }
   const pushed: [string, string][] = []
   const push: PushProvider = { publicKey: 'VAPID', send: async (sub, payload) => void pushed.push([sub.endpoint, payload]) }
@@ -182,6 +187,8 @@ function harness(initial: Partial<RemoteState> = {}) {
   const { ipc, handlers } = recordIpc({ handle: () => {}, on: () => {} } as IpcRegistrar)
   ipc.handle('sessions:list', () => [{ id: 's1', name: 'Fix tests' }])
   ipc.handle('hub:pickFolder', () => '/anywhere')
+  const permissions: unknown[][] = []
+  ipc.on('sessions:permission', (_e, ...args) => void permissions.push(args))
   const hub = new RemoteHub({ handlers, profileFolders: async () => ['/work/api'], startMode: async () => null })
   const service = new RemoteService({
     store: { load: (fallback) => ({ ...fallback, relayUrl: 'https://relay.example.com', desktopName: 'Ana’s MacBook', ...initial }), save: (s) => void saved.push(structuredClone(s)) },
@@ -195,7 +202,8 @@ function harness(initial: Partial<RemoteState> = {}) {
     defaultName: () => 'desk',
     onChanged: (status) => void changes.push(status),
     log,
-    now: () => NOW,
+    now: extra.now ?? (() => NOW),
+    ...(extra.pendingPermissions ? { pendingPermissions: extra.pendingPermissions } : {}),
     schedule: (fn, ms) => {
       const t = { fn, ms, cancelled: false }
       timers.push(t)
@@ -207,7 +215,7 @@ function harness(initial: Partial<RemoteState> = {}) {
     const due = timers.splice(0)
     for (const t of due) if (!t.cancelled) t.fn()
   }
-  return { core, service, sockets, saved, secrets, changes, timers, fire, settle, hub, pushed, pushStore, log }
+  return { core, service, sockets, saved, secrets, changes, timers, fire, settle, hub, pushed, pushStore, log, permissions }
 }
 
 describe('relay URLs', () => {
@@ -552,5 +560,148 @@ describe('RemoteService', () => {
     await h.service.setRelayUrl('https://relay.example.com')
     await h.settle()
     expect(h.service.status().connection).toBe('online')
+  })
+})
+
+describe('answering a permission request from a notification', () => {
+  const waiting = (requestId = 'r1', extra: Partial<PendingPermission> = {}): PendingPermission => ({
+    requestId,
+    title: 'Run npm test',
+    options: [
+      { optionId: 'yes', name: 'Allow', kind: 'allow_once' },
+      { optionId: 'no', name: 'Deny', kind: 'reject_once' }
+    ],
+    at: NOW,
+    ...extra
+  })
+
+  /** A desktop with two paired phones (both with sessions), offline, subscribed to push, and a clock the test moves. */
+  async function setup(pending: () => PendingPermission[]) {
+    const clock = { now: NOW }
+    const h = harness({ enabled: true }, { pendingPermissions: () => pending(), now: () => clock.now })
+    await h.service.start()
+    await h.settle()
+    const me = h.service.status().desktopId!
+    const pairOne = async () => {
+      const offer = offerFromLink((await h.service.startPairing()).pairing!.link)!
+      const phone = new ScriptedDevice(h.core, me)
+      phone.pair(offer)
+      h.service.acceptPairing(phone.identity.id, ['sessions'], phone.code(offer)!)
+      h.pushStore.set(phone.identity.id, { sub: { endpoint: `https://push.example.com/${phone.identity.id}`, keys: { p256dh: 'B'.repeat(87), auth: 'C'.repeat(22) } }, rooms: [me], updatedAt: NOW })
+      phone.disconnect()
+      return { phone, desktop: offer.desktop }
+    }
+    const one = await pairOne()
+    const two = await pairOne()
+    /** The payload the last push to `phone` carried, as its service worker opens it. */
+    const pushedTo = (phone: ScriptedDevice): PushPayload => {
+      const sent = h.pushed.filter(([endpoint]) => endpoint.endsWith(phone.identity.id)).at(-1)!
+      return parsePushPayload(decodeJson(openBox(phone.identity, (JSON.parse(sent[1]) as { box: { e: string; c: string } }).box)!))!
+    }
+    const notify = async () => {
+      const before = h.pushed.length
+      h.service.notify({ kind: 'needsAnswer', title: 'Claude asks', body: 'Run npm test?', at: clock.now, sessionId: 's1', tag: 'session:s1' })
+      await vi.waitFor(() => expect(h.pushed.length).toBe(before + 2))
+    }
+    /** What a tap on a button sends, from the worker's own short connection. */
+    const answer = (phone: ScriptedDevice, message: PermissionAnswer, timeoutMs = 2000) =>
+      sendAnswer({ connect: () => new FakeSocket(h.core), relay: 'wss://relay.example.com/ws', me: phone.identity, desktop: one.desktop, desktopId: me, answer: message, now: () => NOW, timeoutMs })
+    return { h, me, clock, one, two, pushedTo, notify, answer }
+  }
+
+  it('pushes a ticket for this device that offers only Deny, and a tap on it denies the live request once', async () => {
+    const s = await setup(() => [waiting()])
+    await s.notify()
+    const payload = s.pushedTo(s.one.phone)
+    // The payload itself still verifies as before: a phone that ignores `ask` keeps working.
+    expect(verifyPushPayload(payload, s.one.desktop, NOW)).toBe(true)
+    expect(payload.ask).toMatchObject({ session: 's1', request: 'r1', answers: ['deny'] })
+    // Signed for this phone only.
+    expect(verifyPushAsk(payload, s.one.desktop, s.one.phone.identity.id)).toBe(true)
+    expect(verifyPushAsk(payload, s.one.desktop, s.two.phone.identity.id)).toBe(false)
+    expect(s.pushedTo(s.two.phone).ask!.ticket).not.toBe(payload.ask!.ticket)
+
+    const ask = askOf(payload)!
+    const message = answerMessage(s.one.phone.identity, ask, 'deny', NOW)
+    expect(await s.answer(s.one.phone, message)).toBe('ok')
+    expect(s.h.permissions).toEqual([['s1', 'r1', 'no']])
+    // The same answer again (a replay, or a second tap) finds its ticket used.
+    expect(await s.answer(s.one.phone, message)).toBe('expired')
+    expect(s.h.permissions).toHaveLength(1)
+  })
+
+  it('refuses a request that is gone or already answered', async () => {
+    let pending = [waiting()]
+    const s = await setup(() => pending)
+    await s.notify()
+    // Answered at the desktop (or withdrawn) before the tap.
+    pending = []
+    expect(await s.answer(s.one.phone, answerMessage(s.one.phone.identity, askOf(s.pushedTo(s.one.phone))!, 'deny', NOW))).toBe('gone')
+    // Another request now waits under the same session: the ticket named the old one.
+    pending = [waiting('r2')]
+    expect(await s.answer(s.two.phone, answerMessage(s.two.phone.identity, { ...askOf(s.pushedTo(s.two.phone))!, request: 'r2' }, 'deny', NOW))).toBe('refused')
+    expect(s.h.permissions).toEqual([])
+  })
+
+  it('refuses a stale notification and a stale answer', async () => {
+    const s = await setup(() => [waiting()])
+    await s.notify()
+    // Eleven minutes later the ticket is gone, even for an answer signed just now.
+    s.clock.now = NOW + 11 * 60_000
+    const late = answerMessage(s.one.phone.identity, askOf(s.pushedTo(s.one.phone))!, 'deny', s.clock.now)
+    expect(await s.answer(s.one.phone, late)).toBe('expired')
+    // A fresh ticket, but an answer captured long ago.
+    s.clock.now = NOW
+    await s.notify()
+    const old = answerMessage(s.one.phone.identity, askOf(s.pushedTo(s.one.phone))!, 'deny', NOW - 11 * 60_000)
+    expect(await s.answer(s.one.phone, old)).toBe('expired')
+    expect(s.h.permissions).toEqual([])
+  })
+
+  it('refuses another device, a stranger and a forged answer, and leaves the ticket to its device', async () => {
+    const s = await setup(() => [waiting()])
+    await s.notify()
+    const ask = askOf(s.pushedTo(s.one.phone))!
+    // The second phone (paired, granted sessions) with the first one's ticket.
+    expect(await s.answer(s.two.phone, answerMessage(s.two.phone.identity, ask, 'deny', NOW))).toBe('refused')
+    // Signed by another key in the first phone's name.
+    const forged = { ...answerMessage(s.two.phone.identity, ask, 'deny', NOW), device: s.one.phone.identity.id }
+    expect(await s.answer(s.one.phone, forged)).toBe('refused')
+    // An unpaired identity gets no answer at all.
+    const stranger = new ScriptedDevice(s.h.core, s.me)
+    stranger.disconnect()
+    expect(await s.answer(stranger, answerMessage(stranger.identity, ask, 'deny', NOW), 100)).toBe('unreachable')
+    expect(s.h.permissions).toEqual([])
+    // None of that used the ticket up.
+    expect(await s.answer(s.one.phone, answerMessage(s.one.phone.identity, ask, 'deny', NOW))).toBe('ok')
+  })
+
+  it('never allows from a notification', async () => {
+    const s = await setup(() => [waiting()])
+    await s.notify()
+    const ask = askOf(s.pushedTo(s.one.phone))!
+    expect(await s.answer(s.one.phone, answerMessage(s.one.phone.identity, { ...ask, answers: ['allow', 'deny'] }, 'allow', NOW))).toBe('refused')
+    expect(s.h.permissions).toEqual([])
+  })
+
+  it('refuses a device whose sessions capability was taken away after the push', async () => {
+    const s = await setup(() => [waiting()])
+    await s.notify()
+    s.h.service.setCapabilities(s.one.phone.identity.id, ['health'])
+    expect(await s.answer(s.one.phone, answerMessage(s.one.phone.identity, askOf(s.pushedTo(s.one.phone))!, 'deny', NOW))).toBe('refused')
+    expect(s.h.permissions).toEqual([])
+  })
+
+  it('offers nothing for several requests, a question, or a request without a deny option', async () => {
+    let pending: PendingPermission[] = [waiting('r1'), waiting('r2')]
+    const s = await setup(() => pending)
+    await s.notify()
+    expect(s.pushedTo(s.one.phone).ask).toBeUndefined()
+    pending = [waiting('r1', { questions: [{ question: 'Which?', options: [{ label: 'A' }, { label: 'B' }] }] })]
+    await s.notify()
+    expect(s.pushedTo(s.one.phone).ask).toBeUndefined()
+    pending = [waiting('r1', { options: [{ optionId: 'yes', name: 'Allow', kind: 'allow_once' }] })]
+    await s.notify()
+    expect(s.pushedTo(s.one.phone).ask).toBeUndefined()
   })
 })

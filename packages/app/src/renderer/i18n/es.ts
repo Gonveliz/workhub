@@ -31,6 +31,7 @@ import { agentsEs } from './agents.es'
 import { toolViewEs } from './toolView.es'
 import { windowsEs } from './windows.es'
 import { slashCommandsEs } from './slashCommands.es'
+import { fileMentionsEs } from './fileMentions.es'
 import { storageEs } from './storage.es'
 import { usageReportsEs } from './usageReports.es'
 import { keyboardEs } from './keyboard.es'
@@ -505,6 +506,7 @@ export const es: Record<keyof typeof en, string> = {
   ...toolViewEs,
   ...windowsEs,
   ...slashCommandsEs,
+  ...fileMentionsEs,
   ...storageEs,
   ...localReviewEs,
   ...unsavedEs,

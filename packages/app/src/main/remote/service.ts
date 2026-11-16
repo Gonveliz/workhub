@@ -12,6 +12,7 @@ import {
   identityFromSeed,
   makeAuth,
   signPushPayload,
+  signPushAsk,
   makePairChallenge,
   makePairingOffer,
   openBox,
@@ -32,6 +33,7 @@ import {
   type Identity,
   type PairChallenge,
   type PairingOffer,
+  type PermissionAnswered,
   type PublicIdentity,
   type PushPayload,
   type RelayMessage,
@@ -40,8 +42,10 @@ import {
 } from '@workhub/protocol'
 import type { RemoteCapability, RemoteDevicePlatform, RemoteDeviceView, RemotePairingAlert, RemoteStatusView } from '../../shared/remote-api'
 import { isRemoteCapability, REMOTE_FEATURES } from '../../shared/remote-api'
+import type { PendingPermission } from '../../shared/api'
 import type { MirroredNotification } from '../notifier'
 import { RemoteHub, RemoteRefused } from './dispatcher'
+import { PermissionTickets } from './permission-tickets'
 
 export interface RemoteDeviceRecord {
   id: string
@@ -88,6 +92,8 @@ export interface RemoteServiceDeps {
   log: { info(line: string): void; warn(line: string): void }
   now?: () => number
   schedule?: (fn: () => void, ms: number) => () => void
+  /** The permission requests a session is waiting on: a pushed notification about one may answer it (permission-tickets.ts). */
+  pendingPermissions?: (sessionId: string) => readonly PendingPermission[]
 }
 
 const IDENTITY_REF = 'remote/identity'
@@ -168,6 +174,8 @@ export class RemoteService {
   private request: { deviceId: string; name: string; platform: RemoteDevicePlatform; public: PublicIdentity; challenge: PairChallenge } | null = null
   /** Why the last pairing went wrong, for Settings; cleared by the next QR or a cancel. */
   private alert: RemotePairingAlert | null = null
+  /** One-time tickets of pushed notifications that may answer a permission request. */
+  private readonly tickets = new PermissionTickets()
   private readonly now: () => number
   private readonly schedule: (fn: () => void, ms: number) => () => void
 
@@ -343,8 +351,39 @@ export class RemoteService {
       if (!device.capabilities.includes(capability)) continue
       const link = this.links.get(device.id)
       if (link?.ready && !link.away) this.sendChannel(device.id, link, { t: 'event', channel: 'remote:notification', args: [payload] })
-      else if (this.pushAvailable) this.send({ t: 'push', room: me.id, to: device.id, box: sealBox(device.public, encodeJson(payload)) })
+      else if (this.pushAvailable) this.send({ t: 'push', room: me.id, to: device.id, box: sealBox(device.public, encodeJson(this.withAsk(me, payload, device, notification))) })
     }
+  }
+
+  /** A push about a waiting permission request carries a ticket for this device to answer it from the notification. */
+  private withAsk(me: Identity, payload: PushPayload, device: RemoteDeviceRecord, notification: MirroredNotification): PushPayload {
+    if (notification.kind !== 'needsAnswer' || !notification.sessionId || !this.deps.pendingPermissions || !device.capabilities.includes('sessions')) return payload
+    const ask = this.tickets.issue(device.id, notification.sessionId, this.deps.pendingPermissions(notification.sessionId), this.now())
+    return ask ? signPushAsk(me, payload, device.id, ask) : payload
+  }
+
+  /**
+   * An answer from a notification: the device's service worker sealed it to us and signed it.
+   * Applied only when its ticket, signature and request hold (permission-tickets.ts); the reply,
+   * sealed to the device, tells its worker whether to say it could not.
+   */
+  private answerFromNotification(me: Identity, device: RemoteDeviceRecord, value: unknown): void {
+    const verdict = this.tickets.redeem(me.id, device, value, this.now(), (id) => this.deps.pendingPermissions?.(id) ?? [])
+    let reply: PermissionAnswered | null = null
+    if (verdict.ok) {
+      try {
+        this.deps.hub.answerPermission({ id: device.id, capabilities: new Set(device.capabilities) }, verdict.session, verdict.request, verdict.optionId)
+        this.deps.log.info(`remote: ${device.id} denied a permission request from a notification`)
+        reply = { t: 'permission-answered', ticket: verdict.ticket, ok: true }
+      } catch (err) {
+        this.deps.log.warn(`remote: a notification answer from ${device.id} was refused: ${err instanceof Error ? err.message : String(err)}`)
+        reply = { t: 'permission-answered', ticket: verdict.ticket, ok: false, reason: 'refused' }
+      }
+    } else {
+      this.deps.log.warn(`remote: a notification answer from ${device.id} was refused (${verdict.reason})`)
+      if (verdict.ticket) reply = { t: 'permission-answered', ticket: verdict.ticket, ok: false, reason: verdict.reason }
+    }
+    if (reply) this.sendTo(device.id, this.box(device.public, reply))
   }
 
   async stop(): Promise<void> {
@@ -475,8 +514,9 @@ export class RemoteService {
     const device = this.state.devices.find((d) => d.id === message.from)
     const body = message.body
     if (body.k === 'box') {
-      // Only a pairing request arrives boxed, and only while a QR is shown.
-      if (!this.pairing) return
+      // A pairing request arrives boxed while a QR is shown, and a paired device's answer to a
+      // notification at any time.
+      if (!this.pairing && !device) return
       const plain = openBox(me, { e: body.e, c: body.c })
       if (!plain) return
       let request: unknown
@@ -485,6 +525,11 @@ export class RemoteService {
       } catch {
         return
       }
+      if (device && (request as { t?: unknown } | null)?.t === 'permission-answer') {
+        this.answerFromNotification(me, device, request)
+        return
+      }
+      if (!this.pairing) return
       const pairing = this.pairing
       const verdict = verifyPairRequest(pairing.offer, request, this.now())
       if (!verdict.ok && verdict.reason !== 'outdated') {
