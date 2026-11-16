@@ -30,6 +30,7 @@ import { windowsEn } from './windows.en'
 import { slashCommandsEn } from './slashCommands.en'
 import { storageEn } from './storage.en'
 import { usageReportsEn } from './usageReports.en'
+import { keyboardEn } from './keyboard.en'
 import { localReviewEn } from './localReview.en'
 import { unsavedEn } from './unsaved.en'
 import { planEn } from './plan.en'
@@ -507,5 +508,6 @@ export const en = {
   ...settingsConnectionsEn,
   ...remoteEn,
   ...webEn,
-  ...usageReportsEn
+  ...usageReportsEn,
+  ...keyboardEn
 } as const

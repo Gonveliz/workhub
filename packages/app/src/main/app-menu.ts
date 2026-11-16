@@ -43,6 +43,11 @@ export const MENU_ROUTES: readonly { route: string; key: string; label: string }
   { route: 'plan', key: '9', label: 'nav.plan' }
 ]
 
+/** Commands that act on a session: the focused session window runs them, else the main window's selection. */
+export function isSessionCommand(command: MenuCommand): boolean {
+  return command.kind === 'closeSession' || command.kind === 'showMode' || command.kind === 'openInWindow' || command.kind === 'answerRequest'
+}
+
 const MODES = [
   { mode: 'app', key: '1', label: 'menu.showApp' },
   { mode: 'console', key: '2', label: 'menu.showConsole' },
@@ -105,6 +110,13 @@ export function buildAppMenuTemplate(input: AppMenuInput): MenuItemConstructorOp
       { label: t('nav.sessions'), accelerator: 'CmdOrCtrl+0', click: () => run({ kind: 'navigate', route: 'sessions' }) },
       // Usage and reports has no key: ⌘1-⌘9 are taken.
       { label: t('nav.usage'), click: () => run({ kind: 'navigate', route: 'usage' }) },
+      { type: 'separator' },
+      // Supervising many sessions from the keyboard. Not ⌥⌘1-3 (show as) nor ⌥↑/⌥↓ without ⌘ (move a sidebar row).
+      { label: t('menu.nextSession'), accelerator: 'CmdOrCtrl+Alt+Down', click: () => run({ kind: 'stepSession', step: 1 }) },
+      { label: t('menu.previousSession'), accelerator: 'CmdOrCtrl+Alt+Up', click: () => run({ kind: 'stepSession', step: -1 }) },
+      { label: t('menu.nextNeedsYou'), accelerator: 'CmdOrCtrl+J', click: () => run({ kind: 'nextNeedsYou' }) },
+      { label: t('menu.answerRequest'), accelerator: 'CmdOrCtrl+Shift+A', click: () => run({ kind: 'answerRequest' }) },
+      { label: t('menu.commandPalette'), accelerator: 'CmdOrCtrl+K', click: () => run({ kind: 'commandPalette' }) },
       { type: 'separator' },
       ...MODES.map((m): MenuItemConstructorOptions => ({ label: t(m.label), accelerator: `CmdOrCtrl+Alt+${m.key}`, click: () => run({ kind: 'showMode', mode: m.mode }) })),
       { type: 'separator' },

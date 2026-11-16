@@ -12,7 +12,7 @@ import {
   type HistoryEntry,
   type StartSessionRequest
 } from '@workhub/core'
-import { buildAppMenuTemplate, newSessionKeys, type AppMenuInput, type MenuAgent } from '../src/main/app-menu'
+import { buildAppMenuTemplate, isSessionCommand, newSessionKeys, type AppMenuInput, type MenuAgent } from '../src/main/app-menu'
 import { cleanSessionName, MAX_SESSION_NAME, SessionNames } from '../src/main/session-names'
 import { SessionManager } from '../src/main/session-manager'
 import { KvState } from '@workhub/adapters/sqlite-store'
@@ -108,6 +108,32 @@ describe('application menu', () => {
     expect(ran).toEqual([{ kind: 'navigate', route: 'history' }, { kind: 'showMode', mode: 'console' }])
     expect(view.some((i) => i.role === 'toggleDevTools')).toBe(false)
     expect(items(byLabel(menu({ developer: true }).template, 'menu.view')).some((i) => i.role === 'toggleDevTools')).toBe(true)
+  })
+
+  it('View: next and previous session, next one that needs you, answer a pending request and the command palette', () => {
+    const { template, ran } = menu()
+    const view = items(byLabel(template, 'menu.view'))
+    const keys = ['menu.nextSession', 'menu.previousSession', 'menu.nextNeedsYou', 'menu.answerRequest', 'menu.commandPalette'].map((label) => view.find((i) => i.label === label))
+    expect(keys.map((i) => i?.accelerator)).toEqual(['CmdOrCtrl+Alt+Down', 'CmdOrCtrl+Alt+Up', 'CmdOrCtrl+J', 'CmdOrCtrl+Shift+A', 'CmdOrCtrl+K'])
+    for (const i of keys) click(i)
+    expect(ran).toEqual([{ kind: 'stepSession', step: 1 }, { kind: 'stepSession', step: -1 }, { kind: 'nextNeedsYou' }, { kind: 'answerRequest' }, { kind: 'commandPalette' }])
+    // Answering acts on the focused session window's session; the others go to the main window.
+    expect(ran.map(isSessionCommand)).toEqual([false, false, false, true, false])
+  })
+
+  it('never gives two items the same accelerator', () => {
+    for (const platform of ['darwin', 'win32'] as const) {
+      const all: string[] = []
+      const walk = (list: MenuItemConstructorOptions[]) => {
+        for (const i of list) {
+          if (typeof i.accelerator === 'string') all.push(i.accelerator)
+          if (Array.isArray(i.submenu)) walk(i.submenu)
+        }
+      }
+      walk(menu({ platform }).template)
+      expect(all.length).toBeGreaterThan(20)
+      expect(new Set(all).size, all.join(' ')).toBe(all.length)
+    }
   })
 
   it('Windows and Linux: no app or Window menu; Settings and Quit go in File', () => {

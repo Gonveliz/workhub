@@ -7,6 +7,7 @@ import { CloseSessionDialog } from '../components/organisms/CloseSessionDialog'
 import { isWorking } from '../components/organisms/SessionList'
 import { currentConfig, refreshConfig } from '../configStore'
 import { requestSessionClose } from '../lib/closeSession'
+import { requestAnswerFocus } from '../lib/pendingFocus'
 import { I18nProvider, useI18n } from '../i18n/I18nProvider'
 import { useAppearance } from '../lib/appearance'
 import { cn } from '../lib/cn'
@@ -136,6 +137,7 @@ function SessionWindow({ sessionId }: { sessionId: string }) {
         })
       }
       if (command.kind === 'showMode') void window.hub.sessions.setMode(sessionId, command.mode).catch(() => undefined)
+      if (command.kind === 'answerRequest') requestAnswerFocus(sessionId)
     })
     void window.hub.sessions.list().then(() => setLoaded(true))
     return () => {

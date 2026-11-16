@@ -145,7 +145,7 @@ import { registerAnalyticsIpc, REPORT_BUDGET_MS } from './analytics-ipc'
 import { ApiSpendService, CostLedger, spendAgentId, type CostLedgerState } from './api-spend'
 import { UpdateService } from './updates'
 import { readUpdatePromptState, shouldPromptUpdate, type UpdatePromptState } from './update-prompt'
-import { buildAppMenuTemplate } from './app-menu'
+import { buildAppMenuTemplate, isSessionCommand } from './app-menu'
 import { SessionNames } from './session-names'
 import { OpenSessions, type SavedOpenSessions } from './open-sessions'
 import { boundsOnScreen, SessionWindows, type SavedSessionWindows, type WindowBounds } from './session-windows'
@@ -2069,7 +2069,7 @@ function loadPopover(popover: BrowserWindow): void {
 function runMenuCommand(command: MenuCommand): void {
   const focused = BrowserWindow.getFocusedWindow()
   const sessionWindow = sessionWindows.sessionOf(focused) !== undefined
-  const sessionCommand = command.kind === 'closeSession' || command.kind === 'showMode' || command.kind === 'openInWindow'
+  const sessionCommand = isSessionCommand(command)
   if (sessionCommand && sessionWindow && focused) return focused.webContents.send('menu:command', command)
   if (sessionCommand && focused !== win) return
   if (command.kind === 'navigate' && command.route === 'settings') return settingsWindow.open()

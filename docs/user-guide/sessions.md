@@ -62,6 +62,10 @@ terminal's output to the screen in batches of about one frame, so a command that
 ## The composer
 
 - **Return** sends, **Shift+Return** adds a line, **Esc** interrupts the agent.
+- **Earlier prompts**: **↑** in an empty message box (or with the caret on its first line) brings
+  back the session's previous prompt; keep pressing for older ones (up to the last 50). **↓** comes
+  forward and, past the newest, puts back what you were typing; so does **Esc**. Editing a recalled
+  prompt makes it your draft.
 - Under the input, two small menus show the session's **Model** and **Mode** (permission mode, or
   the agent for Kiro and OpenCode). Change them live. When the agent does not let a session switch
   one, it is shown without a chevron. The mode is tinted when tools run unattended, such as
@@ -82,7 +86,8 @@ terminal's output to the screen in batches of about one frame, so a command that
   answered elsewhere (the phone, another window) shows as such; one the agent withdrew, or that a
   stopped turn left behind, shows as withdrawn. Above the message box a line says how many requests
   wait for your answer; after you answer one, the focus moves to the next request or back to the
-  message box. While one waits and the session is not on screen (its window visible and focused),
+  message box. From the keyboard, **⌘/Ctrl+Shift+A** moves the focus to the oldest request, and
+  **1**-**9** pick its buttons in order. While one waits and the session is not on screen (its window visible and focused),
   Workhub notifies again at the interval set in **Settings → Notifications and alerts** (15 minutes
   by default, counted again from when you last looked at it; it follows the **Needs an answer**
   switch and an automation's own Notify setting).
@@ -203,6 +208,11 @@ with "Earlier messages are not shown", and the full conversation stays in Histor
   icon badge and OS notifications follow the same events (**Settings → Notifications and alerts**).
   A session whose console asks for a permission or a question counts as **Needs an answer** too,
   until you press Enter in that console or it stops.
+- **From the keyboard**: **⌘/Ctrl+Alt+↓** and **⌘/Ctrl+Alt+↑** show the next and previous session
+  in sidebar order, and **⌘/Ctrl+J** jumps to the next session that needs you (**Needs an answer**,
+  **Ready to review** or **Error**), cycling through them. **⌘/Ctrl+K** opens the command palette:
+  type part of a session's name, folder or state, a screen, **New session** or a Settings section
+  or setting, and press Return.
 - **Groups**: **New group** creates a folder of sessions. Drag a session onto a group or onto
   another session to move it; drag groups to reorder them. The row menu has **Move up** and **Move
   down** (Alt+↑ and Alt+↓), **Move to group**, **Take out of group**, and for groups **Rename

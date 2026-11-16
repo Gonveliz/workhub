@@ -6,6 +6,8 @@ import {
   needsHistoryLookup,
   reconcileTop,
   resolveSessionName,
+  sidebarOrder,
+  sidebarRows,
   sessionIdentity,
   GROUP_NAME_MAX,
   groupOf,
@@ -43,6 +45,11 @@ export function listSessions(all: readonly SessionData[]): ListedSession[] {
     if (!prev || (isLive(s) && !isLive(prev)) || (isLive(s) === isLive(prev) && s.view.startedAt >= prev.view.startedAt)) best.set(key, s)
   }
   return [...best.entries()].map(([key, data]) => ({ key, data })).sort((a, b) => a.data.view.startedAt - b.data.view.startedAt)
+}
+
+/** The open sessions in the order the sidebar shows them, top to bottom (the session shortcuts and the command palette walk it). */
+export function sidebarSessionOrder(groups: SessionGroups, listed: readonly ListedSession[]): SessionData[] {
+  return sidebarOrder(sidebarRows(groups, listed)).map((l) => l.data)
 }
 
 /** A bare slash command (`/clear`, `/compact`) says nothing about what the session is for. */

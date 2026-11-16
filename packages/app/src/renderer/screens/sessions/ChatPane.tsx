@@ -8,7 +8,8 @@ import { BrandMark, ToolCallCard } from '../../components/organisms'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { MessageKey } from '../../i18n/translate'
 import { cn } from '../../lib/cn'
-import { usePendingFocus } from '../../lib/pendingFocus'
+import { onAnswerFocus, pendingFocusTarget, usePendingFocus } from '../../lib/pendingFocus'
+import { historyKey, promptHistory, type PromptHistoryState } from '../../lib/promptHistory'
 import { clearStoredDraft, flushStoredDrafts, loadStoredDraft, onComposerDraft, saveStoredDraft, takeComposerDraft } from '../../lib/drafts'
 import { hasImageFiles, imageFilesOf, insertImageMarkers, MAX_IMAGE_FILE_MB, pickImageFiles, PROMPT_IMAGE_TYPES, readImageFiles, removeImageMarker } from '../../lib/images'
 import { acceptsInput, restoreComposer } from '../../lib/prompt-queue'
@@ -602,6 +603,17 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
   const pending = useMemo(() => openRequests(data.items), [data.items])
   const pendingBox = useRef<HTMLElement>(null)
   const focusAfterAnswer = usePendingFocus(pending, pendingBox, composer)
+  // Answer Pending Request (⇧⌘A): the oldest open request takes the focus; 1-9 then pick its buttons.
+  const pendingNow = useRef(pending)
+  pendingNow.current = pending
+  useEffect(
+    () =>
+      onAnswerFocus((id) => {
+        const first = pendingNow.current[0]
+        if (id === v.id && first) pendingFocusTarget(pendingBox.current, first.requestId, null)?.focus()
+      }),
+    [v.id]
+  )
   const answer = useCallback(
     (requestId: string, optionId: string | null, label: string, answers?: Record<string, string>) => {
       focusAfterAnswer(requestId)
@@ -610,6 +622,23 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
     },
     [v.id, focusAfterAnswer]
   )
+
+  // ↑ and ↓ recall the session's earlier prompts (read when pressed, not on every streamed flush); Esc puts the draft back.
+  const history = useRef<PromptHistoryState>(null)
+  const recall = (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    const key = e.key === 'ArrowUp' ? 'up' : e.key === 'ArrowDown' ? 'down' : e.key === 'Escape' ? 'escape' : null
+    const el = e.currentTarget
+    if (!key || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey || e.nativeEvent.isComposing || el.selectionStart !== el.selectionEnd) return false
+    const next = historyKey(history.current, key, promptHistory(data.items), text, el.selectionStart)
+    if (!next) return false
+    e.preventDefault()
+    history.current = next.state
+    // A recalled `/command` does not open the slash menu: ↑ and ↓ keep walking the history.
+    if (next.state) setMenuDismissedFor(next.text)
+    setText(next.text)
+    requestAnimationFrame(() => el.setSelectionRange(next.text.length, next.text.length))
+    return true
+  }
 
   // Workhub 1 keys: Return sends, Shift-Return adds a line, Esc interrupts.
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -637,8 +666,10 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
         return
       }
     }
+    if (menu.length === 0 && recall(e)) return
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
+      history.current = null
       void send()
     } else if (e.key === 'Escape' && v.state === 'busy') {
       e.preventDefault()
@@ -874,7 +905,11 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
               value={text}
               disabled={!open}
               placeholder={t(placeholder)}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                // Editing a recalled prompt makes it the draft.
+                history.current = null
+                setText(e.target.value)
+              }}
               onKeyDown={onKeyDown}
               onPaste={onPaste}
               className="block max-h-48 min-h-9 w-full resize-none overflow-y-auto bg-transparent px-3.5 pt-2.5 pb-1 text-base leading-normal text-text placeholder:text-subtle focus:outline-none disabled:opacity-60"

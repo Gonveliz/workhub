@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { appOptions, EMPTY_SESSION_GROUPS, groupOf, notificationTitle, orderAgents, pickAgent, profileDefaultFolder, refreshMembers, sessionIdentity, setGroupCollapsed, worktreeDefault, type EffectiveAgent, type GroupMember } from '@workhub/core'
+import { appOptions, EMPTY_SESSION_GROUPS, groupOf, nextNeedingYou, notificationTitle, orderAgents, pickAgent, profileDefaultFolder, refreshMembers, sessionIdentity, setGroupCollapsed, statusLevel, stepSession, worktreeDefault, type EffectiveAgent, type GroupMember } from '@workhub/core'
 import type { SessionView, WorkspaceFolder } from '@shared/api'
 import { TooltipProvider } from './components/atoms'
 import { ToastProvider, useToast } from './components/molecules'
 import { NewSessionDialog, Sidebar, Toolbar } from './components/organisms'
+import { CommandPalette, type PaletteEntry } from './components/organisms/CommandPalette'
 import { TopNav } from './components/organisms/TopNav'
 import { dropOnSessionsTitle, isWorking, SessionList } from './components/organisms/SessionList'
 import { RenameSessionDialog } from './components/organisms/RenameSessionDialog'
@@ -21,13 +22,16 @@ import { setComposerDraft } from './lib/drafts'
 import { runIntent, type IntentDeps } from './lib/links'
 import { keyProviders } from './lib/tickets'
 import type { SessionIntent } from '@shared/links-api'
-import { usageGroups } from './lib/home'
+import { folderName, usageGroups } from './lib/home'
 import { allNavItems, MONITOR_SHORTCUT, NEW_SESSION_SHORTCUT, SESSIONS_ITEM, SIDEBAR_SHORTCUT, visibleNavItems, type Route } from './lib/nav'
 import { usePlatform } from './lib/platform'
-import { attentionDetail, NOTIFY_BODY, NOTIFY_OPTION } from './lib/attention'
+import { attentionDetail, LEVEL_LABEL, NOTIFY_BODY, NOTIFY_OPTION } from './lib/attention'
 import { readPrefs, setPrefs, usePrefs } from './lib/prefs'
 import { useAppearance } from './lib/appearance'
-import { historyLookupKeys, listSessions, lookUpHistory, memberOf, sessionLabel, sessionRows, updateGroups, useSessionRows } from './lib/sessionGroups'
+import { historyLookupKeys, listSessions, lookUpHistory, memberOf, sessionLabel, sessionRows, sidebarSessionOrder, updateGroups, useSessionRows } from './lib/sessionGroups'
+import { requestAnswerFocus } from './lib/pendingFocus'
+import { SETTINGS_INDEX, hitKey } from './screens/settings/settings-index'
+import { SETTINGS_SECTIONS, sectionMeta } from './screens/settings/sections'
 import { ROUTE_LABEL } from './lib/routes'
 import { matchesShortcut } from './lib/shortcuts'
 import { useAccountUsage, useUsageAlerts } from './lib/usage'
@@ -49,7 +53,7 @@ import { PullRequestsScreen } from './screens/PullRequestsScreen'
 import { SessionsScreen } from './screens/SessionsScreen'
 import { SubagentSheet } from './screens/sessions/SubagentView'
 import { TicketsScreen } from './screens/TicketsScreen'
-import { getSessions, hydrateFromMain, onAttention, sessionSnapshot, setExternalViewing, setViewing, startStore, useSessions, type SessionData } from './store'
+import { awaitingAnswer, getSessions, hydrateFromMain, onAttention, sessionSnapshot, setExternalViewing, setViewing, startStore, useSessions, type SessionData } from './store'
 import { errorText } from './lib/errorText'
 import { quickSessionPlan } from './lib/quickSession'
 import { createQuickSessionGate } from './lib/quickSessionGate'
@@ -92,6 +96,7 @@ function Shell() {
   const [renaming, setRenaming] = useState<SessionView | null>(null)
   const [resumeFolder, setResumeFolder] = useState<string | null>(null)
   const [closing, setClosing] = useState<SessionData | null>(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   // Sessions shown in windows of their own: the main window shows a placeholder for them.
   const detached = useDetachedSessions()
 
@@ -300,14 +305,33 @@ function Shell() {
   useTraySync({ sessions, groups, locale, navigate, newSession: () => void quickSession() })
 
   // The application menu (main sends its commands to the window they act on).
-  const menuState = useRef({ route, selectedSession, reachable })
-  menuState.current = { route, selectedSession, reachable }
+  const menuState = useRef({ route, selectedSession, reachable, groups, listed })
+  menuState.current = { route, selectedSession, reachable, groups, listed }
   useEffect(
     () =>
       window.hub.menu.onCommand((command: MenuCommand) => {
-        const { route: now, selectedSession: selected, reachable: items } = menuState.current
+        const { route: now, selectedSession: selected, reachable: items, groups: stored, listed: open } = menuState.current
         const current = now === 'sessions' ? getSessions()[selected ?? ''] : undefined
+        const viewing = now === 'sessions' ? selected : null
         switch (command.kind) {
+          case 'stepSession': {
+            const id = stepSession(sidebarSessionOrder(stored, open).map((d) => d.view.id), viewing, command.step)
+            if (id) openSession(id)
+            return
+          }
+          case 'nextNeedsYou': {
+            const order = sidebarSessionOrder(stored, open).map((d) => ({ id: d.view.id, attention: { state: d.view.state, unseen: d.unseen, awaitingAnswer: awaitingAnswer(d) } }))
+            const id = nextNeedingYou(order, viewing)
+            if (id) openSession(id)
+            else toast(latest.current.t('keyboard.noneNeedsYou'))
+            return
+          }
+          case 'answerRequest':
+            if (current) requestAnswerFocus(current.view.id)
+            return
+          case 'commandPalette':
+            setPaletteOpen(true)
+            return
           case 'navigate': {
             const item = items.find((i) => i.route === command.route)
             if (item) navigate(item.route)
@@ -330,8 +354,31 @@ function Shell() {
             return
         }
       }),
-    [navigate, quickSession]
+    [navigate, quickSession, openSession, toast]
   )
+
+  // ⌘K: sessions in sidebar order, the screens, then actions and Settings (its sections, and its search index once typing).
+  const paletteItems = useMemo((): PaletteEntry[] => {
+    if (!paletteOpen) return []
+    const sessionItems = sidebarSessionOrder(groups, listed).map((d): PaletteEntry => {
+      const level = statusLevel({ state: d.view.state, unseen: d.unseen, awaitingAnswer: awaitingAnswer(d) })
+      const detail = [folderName(d.view.cwd), d.view.agentName, level ? t(LEVEL_LABEL[level]) : ''].filter(Boolean).join(' · ')
+      return { id: `session:${d.view.id}`, kind: 'session', label: sessionLabel(d), detail, run: () => openSession(d.view.id) }
+    })
+    const screens = reachable
+      .filter((i) => i.route !== 'settings')
+      .map((i): PaletteEntry => ({ id: `screen:${i.route}`, kind: 'screen', label: t(ROUTE_LABEL[i.route]), run: () => navigate(i.route) }))
+    const sections = SETTINGS_SECTIONS.map((s): PaletteEntry => ({ id: `settings:${s.id}`, kind: 'setting', label: t('palette.settingsSection', { section: t(s.label) }), run: () => openSettings(s.id) }))
+    const seen = new Set<string>()
+    const rows = SETTINGS_INDEX.flatMap((entry): PaletteEntry[] => {
+      const key = hitKey(entry)
+      if (seen.has(key)) return []
+      seen.add(key)
+      const where = [t(sectionMeta(entry.section).label), entry.subgroup && entry.subgroup !== entry.label ? t(entry.subgroup) : ''].filter(Boolean).join(' · ')
+      return [{ id: `setting:${key}`, kind: 'setting', label: t(entry.label), detail: where, searchOnly: true, run: () => openSettings(entry.section) }]
+    })
+    return [...sessionItems, ...screens, { id: 'action:newSession', kind: 'action', label: t('toolbar.newSession'), run: () => void quickSession() }, ...sections, ...rows]
+  }, [paletteOpen, groups, listed, reachable, t, openSession, navigate, openSettings, quickSession])
 
   // CmdOrCtrl shortcuts for every nav item, plus CmdOrCtrl+T for a new session (Workhub 1's keys).
   useEffect(() => {
@@ -552,6 +599,7 @@ function Shell() {
         onStarted={openSession}
       />
       <SubagentSheet />
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} />
       <ReadAloud options={appOptions(snap?.config ?? { options: undefined })} platform={platform} />
       <RenameSessionDialog session={renaming} onClose={() => setRenaming(null)} />
       <UpdatePromptDialog />

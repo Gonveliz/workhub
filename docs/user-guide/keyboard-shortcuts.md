@@ -17,6 +17,7 @@ On macOS the modifier is ⌘. On Windows and Linux use Ctrl in its place.
 | ⌘/Ctrl+9 | Plan (when the module is on) |
 | ⌘/Ctrl+0 | Sessions |
 | ⌘/Ctrl+, | Settings |
+| ⌘/Ctrl+K | Command palette: type to find a session (by name, folder or state), a screen, **New session** or a Settings section or setting; ↑/↓ choose, Return runs, Esc closes |
 
 ## Sessions
 
@@ -28,6 +29,10 @@ On macOS the modifier is ⌘. On Windows and Linux use Ctrl in its place.
 | ⌘/Ctrl+Shift+N | Open the session in a new window |
 | ⌘/Ctrl+Shift+W | Close the session |
 | ⌘/Ctrl+Alt+1 / 2 / 3 | Show as App / Show as Console (Terminal) / Show as Shell |
+| ⌘/Ctrl+Alt+↓ / ⌘/Ctrl+Alt+↑ | Next / previous session, in sidebar order (wraps around; sessions in folded groups count) |
+| ⌘/Ctrl+J | Next session that needs you (a question or permission waiting, an unread reply, a failure); press again to cycle through them |
+| ⌘/Ctrl+Shift+A | Answer the session's pending permission request or question: the focus moves to the oldest one |
+| 1-9 | With the focus on a permission request, pick its first, second… button |
 
 ## Composer
 
@@ -36,6 +41,9 @@ On macOS the modifier is ⌘. On Windows and Linux use Ctrl in its place.
 | Return | Send |
 | Shift+Return | New line |
 | Esc | Interrupt the agent |
+| ↑ | In an empty composer, or with the caret on the first line: the session's previous prompt (up to the last 50) |
+| ↓ | While going through earlier prompts: the next one, then back to what you were typing |
+| Esc | While going through earlier prompts: back to what you were typing |
 | Paste | Attach images |
 
 ## Other

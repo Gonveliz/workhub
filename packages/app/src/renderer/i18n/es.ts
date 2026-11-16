@@ -31,6 +31,7 @@ import { windowsEs } from './windows.es'
 import { slashCommandsEs } from './slashCommands.es'
 import { storageEs } from './storage.es'
 import { usageReportsEs } from './usageReports.es'
+import { keyboardEs } from './keyboard.es'
 import { localReviewEs } from './localReview.es'
 import { unsavedEs } from './unsaved.es'
 import { planEs } from './plan.es'
@@ -506,5 +507,6 @@ export const es: Record<keyof typeof en, string> = {
   ...settingsConnectionsEs,
   ...remoteEs,
   ...webEs,
-  ...usageReportsEs
+  ...usageReportsEs,
+  ...keyboardEs
 }
