@@ -12,8 +12,8 @@ import { mkdir, readdir, rm, stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { repoSlugOfRemote, type LocalChanges, type RepoChanges, type RepoFacts } from '@workhub/core'
 
-/** Options every call adds: no hooks, no pager, no colors (external diff tools are refused per diff command). */
-const SAFE = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.pager=cat', '-c', 'color.ui=false']
+/** Options every call adds: no hooks, no pager, no colors, paths unescaped (external diff tools are refused per diff command). */
+const SAFE = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.pager=cat', '-c', 'color.ui=false', '-c', 'core.quotePath=false']
 
 export interface GitResult {
   ok: boolean

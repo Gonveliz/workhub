@@ -214,3 +214,27 @@ describe('notification options', () => {
     expect(parsed.options?.notifyPrEvents.approved).toBe(true)
   })
 })
+
+describe('detectPrEvents: CI passing again', () => {
+  it('fires once when success follows a failure through pending steps', () => {
+    const failed = sync(sync(undefined, [pr(1, { ci: 'success' })]).state, [pr(1, { ci: 'failure' })])
+    const pending = sync(failed.state, [pr(1, { ci: 'pending' })])
+    expect(pending.events).toEqual([])
+    const stillPending = sync(pending.state, [pr(1, { ci: 'pending' })])
+    const passed = sync(stillPending.state, [pr(1, { ci: 'success' })])
+    expect(kinds(passed.events)).toEqual(['ciPassed'])
+    expect(sync(passed.state, [pr(1, { ci: 'success' })]).events).toEqual([])
+  })
+
+  it('does not fire for a success that follows only pending steps', () => {
+    const seed = sync(undefined, [pr(1, { ci: 'pending' })])
+    expect(sync(seed.state, [pr(1, { ci: 'success' })]).events).toEqual([])
+  })
+
+  it('still fires from a memory written before settledCi existed', () => {
+    const old = seeded([pr(1, { ci: 'pending' })])
+    const [url] = Object.keys(old.mine)
+    old.mine[url!] = { ...old.mine[url!]!, ci: 'failure' }
+    expect(kinds(sync(old, [pr(1, { ci: 'success' })]).events)).toEqual(['ciPassed'])
+  })
+})

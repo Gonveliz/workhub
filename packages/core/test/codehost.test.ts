@@ -332,6 +332,57 @@ describe('parseUnifiedDiff', () => {
     const f = diffFileFromHunks({ path: 'a.ts', status: 'modified' }, '@@ -1 +1 @@\n-a\n+b\n')
     expect(f).toMatchObject({ path: 'a.ts', additions: 1, deletions: 1 })
   })
+  it('reads unquoted paths with spaces from the marker lines and the header', () => {
+    const [m, mode, bin] = parseUnifiedDiff(
+      [
+        'diff --git a/my docs/read me.md b/my docs/read me.md',
+        '--- a/my docs/read me.md\t',
+        '+++ b/my docs/read me.md\t',
+        '@@ -1 +1 @@',
+        '-a',
+        '+b',
+        'diff --git a/my docs/run it.sh b/my docs/run it.sh',
+        'old mode 100644',
+        'new mode 100755',
+        'diff --git a/img/big pic.png b/img/big pic.png',
+        'Binary files a/img/big pic.png and b/img/big pic.png differ'
+      ].join('\n')
+    )
+    expect(m).toMatchObject({ path: 'my docs/read me.md', status: 'modified', additions: 1 })
+    expect(m!.oldPath).toBeUndefined()
+    expect(mode).toMatchObject({ path: 'my docs/run it.sh', status: 'modified' })
+    expect(mode!.oldPath).toBeUndefined()
+    expect(bin).toMatchObject({ path: 'img/big pic.png', binary: true })
+  })
+  it('decodes git C-quoted names, octal bytes as UTF-8', () => {
+    const [a, b, c] = parseUnifiedDiff(
+      [
+        'diff --git "a/caf\\303\\251/a\\tb.txt" "b/caf\\303\\251/a\\tb.txt"',
+        '--- "a/caf\\303\\251/a\\tb.txt"',
+        '+++ "b/caf\\303\\251/a\\tb.txt"',
+        '@@ -1 +1 @@',
+        '-x',
+        '+y',
+        'diff --git "a/\\303\\255 old.txt" "b/\\303\\255 new.txt"',
+        'similarity index 100%',
+        'rename from "\\303\\255 old.txt"',
+        'rename to "\\303\\255 new.txt"',
+        'diff --git "a/q\\"uote.bin" "b/q\\"uote.bin"',
+        'Binary files "a/q\\"uote.bin" and "b/q\\"uote.bin" differ'
+      ].join('\n')
+    )
+    expect(a!.path).toBe('caf\u00e9/a\tb.txt')
+    expect(b).toMatchObject({ path: '\u00ed new.txt', oldPath: '\u00ed old.txt', status: 'renamed' })
+    expect(c).toMatchObject({ path: 'q"uote.bin', binary: true })
+  })
+  it('turns invalid UTF-8 bytes in a quoted name into U+FFFD', () => {
+    const [f] = parseUnifiedDiff(['diff --git "a/x\\377y\\303" "b/x\\377y\\303"', 'Binary files differ'].join('\n'))
+    expect(f!.path).toBe('x\ufffdy\ufffd')
+  })
+  it('detects a rename with spaces from the marker lines', () => {
+    const [r] = parseUnifiedDiff(['diff --git a/old name.txt b/new name.txt', '--- a/old name.txt\t', '+++ b/new name.txt\t', '@@ -1 +1 @@', '-a', '+b'].join('\n'))
+    expect(r).toMatchObject({ path: 'new name.txt', oldPath: 'old name.txt', status: 'renamed' })
+  })
   it('returns nothing for text that is not a diff', () => {
     expect(parseUnifiedDiff('hello\nworld')).toEqual([])
   })

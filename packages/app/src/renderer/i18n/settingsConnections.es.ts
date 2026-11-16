@@ -33,8 +33,6 @@ export const settingsConnectionsEs: Record<keyof typeof settingsConnectionsEn, s
   'settingsConnections.service': 'Servicio',
   'settingsConnections.host': 'Host',
   'settingsConnections.hostHint': 'Vacío: {host}. Un servidor propio: su dirección.',
-  'settingsConnections.token': 'Token',
-  'settingsConnections.tokenHintCode': 'Opcional: sin token, Workhub lee con el inicio de sesión de gh / glab. Se guarda en el almacén de secretos, nunca en el archivo de configuración.',
   'settingsConnections.refresh': 'Actualizar cada',
   'settingsConnections.refreshMinutes': '{count} min',
   'settingsConnections.refreshHintCode': 'Cada cuánto Workhub lee los pull requests y busca novedades.',

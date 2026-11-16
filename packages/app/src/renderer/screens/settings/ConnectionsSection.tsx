@@ -337,7 +337,6 @@ export function ConnectionEditor({
             <Field label={t('settingsConnections.host')} hint={t('settingsConnections.hostHint', { host: providerInfo?.defaultEndpoint ?? '' })} className="col-span-2">
               <Input aria-label={t('settingsConnections.host')} value={draft.endpoint ?? ''} onChange={(e) => set({ endpoint: e.target.value })} placeholder={providerInfo?.defaultEndpoint ?? 'https://git.example.com'} spellCheck={false} />
             </Field>
-            {secretInput(t('settingsConnections.token'), t('settingsConnections.tokenHintCode'))}
             {refreshField('codeHost')}
           </>
         )

@@ -32,8 +32,6 @@ export const settingsConnectionsEn = {
   'settingsConnections.service': 'Service',
   'settingsConnections.host': 'Host',
   'settingsConnections.hostHint': 'Empty: {host}. A self-hosted server: its address.',
-  'settingsConnections.token': 'Token',
-  'settingsConnections.tokenHintCode': 'Optional: without one Workhub reads through the gh / glab login. Kept in the secret store, never in the config file.',
   'settingsConnections.refresh': 'Refresh every',
   'settingsConnections.refreshMinutes': '{count} min',
   'settingsConnections.refreshHintCode': 'How often Workhub reads the pull requests and checks them for news.',
