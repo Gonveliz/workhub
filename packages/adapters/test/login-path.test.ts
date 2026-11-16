@@ -1,11 +1,14 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { BUILTIN_AGENTS } from '@workhub/core'
 import type * as nodePty from 'node-pty'
+import { createCliRunner } from '../src/shared/cli'
+import { runGit } from '../src/git-review'
+import { runWorktreeGit } from '../src/git-worktree'
 import { TerminalRuntime } from '../src/agent-terminal'
-import { augmentedPath, parsePrintedPath, PRINT_PATH_COMMAND, readLoginShellPath, utf8LocaleEnv } from '../src/shared/login-path'
+import { augmentedPath, parsePrintedPath, PRINT_PATH_COMMAND, readLoginShellPath, refreshLoginPath, utf8LocaleEnv } from '../src/shared/login-path'
 
 const launchd = '/usr/bin:/bin:/usr/sbin:/sbin'
 
@@ -98,5 +101,47 @@ describe('utf8LocaleEnv', () => {
     expect(utf8LocaleEnv('darwin', { LANG: 'es_AR.UTF-8' })).toEqual({})
     expect(utf8LocaleEnv('darwin', { LC_ALL: 'C' })).toEqual({})
     expect(utf8LocaleEnv('win32', {})).toEqual({})
+  })
+})
+
+describe('refreshLoginPath', () => {
+  const run = async () => `banner__WORKHUB_PATH__/Users/dana/.nvm/bin:/usr/bin__WORKHUB_PATH__`
+
+  it('writes the login shell PATH into the environment, from the PATH the app started with', async () => {
+    const env: Record<string, string | undefined> = { PATH: 'stale:/usr/bin' }
+    const path = await refreshLoginPath(env, launchd, { platform: 'darwin', home: '/Users/dana', run })
+    expect(path).toBe(`/Users/dana/.nvm/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:/Users/dana/.local/bin`)
+    expect(env['PATH']).toBe(path)
+  })
+
+  it('leaves the environment alone on Windows and when the shell cannot be read', async () => {
+    const env: Record<string, string | undefined> = { Path: 'C:\\Windows' }
+    expect(await refreshLoginPath(env, 'C:\\Windows', { platform: 'win32', run })).toBeNull()
+    expect(await refreshLoginPath(env, launchd, { platform: 'darwin', run: async () => { throw new Error('timeout') } })).toBeNull()
+    expect(env).toEqual({ Path: 'C:\\Windows' })
+  })
+})
+
+describe.skipIf(process.platform === 'win32')('child processes use the PATH set in the environment', () => {
+  const saved = process.env['PATH']
+  let dir: string
+  afterEach(() => {
+    process.env['PATH'] = saved
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('gh/glab runner, git review and git worktree runners all resolve and see the same PATH', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'wh-path-'))
+    // A `git` that only exists in a folder the process was not started with, and echoes its PATH.
+    const fake = join(dir, 'git')
+    writeFileSync(fake, '#!/bin/sh\necho "$PATH"\n')
+    chmodSync(fake, 0o755)
+    process.env['PATH'] = `${dir}:${saved ?? ''}`
+    const review = await runGit(dir, [])
+    const worktree = await runWorktreeGit(dir, [])
+    expect(review.stdout.trim().startsWith(dir)).toBe(true)
+    expect(worktree.stdout.trim().startsWith(dir)).toBe(true)
+    const cli = await createCliRunner([])('git', [])
+    expect(cli.stdout.trim().startsWith(dir)).toBe(true)
   })
 })

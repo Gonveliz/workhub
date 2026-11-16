@@ -694,4 +694,26 @@ describe('Claude executable on Windows', () => {
     expect(pickWindowsClaude(['C:\\nvm4w\\nodejs\\claude'], () => false, home)).toBeUndefined()
     expect(pickWindowsClaude([], () => false, home)).toBeUndefined()
   })
+
+  it('puts the last stderr lines in the error of a bridge that exits on its own', async () => {
+    const rt = new ClaudeNativeRuntime({ bridgeDir: fakeBridge, stopTimeoutMs: 300 })
+    const events: AgentEvent[] = []
+    rt.subscribe((e) => events.push(e))
+    try {
+      await rt.start({ sessionId: 'die', agent: claude, account: null, cwd: fixtures, env: {} })
+      await rt.prompt('die', 'die').catch(() => {})
+      await waitFor(events, (e) => e.type === 'exit')
+      const states = events.flatMap((e) => (e.type === 'state' ? [e] : []))
+      expect(states.at(-1)).toMatchObject({ state: 'error', error: 'Claude exited (code 3):\nacme: login expired\nrun acme login' })
+    } finally {
+      await rt.stopAll()
+    }
+  })
+
+  it('puts the stderr of a bridge that dies during start in the start error', async () => {
+    const rt = new ClaudeNativeRuntime({ bridgeDir: fakeBridge, stopTimeoutMs: 300 })
+    await expect(rt.start({ sessionId: 'die-start', agent: claude, account: null, cwd: fixtures, env: { FAKE_BRIDGE_DIE_ON_START: '1' } })).rejects.toThrow(
+      'the Claude bridge exited during start (code 2):\nError: cannot find module acme-sdk'
+    )
+  })
 })

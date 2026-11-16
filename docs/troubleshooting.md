@@ -8,6 +8,8 @@ Workhub keeps an always-on log of the main process.
   written out first.
 - **Where it is**: `<dataDir>/logs/main.log`. The data folder is shown in **Settings → Advanced →
   Data**. In a development run it is `packages/app/.dev-data/`, or `WORKHUB_DATA_DIR` when set.
+- **Session failures**: a session that fails to start or ends on its own is logged with the last lines
+  the agent wrote to stderr (never your prompts).
 - **Rotation**: when `main.log` reaches 4 MB it is renamed to `main.1.log`, the previous `main.1.log`
   becomes `main.2.log`, and the oldest copy is dropped. Two rotated copies are kept, so the logs
   never take more than about 12 MB. The file is created with owner-only permissions.
@@ -91,8 +93,8 @@ New session marks an agent **not installed**, with how to install it, when its c
    through `npx`; its first session downloads the adapter.
 2. Make sure it is on the `PATH` of your **login shell**. Apps launched from the Finder or a desktop
    launcher inherit a bare `PATH`, so Workhub reads the one your login shell builds, once at
-   startup (Windows keeps its `PATH` as is). After installing a CLI or changing your shell profile,
-   restart Workhub.
+   startup and again after a Setup install (Windows keeps its `PATH` as is). Sessions, the Setup check,
+   `gh`, `glab` and `git` all use that same `PATH`. After changing your shell profile, restart Workhub.
 3. If the program lives elsewhere, set **Command** on the agent's account in **Settings → Agents**
    to a full path.
 4. Run **Help → Setup Check…** for a list of what is missing.
