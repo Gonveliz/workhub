@@ -4,6 +4,22 @@ All notable changes to Workhub 2 are listed here. Entries from 2.0.0-alpha.2 on 
 [release-please](https://github.com/googleapis/release-please) from the Conventional Commits on
 `main`; see the release process in [CONTRIBUTING.md](CONTRIBUTING.md#releases).
 
+## [2.0.0-alpha.38](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.37...v2.0.0-alpha.38) (2026-11-16)
+
+
+### Bug Fixes
+
+* **setup:** do not hold every row for a server that does not answer ([071edec](https://github.com/SoldierIced/workhub/commit/071edec19e2195ce0443a68d2befd2dce011ef72))
+* **setup:** install Codex in one step when Node.js is missing too ([071edec](https://github.com/SoldierIced/workhub/commit/071edec19e2195ce0443a68d2befd2dce011ef72))
+* **setup:** leave no empty folder after removing a tool ([071edec](https://github.com/SoldierIced/workhub/commit/071edec19e2195ce0443a68d2befd2dce011ef72))
+* **setup:** onboarding fixes from the test of v2.0.0-alpha.37 ([d45ecf8](https://github.com/SoldierIced/workhub/commit/d45ecf81bd64430ffff217343c488e409252d1fc))
+* **setup:** say "another install is running" in the person's language ([071edec](https://github.com/SoldierIced/workhub/commit/071edec19e2195ce0443a68d2befd2dce011ef72))
+* **setup:** show the sizes, and Node.js when it comes along, in a single row's install dialog ([071edec](https://github.com/SoldierIced/workhub/commit/071edec19e2195ce0443a68d2befd2dce011ef72))
+* **setup:** update the row by itself when a sign-in finishes ([071edec](https://github.com/SoldierIced/workhub/commit/071edec19e2195ce0443a68d2befd2dce011ef72))
+* **sign-in:** do not show the lines GitLab prints about its own browser launch ([071edec](https://github.com/SoldierIced/workhub/commit/071edec19e2195ce0443a68d2befd2dce011ef72))
+* **sign-in:** say signed out when GitHub refuses the stored token ([071edec](https://github.com/SoldierIced/workhub/commit/071edec19e2195ce0443a68d2befd2dce011ef72))
+* **sign-in:** show the GitLab address and its button, and open the page from Workhub ([071edec](https://github.com/SoldierIced/workhub/commit/071edec19e2195ce0443a68d2befd2dce011ef72))
+
 ## [2.0.0-alpha.37](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.36...v2.0.0-alpha.37) (2026-11-16)
 
 
