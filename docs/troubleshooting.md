@@ -131,8 +131,10 @@ missing, and **Blind spots** says what.
 New session marks an agent **not installed**, with how to install it, when its command is not on
 `PATH`. Then:
 
-1. Install it (for example `kiro-cli`, `opencode`, `gemini`). Codex needs Node.js, because it runs
-   through `npx`; its first session downloads the adapter.
+1. Install it (for example `kiro-cli`, `opencode`, `gemini`), or let **Help → Setup Check… → Install
+   what is missing** install it into Workhub's own tools folder. Codex needs Node.js, because it runs
+   through `npx`; Workhub can install its own Node.js and fetch the adapter ahead, else the first
+   session downloads it.
 2. Make sure it is on the `PATH` of your **login shell**. Apps launched from the Finder or a desktop
    launcher inherit a bare `PATH`, so Workhub reads the one your login shell builds, once at
    startup and again after a Setup install (Windows keeps its `PATH` as is). Sessions, the Setup check,
@@ -142,6 +144,28 @@ New session marks an agent **not installed**, with how to install it, when its c
 4. Run **Help → Setup Check…** for a list of what is missing.
 
 Claude Code needs no separate install; sign in with a Claude account from the setup check.
+
+## Installing a tool fails
+
+**Install what is missing** and each **Install** button say why an install stopped:
+
+- **Could not reach the download server**: no internet connection, or a firewall blocks
+  `nodejs.org`, `github.com`, `gitlab.com` or `registry.npmjs.org`.
+- **A proxy blocked the download**: Workhub downloads through the system's proxy settings, as a
+  browser does. npm installs (OpenCode, Gemini CLI) use npm's own settings: set `proxy` and
+  `https-proxy` in `~/.npmrc` (`%USERPROFILE%\.npmrc` on Windows).
+- **The download did not match its published checksum**: the file was thrown away. Try again; if it
+  keeps happening, something on the network is changing downloads.
+- **A file was in use**: on Windows an antivirus often scans a new file for a few seconds. Workhub
+  retries for a moment; if it still fails, wait and press **Try again**. Removing a tool that is
+  running fails the same way: close the sessions that use it first.
+- **The disk is full**: Node.js takes about 220 MB unpacked, OpenCode about 350 MB.
+- **npm could not install it**: npm's last lines are shown below the message.
+
+A failed or canceled install leaves nothing half installed: a download goes to a temporary name in
+`tools/.partial` and is only moved into place after it is checked and unpacked. To start over,
+remove the tool in **Settings → Advanced → Tools installed by Workhub**, or delete the `tools`
+folder inside the data folder while Workhub is closed.
 
 ## A Plan calendar fails
 

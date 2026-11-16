@@ -13,6 +13,7 @@ import {
   previousStep,
   readySummary,
   stepComplete,
+  welcomeInstallers,
   welcomeSteps,
   workspaceName,
   workspaceOf,
@@ -129,5 +130,24 @@ describe('step completion', () => {
     expect(canStartSession(state())).toBe(true)
     expect(canStartSession(state({ folder: '' }))).toBe(false)
     expect(canStartSession(state({ items: [row({ kind: 'claudeCode', status: 'missing', code: 'claudeMissing' })] }))).toBe(false)
+  })
+})
+
+describe('welcomeInstallers', () => {
+  const install = (installer: string) => ({ kind: 'install' as const, installer: installer as never, command: '' })
+  const items = [
+    row({ kind: 'opencode', status: 'missing', code: 'opencodeMissing', fix: install('opencode') }),
+    row({ kind: 'git', status: 'missing', code: 'gitMissing', optional: true, fix: install('git') }),
+    row({ kind: 'github', status: 'missing', code: 'ghMissing', fix: install('github') }),
+    row({ kind: 'gitlab', status: 'missing', code: 'glabMissing', optional: true, fix: install('gitlab') })
+  ]
+  it('the agent step installs the chosen agent, plus git for the code goals', () => {
+    expect(welcomeInstallers('agent', { goal: 'files', agent: 'opencode', items })).toEqual(['opencode'])
+    expect(welcomeInstallers('agent', { goal: 'both', agent: 'opencode', items })).toEqual(['opencode', 'git'])
+    expect(welcomeInstallers('agent', { goal: 'files', agent: 'claude', items })).toEqual([])
+  })
+  it('the code step installs git and the needed code host tools', () => {
+    expect(welcomeInstallers('code', { goal: 'code', agent: 'claude', items })).toEqual(['git', 'github'])
+    expect(welcomeInstallers('folder', { goal: 'code', agent: 'claude', items })).toEqual([])
   })
 })

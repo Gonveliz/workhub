@@ -42,6 +42,20 @@ Anthropic's usage endpoint is opt-in. The
 optional Slack tracking hook edits an account's `settings.json` only on request, keeps a `.bak`
 copy, and removes only its own entry.
 
+On request (an **Install** button or **Install what is missing**, after you confirm a list of what
+will be downloaded) Workhub downloads tools into a `tools` folder in its data folder, never system
+folders and never with administrator rights: Node.js from nodejs.org, MinGit (Windows) from the Git
+for Windows releases, the GitHub CLI and the GitLab CLI from their official releases, and OpenCode,
+Gemini CLI and Codex's session adapter from the npm registry. The addresses are fixed in the code
+(`packages/core/src/setup/managed-tools.ts`), HTTPS only, at pinned versions; the windows only name
+a tool, never an address or a command. Each archive is checked against the vendor's published
+SHA-256 (Node.js, `gh` and `glab` checksum files; for MinGit the sums from the release notes, copied
+into the code) before it is unpacked, and unpacking refuses absolute paths, `..` and links that
+leave the folder. npm checks its packages against the registry's integrity hashes; Workhub allows
+install scripts only for the one package it installs. The install scripts Workhub may run for
+Claude Code, the Codex CLI and Kiro come from their vendors and have no published checksum. That
+folder is put first on the `PATH` of the processes Workhub starts.
+
 ## Remote access (Workhub Remote)
 
 Remote access is off by default. When you turn it on (Settings, Remote access) Workhub stores and

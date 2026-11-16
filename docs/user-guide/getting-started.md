@@ -8,8 +8,10 @@ needed (see [First run](#first-run)).
 
 - The agents you choose (for example `kiro-cli`, `opencode`, `gemini`). Codex runs through `npx`
   and Gemini CLI on Node.js, so they need Node.js; Claude sessions run on the app's own runtime and
-  need no Node.js. An agent that is not installed shows as **not installed** in **New session**,
-  with an **Install** button when Workhub can install it for you.
+  need no Node.js. You do not have to install Node.js yourself: Workhub can download its own copy
+  (see [Tools Workhub installs for itself](#tools-workhub-installs-for-itself)). An agent that is
+  not installed shows as **not installed** in **New session**, with an **Install** button when
+  Workhub can install it for you.
 - Claude Code needs no separate install: the Claude Agent SDK and its `claude` binary ship inside
   the app. Sign in with a Claude account from the setup check.
 - To work on code: `git`, and `gh` (GitHub) or `glab` (GitLab) signed in, for the code host your
@@ -47,9 +49,11 @@ Workhub 2 has its own app id and data folder, so it can run next to Workhub 1.
 
 Windows is built by CI and has not been tested on real machines yet. Please report what you find.
 
-1. Optional: install [Git for Windows](https://gitforwindows.org/) (Workhub reads local changes and
-   diffs with `git`, and it gives agents Git Bash) and Node.js if you run an agent through `npx`
-   (Codex does). Claude Code needs neither: its binary ships inside the app.
+1. Nothing else to install first. Workhub can download Node.js, Git (MinGit, without Git Bash),
+   the GitHub and GitLab tools, OpenCode and Gemini CLI into its own folder from the setup check
+   (**Install what is missing**), with no administrator rights. If you want Git Bash for your
+   agents, install [Git for Windows](https://gitforwindows.org/) yourself. Claude Code needs
+   nothing: its binary ships inside the app.
 2. Open **PowerShell** (Start menu → type `PowerShell`), paste this line and press Enter:
 
    ```powershell
@@ -59,9 +63,9 @@ Windows is built by CI and has not been tested on real machines yet. Please repo
    It downloads the newest published installer, checks it, installs Workhub 2 for your user (no
    administrator rights, no SmartScreen prompt) and opens it. Run the same line to update.
 3. In Workhub 2 open **Help → Setup Check…**, fix what it flags and sign in with a Claude account.
-4. After you install a CLI (`gh`, `kiro-cli`, `opencode`, `gemini`), restart Workhub: Windows keeps
-   the `PATH` an app started with. See
-   [Troubleshooting](../troubleshooting.md#an-agent-is-not-found-on-path).
+4. A tool Workhub installs itself works at once. After you install a CLI yourself (`gh`,
+   `kiro-cli`, `opencode`, `gemini`), restart Workhub: Windows keeps the `PATH` an app started
+   with. See [Troubleshooting](../troubleshooting.md#an-agent-is-not-found-on-path).
 
 On Windows, the **Shell** view opens the shell named by the `COMSPEC` environment variable, else
 `powershell.exe`.
@@ -107,8 +111,10 @@ Diagnostics and help → Welcome tour**.
 2. **Pick your AI.** One card per assistant (Claude, Codex, Kiro, OpenCode, Gemini), each with what
    Workhub found: **Ready**, **Installed, not signed in** or **Not installed**. Claude comes with
    Workhub and needs nothing installed. For another one that is missing, **Install** shows the exact
-   command and where it downloads from, and runs it only after you confirm. Where the install needs
-   administrator rights, the card shows the command to copy into a terminal and says why.
+   command or download and where it comes from, and runs it only after you confirm. **Install what
+   is missing** does the same for everything this step needs (and `git` for code), one after
+   another. Where the install needs administrator rights, the card shows the command to copy into a
+   terminal and says why.
 3. **Sign in.** **Sign in** opens the sign-in window (see [Signing in](#signing-in)). The step is
    done when Workhub sees you signed in; it checks again every few seconds and when you come back
    to the window. You can skip it. OpenCode and Gemini ask you to sign in in their first
@@ -118,8 +124,8 @@ Diagnostics and help → Welcome tour**.
    workspace (a profile: a workspace for one kind of work, with its own conversations), named after
    the folder unless you rename it. A folder that is already in a workspace reuses it.
 5. **Connect your code and tickets** (only for **Work on code** and **Both**). Shows whether `git`
-   and the GitHub (`gh`) or GitLab (`glab`) tool are installed and signed in, with **Install** or
-   **Sign in** where they are not, and the ticket trackers (Jira, Linear) with a button to their
+   and the GitHub (`gh`) or GitLab (`glab`) tool are installed and signed in, with **Install** (and
+   **Install what is missing**) or **Sign in** where they are not, and the ticket trackers (Jira, Linear) with a button to their
    form in Settings. You can skip it.
 6. **Ready.** A list of what is set and what is still missing, and **Start a conversation**, which
    opens a new session with the AI you picked in your folder. **Close** ends the welcome without
@@ -147,6 +153,35 @@ the official install needs administrator rights (most Linux packages, `git` on W
 shows the command to copy into a terminal and a link to the install page. Otherwise the button
 opens the install page. A tool that is installed but signed out (Claude, Codex, Kiro, GitHub,
 GitLab) has a **Sign in** button.
+
+**Install what is missing**, above the list, installs every needed item that has an **Install**
+button, one after another. First it lists what it will download, from where and about how large,
+and waits for you to confirm. Each item then shows a line: downloading, checking the download,
+unpacking, installing, done, or failed with the reason in plain words and **Try again**. **Cancel**
+stops it; an install that was stopped or failed leaves nothing half installed.
+
+### Tools Workhub installs for itself
+
+Where it can, Workhub installs a tool into its own **tools folder** instead of running an install
+command: no administrator rights, nothing outside that folder changes, and it works on a computer
+with nothing else installed. The folder is `tools` inside the data folder (`%APPDATA%\Workhub 2\tools`
+on Windows, `~/Library/Application Support/Workhub 2/tools` on macOS, `~/.config/Workhub 2/tools`
+on Linux). Workhub puts it first on the `PATH` of its sessions, terminals, sign-ins and checks.
+
+| Tool | Systems | From | Checked against |
+|---|---|---|---|
+| Node.js (LTS) | Windows, macOS, Linux | nodejs.org | the published `SHASUMS256.txt` |
+| Git (MinGit) | Windows | Git for Windows releases on github.com | the SHA-256 from the release notes |
+| GitHub CLI (`gh`) | Windows, macOS, Linux | GitHub CLI releases on github.com | the published checksums file |
+| GitLab CLI (`glab`) | Windows, macOS, Linux | GitLab CLI releases on gitlab.com | the published `checksums.txt` |
+| OpenCode, Gemini CLI | Windows, macOS, Linux | the npm registry, with Workhub's Node.js | npm's integrity check |
+| Codex's session adapter | Windows, macOS, Linux | fetched ahead into npm's cache, so the first Codex session does not wait | npm's integrity check |
+
+On macOS and Linux, `git` stays what you have (Homebrew, Apple's tools, your distribution): there is
+no official archive to unpack. Claude Code, the Codex CLI and Kiro keep their official install
+scripts, which publish no checksum. **Settings → Advanced → Tools installed by Workhub** lists what
+is in the folder, with its version and size, and **Remove** for each one (removing Node.js removes
+the agents installed with it).
 
 While something needed is missing, Home shows a small banner that opens the setup check.
 

@@ -422,7 +422,12 @@ mode semantics (permission levels, personas or none), the env variable of an acc
 and the transcript reader. Users can add their own in the config; a custom agent with the same id
 replaces the built-in one. Sessions start with the login shell's `PATH`, since an app launched from
 the Finder or a desktop launcher inherits a bare one; the main process also puts it in its own
-environment, so `gh`, `glab` and `git` run under the same `PATH`.
+environment, so `gh`, `glab` and `git` run under the same `PATH`. The folders of Workhub's own tools
+folder (`<dataDir>/tools`) come first on that `PATH`, Windows included: the table of what it can
+install, at fixed HTTPS addresses and pinned versions, is `core/src/setup/managed-tools.ts`; the
+download, checksum check and unpacking (zip and tar.gz, with path checks) are
+`adapters/src/managed-tools`; the queue behind **Install what is missing** is
+`app/src/main/setup-queue.ts`.
 
 ### Chat journal
 

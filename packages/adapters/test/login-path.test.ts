@@ -8,7 +8,7 @@ import { createCliRunner } from '../src/shared/cli'
 import { runGit } from '../src/git-review'
 import { runWorktreeGit } from '../src/git-worktree'
 import { TerminalRuntime } from '../src/agent-terminal'
-import { augmentedPath, parsePrintedPath, PRINT_PATH_COMMAND, readLoginShellPath, refreshLoginPath, utf8LocaleEnv } from '../src/shared/login-path'
+import { augmentedPath, parsePrintedPath, PRINT_PATH_COMMAND, readLoginShellPath, refreshLoginPath, utf8LocaleEnv, withFoldersFirst } from '../src/shared/login-path'
 
 const launchd = '/usr/bin:/bin:/usr/sbin:/sbin'
 
@@ -143,5 +143,17 @@ describe.skipIf(process.platform === 'win32')('child processes use the PATH set 
     expect(worktree.stdout.trim().startsWith(dir)).toBe(true)
     const cli = await createCliRunner([])('git', [])
     expect(cli.stdout.trim().startsWith(dir)).toBe(true)
+  })
+})
+
+describe('withFoldersFirst', () => {
+  it('puts Workhub’s tools folders first, once, on every system', () => {
+    const tools = ['/data/tools/node/bin', '/data/tools/npm/bin']
+    expect(withFoldersFirst('/opt/homebrew/bin:/usr/bin', tools, ':')).toBe('/data/tools/node/bin:/data/tools/npm/bin:/opt/homebrew/bin:/usr/bin')
+    // Read again after an install: no duplicates, and a folder the PATH had later moves to the front.
+    expect(withFoldersFirst('/data/tools/node/bin:/usr/bin:/data/tools/npm/bin', tools, ':')).toBe('/data/tools/node/bin:/data/tools/npm/bin:/usr/bin')
+    const win = ['C:\\d\\tools\\node', 'C:\\d\\tools\\git\\cmd']
+    expect(withFoldersFirst('C:\\Windows\\system32;;C:\\Program Files\\nodejs', win, ';')).toBe('C:\\d\\tools\\node;C:\\d\\tools\\git\\cmd;C:\\Windows\\system32;C:\\Program Files\\nodejs')
+    expect(withFoldersFirst('', tools, ':')).toBe('/data/tools/node/bin:/data/tools/npm/bin')
   })
 })

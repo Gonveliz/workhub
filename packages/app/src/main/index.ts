@@ -1,4 +1,4 @@
-import { app, autoUpdater as nativeUpdater, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, safeStorage, screen, shell, utilityProcess } from 'electron'
+import { app, autoUpdater as nativeUpdater, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, net, Notification, powerMonitor, safeStorage, screen, shell, utilityProcess } from 'electron'
 import { existsSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
@@ -11,7 +11,8 @@ import { JsonConfigStore } from '@workhub/adapters/config-json'
 import { SafeStorageSecretStore } from '@workhub/adapters/secrets-electron'
 import { TerminalRuntime } from '@workhub/adapters/agent-terminal'
 import { createCliRunner } from '@workhub/adapters/cli'
-import { augmentedPath, pathKeyOf, refreshLoginPath, utf8LocaleEnv } from '@workhub/adapters/login-path'
+import { augmentedPath, pathKeyOf, refreshLoginPath, utf8LocaleEnv, withFoldersFirst } from '@workhub/adapters/login-path'
+import { ManagedToolsInstaller } from '@workhub/adapters/managed-tools'
 import { readNotificationPermission } from '@workhub/adapters/notification-permission'
 import { ClaudeTranscriptReader, copyClaudeSession, readClaudeHandoffFacts } from '@workhub/adapters/transcript-claude'
 import { CodexPlanUsageReader, CodexSessionHistory, CodexTranscriptReader } from '@workhub/adapters/transcript-codex'
@@ -132,6 +133,7 @@ import { accountSessionEnv, profileSessionEnv } from './profile-env'
 import { showMainOnActivate } from './activation'
 import { AgentToolsService, WORKHUB_MCP_SCRIPT, workhubMcpLaunch } from './agent-tools'
 import { SetupInstaller } from './setup-install'
+import { InstallQueue } from './setup-queue'
 import { installContext, probe, SetupService } from './setup-service'
 import { registerSignInIpc, SignInService } from './sign-in'
 import { CalendarService, usableRead } from './calendar-service'
@@ -142,7 +144,7 @@ import { planView, registerPlanIpc } from './plan-ipc'
 import { PlannerService, type PlannerState } from './planner-service'
 import { addControlInboxItems, registerPlannerIpc } from './planner-ipc'
 import { expandHome } from './automations'
-import { defaultStartMode, gatePrompt, owningProfile, profileFolderPaths, profileRefreshMs, productCalendarEvents, ticketsInProgress, type CalendarState } from '@workhub/core'
+import { defaultStartMode, gatePrompt, installPlanEntry, installQueue, owningProfile, profileFolderPaths, profileRefreshMs, productCalendarEvents, ticketsInProgress, type CalendarState } from '@workhub/core'
 import { createWindows, FILE_WINDOW_SIZE, PLAN_ITEM_WINDOW_SIZE, REVIEW_LOOP_WINDOW_SIZE } from './windows'
 import { createBroadcast } from './broadcast'
 import { createTrayController } from './tray-controller'
@@ -516,16 +518,28 @@ const bridgeDir = app.isPackaged ? join(process.resourcesPath, 'bridge') : join(
  * and when it cannot be, the inherited PATH plus the usual CLI folders. Windows: unchanged.
  */
 Object.assign(process.env, utf8LocaleEnv(process.platform, process.env))
-const launchPath = process.env['PATH']
-let cliPath = augmentedPath({ platform: process.platform, inherited: launchPath, loginShell: null })
+const launchPath = process.env[pathKeyOf(process.env)]
+// The tools Workhub installs for itself (Node.js, Git on Windows, gh, glab, npm agents) live in its
+// data folder and come first on every PATH, Windows included, so a clean machine needs nothing else.
+const managedTools = new ManagedToolsInstaller({
+  toolsDir: join(dataDir, 'tools'),
+  platform: process.platform,
+  arch: process.arch,
+  // Chromium's network stack: the system proxy settings apply, as in a browser.
+  fetch: (url, init) => net.fetch(url, init),
+  env: () => process.env
+})
+const toolFolders = managedTools.pathFolders()
+let cliPath = withFoldersFirst(augmentedPath({ platform: process.platform, inherited: launchPath, loginShell: null }), toolFolders)
 // The same PATH goes into this process's environment, which gh, glab and git inherit: they would
 // otherwise run under the Finder's bare PATH while Setup (sessionPath) finds them. Read again after
 // a Setup install, which may have added a folder to the shell profile.
 const refreshCliPath = async (): Promise<void> => {
   const path = await refreshLoginPath(process.env, launchPath)
-  if (path) cliPath = path
+  if (path) cliPath = withFoldersFirst(path, toolFolders)
+  process.env[pathKeyOf(process.env)] = withFoldersFirst(process.env[pathKeyOf(process.env)] ?? '', toolFolders)
 }
-if (process.platform !== 'win32') process.env[pathKeyOf(process.env)] = cliPath
+process.env[pathKeyOf(process.env)] = process.platform === 'win32' ? withFoldersFirst(launchPath ?? '', toolFolders) : cliPath
 void refreshCliPath()
 const sessionPath = (): string | undefined => (process.platform === 'win32' ? undefined : cliPath)
 // The Claude Code binary the Agent SDK ships with: the terminal's `claude` when the user has none.
@@ -1106,8 +1120,15 @@ const agentTools = new AgentToolsService({
 })
 // One install at a time (the installer keeps the guard), started from the setup checklist.
 const setupPath = () => [sessionPath() ?? process.env['PATH'] ?? '', ...fallbackPath].filter(Boolean).join(delimiter)
-const setupInstaller = new SetupInstaller({ context: () => installContext(probe, { ...process.env, PATH: setupPath() }, process.platform) })
+const setupInstaller = new SetupInstaller({ arch: process.arch, managed: managedTools, context: () => installContext(probe, { ...process.env, PATH: setupPath() }, process.platform) })
+// "Install what is missing" and each row's Install: one queue, progress to every window.
+const installs = new InstallQueue({
+  install: (id, options) => setupInstaller.install(id, options),
+  emit: (snapshot) => broadcast.toWindows('setup:installProgress', snapshot),
+  afterEach: refreshCliPath
+})
 const setup = new SetupService({
+  arch: process.arch,
   config: () => configuration.current(),
   hasSecret: (ref) => secrets.has(ref),
   path: setupPath,
@@ -1239,8 +1260,34 @@ function registerIpc(): void {
   registerSignInIpc(ipc, signIn)
   registerSetupIpc(ipc, {
     setup,
-    setupInstaller,
-    refreshCliPath,
+    installs: {
+      install: async (id) => {
+        const done = installs.start([id])
+        if (!done) return { ok: false, output: 'Another install is running.' }
+        const item = (await done).items[0]
+        return item?.state === 'done' ? { ok: true, output: '' } : { ok: false, output: item?.detail ?? '', ...(item?.reason ? { reason: item.reason } : {}) }
+      },
+      plan: async (ids) => {
+        const context = await installContext(probe, { ...process.env, PATH: setupPath() }, process.platform, process.arch)
+        return installQueue(ids, context, managedTools.hasNode()).flatMap((id) => installPlanEntry(id, context) ?? [])
+      },
+      installMany: async (ids) => {
+        const context = await installContext(probe, { ...process.env, PATH: setupPath() }, process.platform, process.arch)
+        return installs.start(installQueue(ids, context, managedTools.hasNode())) !== null
+      },
+      retry: (id) => installs.retry(id) !== null,
+      cancel: () => installs.cancel(),
+      state: () => installs.snapshot(),
+      tools: {
+        folder: () => managedTools.toolsDir,
+        list: () => managedTools.installed(),
+        remove: async (id) => {
+          const result = await managedTools.remove(id)
+          await refreshCliPath()
+          return result
+        }
+      }
+    },
     agentTools,
     openSetupWindow,
     setupWindow: windows.setupWindow,

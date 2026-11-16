@@ -37,7 +37,8 @@
     "./git-review": "./src/git-review/index.ts",
     "./git-worktree": "./src/git-worktree/index.ts",
     "./token-spend": "./src/token-spend/index.ts",
-    "./listen-summary": "./src/listen-summary/index.ts"
+    "./listen-summary": "./src/listen-summary/index.ts",
+    "./managed-tools": "./src/managed-tools/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
