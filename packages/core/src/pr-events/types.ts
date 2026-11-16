@@ -57,6 +57,8 @@ export interface PrSnapshot {
   name: string
   decision: ReviewDecision
   ci: CiStatus
+  /** The last CI result that was not pending, so a pass after a failure is seen through any number of pending steps. Absent in memory written by older versions. */
+  settledCi?: 'failure' | 'success'
   mergeable: Mergeability
   headSha?: string
   /** Conversation comments plus review threads; undefined where the host does not report it. */

@@ -6,8 +6,12 @@
 import { execFile } from 'node:child_process'
 import { appendFile, mkdir, readFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import type { WorktreeStatus, Worktrees } from '@workhub/core'
+import type { IncludeCopyResult, WorktreeStatus, Worktrees } from '@workhub/core'
+import { GIT_HARDENING } from '../git-hardening'
 import { worktreeOf } from '../token-spend/git-worktree'
+import { copyIncludedFiles, type IncludeCaps } from './include'
+
+export { MAX_INCLUDE_BYTES, MAX_INCLUDE_FILES } from './include'
 
 export interface GitOutput {
   ok: boolean
@@ -17,12 +21,12 @@ export interface GitOutput {
 
 export type WorktreeGit = (cwd: string, args: string[]) => Promise<GitOutput>
 
-/** Runs git without a shell or a pager; hooks are left as the repository has them. */
+/** Runs git without a shell or a pager; hooks are left as the repository has them, but the repository's config cannot start other programs (`GIT_HARDENING`). */
 export const runWorktreeGit: WorktreeGit = (cwd, args) =>
   new Promise((done) => {
     execFile(
       'git',
-      ['-c', 'core.pager=cat', '-c', 'color.ui=false', ...args],
+      ['-c', 'core.pager=cat', '-c', 'color.ui=false', ...GIT_HARDENING, ...args],
       { cwd, windowsHide: true, timeout: 120_000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' } },
       (err, stdout, stderr) => done({ ok: !err, stdout: String(stdout), stderr: String(stderr) })
     )
@@ -31,7 +35,14 @@ export const runWorktreeGit: WorktreeGit = (cwd, args) =>
 const failure = (what: string, r: GitOutput) => new Error(`${what} failed: ${r.stderr.trim() || r.stdout.trim() || 'unknown error'}`)
 
 export class GitWorktrees implements Worktrees {
-  constructor(private readonly git: WorktreeGit = runWorktreeGit) {}
+  constructor(
+    private readonly git: WorktreeGit = runWorktreeGit,
+    private readonly includeCaps?: IncludeCaps
+  ) {}
+
+  copyIncluded(repoRoot: string, path: string): Promise<IncludeCopyResult> {
+    return copyIncludedFiles(this.git, repoRoot, path, this.includeCaps)
+  }
 
   async repoRootOf(path: string): Promise<string | null> {
     const linked = await worktreeOf(path)

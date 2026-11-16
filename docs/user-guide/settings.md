@@ -22,12 +22,12 @@ fixes it (a profile's problem opens that profile on the right tab).
 
 | Group | Section | What it holds |
 |---|---|---|
-| This app | **General** | **Language and appearance**: language (System, English or Spanish), **Light or dark**, **Terminal colours** (**Change…** opens the searchable list with a preview), **Use these colours in the whole app**, and **Text size** (**Adjust…**: app and conversation text, terminal font and size; kept on this computer). **On open and close**: **Keep my sessions in the sidebar** (they come back stopped), **Start them when Workhub starts** and **When the window closes, keep running in the menu bar** (notification area on Windows, status area on Linux). **Voice**: read replies of new sessions aloud, **Voice and speed** on one row with **Test**, and the **Model to summarize before reading**. **Updates**: **Check for new versions automatically**. |
+| This app | **General** | **Language and appearance**: language (System, English or Spanish), **Light or dark**, **Terminal colours** (**Change…** opens the searchable list with a preview), **Use these colours in the whole app**, and **Text size** (**Adjust…**: app and conversation text, terminal font, size and scrollback, 10,000 lines by default and up to 100,000; kept on this computer). **On open and close**: **Keep my sessions in the sidebar** (they come back stopped), **Start them when Workhub starts** and **When the window closes, keep running in the menu bar** (notification area on Windows, status area on Linux). **Voice**: read replies of new sessions aloud, **Voice and speed** on one row with **Test**, and the **Model to summarize before reading**. **Updates**: **Check for new versions automatically**. |
 | | **Notifications and alerts** | What Workhub tells you about, where, and when it stays quiet; the app icon badge and the menu bar panel. |
 | | **Agents** | One card per agent installed on this computer, with its own sign-in and its accounts, **Add account** and each account's form; the usage reading switch under each agent. See [Agents](#agents). |
 | | **Connections** | The services Workhub reads, grouped by kind (Code, Tickets, Calendars, Slack, Health), each with the profiles and screens that use it. See [Connections](#connections). |
 | Per profile | **Profiles** | The list of profiles: colour and symbol, name, an **active** badge and a summary (folders, screens that are on, agents offered), with **Open** and a copy button that duplicates it; **New profile** adds one. See below. |
-| Advanced | **Advanced** | **Diagnostics and help** (**Setup check**, **Welcome tour**, **How Workhub works**) and **Data**: where `config.json`, `secrets.json` and the `workhub.db` database are kept, the database size, **Back up now** and **Show backups folder**. |
+| Advanced | **Advanced** | **Diagnostics and help** (**Setup check**, **Welcome tour**, **How Workhub works**) and **Data**: where `config.json`, `secrets.json` and the `workhub.db` database are kept, the database size, **Back up now**, **Show backups folder** and **Restore from a backup**, what each kind of data takes and **Compact now** (see [Usage](usage.md#how-long-it-is-kept)). |
 
 ### A profile
 
@@ -86,9 +86,13 @@ remembers between launches (open sessions, names, watcher state, spend, Plan, fl
 history, History's search index) is in one database file, `workhub.db`, in the same folder; the row shows its path and size.
 A copy `workhub-YYYY-MM-DD.db` is made in `backups/` about 30 seconds after the app starts and once
 a day after that; **Back up now** makes a separate one, `workhub-YYYY-MM-DD-HHmm.db`, and **Show
-backups folder** opens the folder. The newest 7 daily and the newest 7 manual copies are kept. To
-restore one, quit Workhub and replace `workhub.db` with the copy (delete `workhub.db-wal` and
-`workhub.db-shm` first). If the database ever has to be moved aside because it was damaged, a
+backups folder** opens the folder. The newest 7 daily and the newest 7 manual copies are kept.
+**Restore from a backup** lists them with their date, size and kind; **Restore…** asks first, then
+checks the copy (a damaged one, or one made by a newer Workhub, is refused and nothing changes) and
+restarts Workhub on it. Open sessions stop; `config.json` and `secrets.json` are not touched. The
+database it replaces is kept as `workhub.db.before-restore-<timestamp>` and listed as "Before a
+restore", so you can go back to it the same way. Restoring is available on this computer only, never
+from a paired phone or the control endpoint. If the database ever has to be moved aside because it was damaged, a
 notice in **Diagnostics and help** and in **Data** says where it went (see
 [Troubleshooting](../troubleshooting.md#the-database)). The first start of this version moves the
 JSON state files of earlier versions into the database and renames them to `.migrated`; see
@@ -137,7 +141,8 @@ each. They appear in the list once Workhub finds them in the `PATH`; **Search ag
 ### Workhub tools for agents
 
 How agents in your sessions reach Workhub (Plan, automations, history, the review of their changes,
-flow maps). Two ways, which can be on together:
+flow maps, and your other sessions: see [Agents that work with other sessions](sessions.md#agents-that-work-with-other-sessions)).
+Two ways, which can be on together:
 
 - **Give sessions the Workhub MCP server** (on by default): every new session except reviewers
   gets Workhub's MCP server, `workhub`, with tools such as `plan_today`, `inbox_propose`,
@@ -167,8 +172,8 @@ secret store.
 
 | Group | Add | Fields |
 |---|---|---|
-| **Code** | **Connect GitHub**, **Connect GitLab** | Name, host (empty: the public service), optional token (without one, Workhub reads through the `gh` / `glab` login). **Branches never deleted** (the branches **Close PR** never deletes) is shown once for the whole app. |
-| **Tickets** | **Connect Jira**, **Connect Linear** | Name, Jira site and account email, API token or key, project keys and statuses to hide; **Test**. |
+| **Code** | **Connect GitHub**, **Connect GitLab** | Name and host (empty: the public service). Workhub reads through the `gh` / `glab` login; no token is asked for. **Branches never deleted** (the branches **Close PR** never deletes) is shown once for the whole app. |
+| **Tickets** | **Connect Jira**, **Connect Linear**, **Connect GitHub Issues** | Name, Jira site and account email, API token or key, project keys and statuses to hide; **Test**. GitHub Issues asks for no token (it reads through your `gh` login), only the **Repositories** to read. |
 | **Calendars** | **Add calendar (ICS)** | Name, your address in the calendar and its private address; **Test**. How often a profile reads its calendars is set in its Plan. |
 | **Slack** | | **Watch Slack channels**: the watcher (account and model, interval, hours, channels) and the **Tracking hook** that follows threads from sessions, for the whole app. See [Slack](slack.md). |
 | **Health (Elasticsearch)** | **Connect** | URL, authentication (API key or user and password), TLS (system, pinned fingerprint or insecure); **Test**. **Read at most every** (how often any profile may read Elasticsearch) is shown once. |

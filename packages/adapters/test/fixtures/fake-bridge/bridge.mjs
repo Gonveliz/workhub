@@ -24,6 +24,13 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   switch (m.type) {
     case 'start':
       start = m
+      if (process.env.FAKE_BRIDGE_DIE_ON_START) {
+        // A bridge that dies before it is ready, saying why on stderr only.
+        process.stderr.write('Error: cannot find module acme-sdk\n', () => process.exit(2))
+        break
+      }
+      // A bridge that starts but never reports ready.
+      if (process.env.FAKE_BRIDGE_SILENT_ON_START) break
       send({ type: 'ready' })
       send({
         type: 'options',
@@ -74,6 +81,9 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       } else if (text === 'crash') {
         // The bridge's error path, as an older bridge ended it: an error line, then exit code 0.
         process.stdout.write(JSON.stringify({ type: 'error', message: 'acme sdk crashed' }) + '\n', () => process.exit(0))
+      } else if (text === 'die') {
+        // A crash with no error line: the cause is on stderr only.
+        process.stderr.write('acme: login expired\n\u001b[31mrun acme login\u001b[0m\n', () => process.exit(3))
       } else if (text === 'wait') {
         // Answered by an interrupt.
       } else if (text === 'ignore close') {

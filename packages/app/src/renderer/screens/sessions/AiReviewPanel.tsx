@@ -9,7 +9,7 @@ import { useToast } from '../../components/molecules'
 import { useAiReviews, autoOffForSession, holdForSession, reviewOfReviewer, loopForSession, reviewForSession, useReviewLoops } from '../../aiReviewStore'
 import { AgentReviewDialog } from './AgentReviewDialog'
 import { useConfig } from '../../configStore'
-import { useSessions } from '../../store'
+import { useSessionOpen } from '../../store'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { MessageKey } from '../../i18n/translate'
 import { ESCALATION_TEXT } from '../../lib/useAiReviewNotices'
@@ -326,9 +326,11 @@ export function AiReviewSection({ view }: { view: SessionView }) {
   const { run } = useStartReview(view)
   const [selected, setSelected] = useState<string[]>([])
   const [opinion, setOpinion] = useState('')
-  const sessions = useSessions()
   const reviewedBy = reviewOfReviewer(snap, view.id)
-  if (reviewedBy && !review) return <ReviewerOfCard review={reviewedBy.review} round={reviewedBy.round} hasDev={Boolean(reviewedBy.review.devSessionId && sessions[reviewedBy.review.devSessionId])} />
+  // Whether the sessions it links to are open; not their chats, which stream.
+  const devOpen = useSessionOpen(reviewedBy?.review.devSessionId)
+  const reviewerOpen = useSessionOpen(review?.rounds.at(-1)?.reviewerSessionId)
+  if (reviewedBy && !review) return <ReviewerOfCard review={reviewedBy.review} round={reviewedBy.round} hasDev={devOpen} />
   if (!review && !hold && !loop) return null
   const profile = config?.config.profiles.find((p) => p.id === (review?.profileId ?? view.profileId ?? config.config.activeProfileId))
   const settings = aiReviewSettings(profile)
@@ -376,7 +378,7 @@ export function AiReviewSection({ view }: { view: SessionView }) {
                 <div data-testid="ai-review-reviewer">{t('aiReview.reviewedBy', { reviewer: [round.reviewerLabel, round.reviewerModel].filter(Boolean).join(' · ') })}</div>
               )}
             </div>
-            {round?.reviewerSessionId && sessions[round.reviewerSessionId] && (
+            {round?.reviewerSessionId && reviewerOpen && (
               <Button size="sm" variant="ghost" className="self-start" data-testid="ai-review-open-reviewer" onClick={() => requestOpen(round.reviewerSessionId!)}>
                 {t('agentReview.openReviewer')}
               </Button>

@@ -24,16 +24,18 @@ through the local control endpoint. Full reference: "Ask your agent about your u
 
 Use the `workhub` MCP tools when they are available: `usage_report` (spend and weekly summaries),
 `analytics_schema` (tables, columns, examples) and `analytics_query` (one SQL query). Without them,
-the session environment has `WORKHUB_SESSION` and either `WORKHUB_SOCKET` (macOS, Linux) or
-`WORKHUB_URL` and `WORKHUB_TOKEN` (Windows). With none of them you are not in a Workhub session:
-say so and stop; do not look for the database file.
+the session environment has `WORKHUB_SESSION`, `WORKHUB_SESSION_TOKEN` (this session's own token,
+sent as `X-Workhub-Token` on every call; analytics answer `401` without it) and either
+`WORKHUB_SOCKET` (macOS, Linux) or `WORKHUB_URL` and `WORKHUB_TOKEN` (Windows). With none of them
+you are not in a Workhub session: say so and stop; do not look for the database file. Never print, log or pass on `WORKHUB_SESSION_TOKEN`; send it only in that header.
 
 ```sh
 W() {
-  if [ -n "$WORKHUB_URL" ]; then # Windows: a loopback port and a token
+  local t=(-H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN") # this session's own token, on every call
+  if [ -n "$WORKHUB_URL" ]; then # Windows: a loopback port and the launch token on top
     local a=() x; for x in "$@"; do a+=("${x/http:\/\/workhub/$WORKHUB_URL}"); done
-    curl -s -H "Authorization: Bearer $WORKHUB_TOKEN" "${a[@]}"
-  else curl -s --unix-socket "$WORKHUB_SOCKET" "$@"; fi
+    curl -s -H "Authorization: Bearer $WORKHUB_TOKEN" "${t[@]}" "${a[@]}"
+  else curl -s --unix-socket "$WORKHUB_SOCKET" "${t[@]}" "$@"; fi
 }
 S="session=$WORKHUB_SESSION"
 ```
@@ -66,7 +68,13 @@ Reads are not limited to this session's profile (`usage_report` filters to it by
 - `turns`: one assistant message: `session_id`, `agent`, `at`, `model`, `input_tokens`,
   `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `usd` (list prices; null when the
   model has no price), `cwd`, `project`, `turn_ms` (agent time), `sidechain` (1 for sub-agents:
-  tokens count, `turn_ms` is 0).
+  tokens count, `turn_ms` is 0). Only the last 12 months.
+- `turns_daily`: turns older than 12 months, summed per local day, session, model, folder and
+  project: `day`, `session_id`, `agent`, `model`, `cwd`, `project`, `priced`, `at` (first turn),
+  `last_at`, the four token sums, `usd`, `turn_ms` (sub-agents left out) and `turns` (how many).
+  For a span reaching past 12 months add it to `turns` with `UNION ALL`, counting `turns` instead
+  of rows (`usage_report` already does). `pr_events`, `ticket_events` and `automation_runs` also
+  keep 12 months.
 - `session_links`: `session_id`, `kind` (`pr`, `ticket`, `branch`, `worktree`), `ref`, `source`,
   `at`. A PR `ref` is the canonical URL in lower case without a trailing slash; a ticket `ref` is
   the key in upper case.

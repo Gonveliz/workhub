@@ -22,6 +22,11 @@ const CAPABILITY_HINT: Record<RemoteCapability, MessageKey> = {
   health: 'remote.capability.healthHint',
   plan: 'remote.capability.planHint'
 }
+const ALERT_TEXT: Record<NonNullable<RemoteStatusView['alert']>['kind'], MessageKey> = {
+  'second-device': 'remote.pair.alert.secondDevice',
+  'wrong-code': 'remote.pair.alert.wrongCode',
+  'device-outdated': 'remote.pair.alert.deviceOutdated'
+}
 const PLATFORM_LABEL: Record<RemoteDeviceView['platform'], MessageKey> = {
   ios: 'remote.platform.ios',
   android: 'remote.platform.android',
@@ -94,6 +99,9 @@ export function RemoteSection() {
   // Automations run agents unattended: a new device gets them only when asked for.
   const [grant, setGrant] = useState<RemoteCapability[]>(() => REMOTE_CAPABILITIES.filter((c) => c !== 'automations'))
   const [revoking, setRevoking] = useState<RemoteDeviceView | null>(null)
+  // The code typed for the device waiting; a new request starts empty.
+  const [code, setCode] = useState('')
+  useEffect(() => setCode(''), [status?.request?.deviceId])
   const qr = useQr(status?.pairing?.link ?? null)
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -167,6 +175,11 @@ export function RemoteSection() {
       <SettingsGroup anchor="pair" title={t('remote.group.pair')}>
         <div className="flex flex-col gap-3 py-3" data-settings-row>
           {!canPair && <p className="text-sm text-subtle">{t('remote.pair.needEnabled')}</p>}
+          {status.alert && (
+            <p className="rounded-md border border-danger/40 bg-danger-soft p-3 text-sm text-danger" role="alert" data-testid="remote-pair-alert">
+              {t(ALERT_TEXT[status.alert.kind], { name: status.alert.name ?? '' })}
+            </p>
+          )}
           {canPair && !status.pairing && (
             <div>
               <Button variant="primary" icon={<QrCode className="size-4" aria-hidden />} onClick={() => void act(() => window.hub.remote.startPairing())}>
@@ -199,10 +212,26 @@ export function RemoteSection() {
                 <Badge tone="info">{t(PLATFORM_LABEL[status.request.platform])}</Badge>
               </div>
               <code className="select-all text-sm text-muted">{status.request.fingerprint}</code>
-              <p className="text-xs text-subtle">{t('remote.pair.requestHint')}</p>
+              <Field label={t('remote.pair.code')} hint={t('remote.pair.requestHint')}>
+                <Input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="000000"
+                  className="w-32 font-mono tracking-widest"
+                  spellCheck={false}
+                  data-testid="remote-pair-code"
+                />
+              </Field>
               <CapabilityPicker value={grant} onChange={setGrant} />
               <div className="flex gap-2">
-                <Button variant="primary" icon={<Check className="size-4" aria-hidden />} onClick={() => void act(() => window.hub.remote.acceptPairing(status.request!.deviceId, grant))}>
+                <Button
+                  variant="primary"
+                  icon={<Check className="size-4" aria-hidden />}
+                  disabled={code.length !== 6}
+                  onClick={() => void act(() => window.hub.remote.acceptPairing(status.request!.deviceId, grant, code))}
+                >
                   {t('remote.pair.accept')}
                 </Button>
                 <Button variant="ghost" icon={<X className="size-4" aria-hidden />} onClick={() => void act(() => window.hub.remote.rejectPairing(status.request!.deviceId))}>

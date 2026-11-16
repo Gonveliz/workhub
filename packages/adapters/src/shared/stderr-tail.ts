@@ -1,7 +1,9 @@
+import { redactText } from '@workhub/core'
+
 /**
  * The last lines an agent process wrote to stderr. When an agent exits on its own (a missing
  * login, a package that failed to install, a crash), the cause is usually there and nowhere else,
- * so it goes with the error the user sees.
+ * so it goes with the error the user sees and the main log: token-like strings are redacted first.
  */
 export class StderrTail {
   private readonly lines: string[] = []
@@ -37,7 +39,8 @@ export class StderrTail {
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g
 
 function clean(line: string, width: number): string {
-  const c = line.replace(ANSI, '').trim()
+  // Redacted before the cut, so a token split by the width does not survive as a readable prefix.
+  const c = redactText(line.replace(ANSI, '').trim(), Infinity)
   return c.length > width ? `${c.slice(0, width - 1)}…` : c
 }
 

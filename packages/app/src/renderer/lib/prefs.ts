@@ -21,6 +21,8 @@ export interface Prefs {
   terminalFontFamily: string
   /** Terminal font size in px. */
   terminalFontSize: number
+  /** Lines of scrollback each terminal keeps (xterm's own default is 1,000). */
+  terminalScrollback: number
   /** Conversation (chat) text size in px. */
   chatFontSize: number
   /** Base text size of the whole app in px; every text style scales with it. */
@@ -55,7 +57,7 @@ export interface Prefs {
 }
 
 /** Ranges of the size preferences, as Workhub 1 offered them. */
-export const SIZE_RANGES = { terminalFontSize: [10, 24], chatFontSize: [11, 20], textSize: [11, 20], monitorWidth: [240, 560], sidebarWidth: [200, 420] } as const
+export const SIZE_RANGES = { terminalFontSize: [10, 24], terminalScrollback: [1000, 100_000], chatFontSize: [11, 20], textSize: [11, 20], monitorWidth: [240, 560], sidebarWidth: [200, 420] } as const
 /** The app's base text size (styles.css `--text-base`). */
 export const BASE_TEXT_SIZE = 13
 
@@ -69,6 +71,7 @@ export const DEFAULT_PREFS: Prefs = {
   themeApp: false,
   terminalFontFamily: '',
   terminalFontSize: 13,
+  terminalScrollback: 10_000,
   chatFontSize: BASE_TEXT_SIZE,
   textSize: BASE_TEXT_SIZE,
   monitorWidth: 320,
@@ -107,6 +110,7 @@ export function parsePrefs(raw: string | null): Prefs {
       themeApp: v.themeApp === true,
       terminalFontFamily: str(v.terminalFontFamily),
       terminalFontSize: clampSize('terminalFontSize', v.terminalFontSize),
+      terminalScrollback: clampSize('terminalScrollback', v.terminalScrollback),
       chatFontSize: clampSize('chatFontSize', v.chatFontSize),
       textSize: clampSize('textSize', v.textSize),
       monitorWidth: clampSize('monitorWidth', v.monitorWidth),

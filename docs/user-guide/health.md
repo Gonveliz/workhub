@@ -58,6 +58,11 @@ updated while the problem lasts instead of a new notification every hour. The en
 care where a number comes from; today the source is Health itself (no extra queries): errors per
 service, stderr lines per container, calls to the slow endpoints per service and their failure
 rate, one value per day (the last read of the day, a rolling 24 h figure). Series keep 45 days.
+The engine also records which days each source was actually read. A count that only lists what
+happened (errors, stderr lines, slow calls) counts as zero on a day it was read with nothing for
+that subject; a day it was not read (the app closed, the environment unreachable, a signal that
+could not be read) is left out of the baseline and the sparkline, so coming back after a week away
+does not turn a normal day into a jump.
 
 **Rules.** Each metric is compared with its own previous 7 business days. Every limit is a
 default in **Settings → Profiles → (profile) → Screens → Health → Alert rules** and can be overridden per metric id.
@@ -100,11 +105,11 @@ metrics with one alert of each kind; the demo never notifies.
 
 ## Notifications
 
-**Settings → General → Other notifications → Health**: an environment degrades, cannot be reached
+**Settings → Notifications and alerts** (Health and metrics): an environment degrades, cannot be reached
 or recovers, a service stops reporting, a pod stops being ready, an error signal starts worsening.
 The top navigation and the menu bar panel show the state too.
 
-**Settings → Alerts → Health · environments** decides, per profile and per kind of alert, whether
+**Settings → Profiles → (profile) → Screens → Health → Health · environments** decides, per profile and per kind of alert, whether
 it is announced and where: **Notification** (the OS notification) and **Menu bar** (the menu bar's
 recent notifications). A kind turned off still shows on the Health screen. Two kinds take a
 threshold of their own: **A service stops reporting** (announced once it has been silent that many
@@ -114,12 +119,12 @@ have no threshold to tune (shown as —). Left blank, the environment's threshol
 The same screen holds the metric alerts' minimum severity and business days (the per-metric
 overrides stay in Settings → Profiles → (profile) → Screens → Health → Alert rules) and the profile's **Quiet hours**.
 
-**Quiet hours** (Settings → Alerts, per profile, may cross midnight, such as 22:00 to 07:00):
+**Quiet hours** (Settings → Profiles → (profile) → Screens → Health, per profile, may cross midnight, such as 22:00 to 07:00):
 Health, flow-map and metric alert notifications are not shown during them. They are still
 recorded and cooled down, so they do not all arrive when the quiet hours end. Session and meeting
 notifications are never held back.
 
-**Settings → General → Other notifications → Metric alerts**: a metric alert opens or escalates at
+**Settings → Notifications and alerts** (Health and metrics, metric alerts): a metric alert opens or escalates at
 or above the profile's minimum severity. Snoozed alerts stay quiet; several at once arrive as one
 notification. A click opens the Alerts tab.
 

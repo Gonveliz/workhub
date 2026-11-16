@@ -44,7 +44,7 @@ export const trayPopoverEn = {
   'trayPopover.menu.quietHours': 'Quiet hours',
   'trayPopover.quietHours.off': 'off',
   'trayPopover.quietHours.range': '{start} to {end}',
-  'trayPopover.menu.adjustHint': 'Opens Settings › Notifications',
+  'trayPopover.menu.adjustHint': 'Opens Settings › Notifications and alerts',
   'trayPopover.state.idle': 'Idle',
   'trayPopover.state.starting': 'Starting',
   'trayPopover.state.stopped': 'Stopped',

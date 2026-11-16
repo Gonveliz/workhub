@@ -27,6 +27,29 @@ export interface MetricSample {
   link?: string
 }
 
+/**
+ * One day on which a source was actually read. A day nobody read (the app closed, the source
+ * unreachable) is unknown, not zero. Without a metric or segment it covers every metric or segment
+ * of the source.
+ */
+export interface MetricCoverageScope {
+  source: string
+  metric?: string
+  segment?: string
+  /** Local calendar day, `YYYY-MM-DD`. */
+  day: string
+}
+
+/** The days read per scope key (`source|metric|segment`, an empty part covers all), oldest first. */
+export type MetricCoverage = Record<string, string[]>
+
+/** What a source collected: its samples and what it actually read. */
+export interface MetricCollection {
+  samples: MetricSample[]
+  /** The scopes read; when omitted, each day the source has a sample counts as read for the whole source. */
+  covered?: MetricCoverageScope[]
+}
+
 export type MetricDirection = 'upIsBad' | 'downIsBad'
 export type MetricKind = 'count' | 'rate'
 
@@ -42,7 +65,7 @@ export interface MetricDefinition {
   link?: string
   /** Every alert on this metric is high severity (except the low "near threshold" and missing data ones). */
   critical?: boolean
-  /** A day without a sample means zero (an error count that only lists services with errors). */
+  /** A day the source was read without a sample means zero (an error count that only lists services with errors); a day it was not read is skipped. */
   absentIsZero?: boolean
   /** A sample is expected every business day: a gap of more than a day is itself an alert. */
   expectDaily?: boolean

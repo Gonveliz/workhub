@@ -12,8 +12,11 @@ import {
   identityFromSeed,
   makeAuth,
   signPushPayload,
+  makePairChallenge,
   makePairingOffer,
   openBox,
+  pairingCode,
+  pairingCodeMatches,
   pairingLink,
   parseChannelMessage,
   parseRelayMessage,
@@ -27,6 +30,7 @@ import {
   type Body,
   type ChannelMessage,
   type Identity,
+  type PairChallenge,
   type PairingOffer,
   type PublicIdentity,
   type PushPayload,
@@ -34,7 +38,7 @@ import {
   type SecureChannel,
   fitsFrame
 } from '@workhub/protocol'
-import type { RemoteCapability, RemoteDevicePlatform, RemoteDeviceView, RemoteStatusView } from '../../shared/remote-api'
+import type { RemoteCapability, RemoteDevicePlatform, RemoteDeviceView, RemotePairingAlert, RemoteStatusView } from '../../shared/remote-api'
 import { isRemoteCapability, REMOTE_FEATURES } from '../../shared/remote-api'
 import type { MirroredNotification } from '../notifier'
 import { RemoteHub, RemoteRefused } from './dispatcher'
@@ -158,8 +162,12 @@ export class RemoteService {
   private readonly online = new Set<string>()
   private readonly links = new Map<string, Link>()
   private readonly pendingLinks = new Map<string, PendingLink>()
-  private pairing: { offer: PairingOffer; link: string; cancel: () => void } | null = null
-  private request: { deviceId: string; name: string; platform: RemoteDevicePlatform; public: PublicIdentity } | null = null
+  /** `answeredBy`: the first device that answered the offer; any other one cancels it. */
+  private pairing: { offer: PairingOffer; link: string; cancel: () => void; answeredBy?: string } | null = null
+  /** `challenge`: what the device's pairing code is made with (sent to it signed; the code is never shown here). */
+  private request: { deviceId: string; name: string; platform: RemoteDevicePlatform; public: PublicIdentity; challenge: PairChallenge } | null = null
+  /** Why the last pairing went wrong, for Settings; cleared by the next QR or a cancel. */
+  private alert: RemotePairingAlert | null = null
   private readonly now: () => number
   private readonly schedule: (fn: () => void, ms: number) => () => void
 
@@ -192,7 +200,8 @@ export class RemoteService {
       pushAvailable: this.pushAvailable,
       devices: this.state.devices.map((d) => this.deviceView(d)),
       pairing: this.pairing ? { link: this.pairing.link, expiresAt: this.pairing.offer.exp } : null,
-      request: this.request ? { deviceId: this.request.deviceId, fingerprint: displayFingerprint(this.request.deviceId), name: this.request.name, platform: this.request.platform } : null
+      request: this.request ? { deviceId: this.request.deviceId, fingerprint: displayFingerprint(this.request.deviceId), name: this.request.name, platform: this.request.platform } : null,
+      alert: this.alert
     }
   }
 
@@ -232,26 +241,47 @@ export class RemoteService {
     this.pairing?.cancel()
     const offer = makePairingOffer(me, ws, this.status().desktopName, this.now())
     const cancel = this.schedule(() => {
-      if (this.pairing?.offer === offer) this.pairing = null
+      // The request goes with the offer: its code is made with the offer's secret.
+      if (this.pairing?.offer === offer) {
+        this.pairing = null
+        this.request = null
+      }
       this.changed()
     }, offer.exp - this.now())
     this.pairing = { offer, link: pairingLink(web, offer), cancel }
     this.request = null
+    this.alert = null
     return this.changed()
   }
 
   cancelPairing(): RemoteStatusView {
-    this.pairing?.cancel()
-    this.pairing = null
-    this.request = null
+    this.endPairing(null)
     return this.changed()
   }
 
-  /** The person confirmed the device that answered the QR; it may now connect with what it was granted. */
-  acceptPairing(deviceId: string, capabilities: RemoteCapability[]): RemoteStatusView {
+  /** Drops the offer and any request; `alert` says why, when it was not the person's choice. */
+  private endPairing(alert: RemotePairingAlert | null): void {
+    this.pairing?.cancel()
+    this.pairing = null
+    this.request = null
+    this.alert = alert
+  }
+
+  /**
+   * The person confirmed the device that answered the QR, typing the code it shows; it may now
+   * connect with what it was granted. A wrong code ends the offer: with one guess per QR, a
+   * stranger's device cannot be let in by trying codes.
+   */
+  acceptPairing(deviceId: string, capabilities: RemoteCapability[], code: string): RemoteStatusView {
     const request = this.request
     const me = this.identity
-    if (!request || request.deviceId !== deviceId || !me) throw new Error('no device is waiting to be paired')
+    const offer = this.pairing?.offer
+    if (!request || request.deviceId !== deviceId || !me || !offer) throw new Error('no device is waiting to be paired')
+    if (!pairingCodeMatches(pairingCode(offer, request.public, request.challenge.nonce), code)) {
+      this.deps.log.warn(`remote: wrong pairing code for ${deviceId}; the offer is cancelled`)
+      this.endPairing({ kind: 'wrong-code', at: this.now() })
+      return this.changed()
+    }
     const granted = capabilities.filter(isRemoteCapability)
     const record: RemoteDeviceRecord = { id: deviceId, name: request.name, platform: request.platform, public: request.public, capabilities: granted, pairedAt: this.now() }
     this.state = { ...this.state, devices: [...this.state.devices.filter((d) => d.id !== deviceId), record] }
@@ -455,20 +485,41 @@ export class RemoteService {
       } catch {
         return
       }
-      const verdict = verifyPairRequest(this.pairing.offer, request, this.now())
-      if (!verdict.ok) {
+      const pairing = this.pairing
+      const verdict = verifyPairRequest(pairing.offer, request, this.now())
+      if (!verdict.ok && verdict.reason !== 'outdated') {
         this.deps.log.warn(`remote: pairing request from ${message.from} refused: ${verdict.reason}`)
         if (verdict.reason === 'expired') this.cancelPairing()
         return
       }
       const parsed = pairRequestSchema.parse(request)
       if (verdict.deviceId !== message.from || fingerprintOf(parsed.device) !== message.from) return
-      // The first device to answer an offer keeps it: a second one means the QR or link leaked.
-      if (this.request && this.request.deviceId !== message.from) {
-        this.deps.log.warn(`remote: a second device (${message.from}) answered the pairing offer while ${this.request.deviceId} waits; ignored`)
+      // Only one device answers an offer: a second one means the QR or link was seen by someone
+      // else. Neither is trusted then; the offer ends and the person is told, and pairs again.
+      if (pairing.answeredBy && pairing.answeredBy !== message.from) {
+        this.deps.log.warn(`remote: a second device (${message.from}) answered the pairing offer after ${pairing.answeredBy}; the offer is cancelled`)
+        this.endPairing({ kind: 'second-device', at: this.now() })
+        this.changed()
         return
       }
-      this.request = { deviceId: message.from, name: parsed.name, platform: parsed.platform, public: parsed.device }
+      pairing.answeredBy = message.from
+      if (!verdict.ok) {
+        // A phone from before the pairing code: it cannot show one, so the person is asked to
+        // update it. The offer stays, so the same phone, reloaded, can answer it again.
+        this.deps.log.warn(`remote: ${message.from} answered with an older pairing version; it needs an update`)
+        this.alert = { kind: 'device-outdated', name: parsed.name, at: this.now() }
+        this.changed()
+        return
+      }
+      // A device asking again (it reconnected) gets the same challenge: its code must not change under the person.
+      if (this.request?.deviceId === message.from) {
+        this.sendTo(message.from, this.box(this.request.public, this.request.challenge))
+        return
+      }
+      const challenge = makePairChallenge(me, pairing.offer, parsed.device)
+      this.request = { deviceId: message.from, name: parsed.name, platform: parsed.platform, public: parsed.device, challenge }
+      this.alert = null
+      this.sendTo(message.from, this.box(parsed.device, challenge))
       this.changed()
       return
     }
@@ -531,7 +582,7 @@ export class RemoteService {
     switch (message.t) {
       case 'ready':
         link.ready = true
-        this.sendChannel(device.id, link, { t: 'ready', capabilities: device.capabilities, desktop: this.status().desktopName, features: [REMOTE_FEATURES.away, REMOTE_FEATURES.paging, REMOTE_FEATURES.activity] })
+        this.sendChannel(device.id, link, { t: 'ready', capabilities: device.capabilities, desktop: this.status().desktopName, features: [REMOTE_FEATURES.away, REMOTE_FEATURES.paging, REMOTE_FEATURES.activity, REMOTE_FEATURES.automations, REMOTE_FEATURES.changes] })
         this.touch(device.id)
         this.changed()
         return

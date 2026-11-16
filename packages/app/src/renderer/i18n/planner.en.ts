@@ -1,4 +1,4 @@
-/** Plan's milestones and inbox (Plan tabs, Home cards, Settings → Plan → Inbox, Health's "Send to inbox"). */
+/** Plan's milestones and inbox (Plan tabs, Home cards, Settings → Profiles → Screens → Plan → Inbox, Health's "Send to inbox"). */
 export const plannerEn = {
   'planner.tab.inbox': 'Inbox',
   'planner.tab.tasks': 'Tasks',
@@ -113,7 +113,7 @@ export const plannerEn = {
   'planner.inbox.action.discard': 'Discard',
   'planner.inbox.action.done': 'Done',
   'planner.inbox.action.reopen': 'Reopen',
-  'planner.inbox.noCreate': "The tracker can't create issues, or none is set up (Settings → Plan → Inbox).",
+  'planner.inbox.noCreate': "The tracker can't create issues, or none is set up (Settings → Profiles → Screens → Plan → Inbox).",
   'planner.inbox.setupTracker': 'Set up the tracker',
   'planner.inbox.ticketCreated': '{key} created',
   'planner.inbox.openLink': 'Open link',

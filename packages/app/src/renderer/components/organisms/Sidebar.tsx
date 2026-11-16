@@ -1,4 +1,4 @@
-import { Plus } from 'lucide-react'
+import { Bot, Plus } from 'lucide-react'
 import { useState, type DragEvent, type ReactNode } from 'react'
 import { profileColor, type Profile } from '@workhub/core'
 import type { SessionView, WorkspaceFolder } from '@shared/api'
@@ -9,6 +9,7 @@ import type { NavItem, Route } from '../../lib/nav'
 import { usePlatform } from '../../lib/platform'
 import { DEFAULT_PREFS, SIZE_RANGES, setPrefs, usePrefs } from '../../lib/prefs'
 import { ROUTE_ICON, ROUTE_LABEL } from '../../lib/routes'
+import { useAgentChanges } from '../../chatStore'
 import { IconButton } from '../atoms/IconButton'
 import { Kbd } from '../atoms/Kbd'
 import { PaneResizeHandle } from '../molecules/PaneResizeHandle'
@@ -88,6 +89,29 @@ function NavButton({
   )
 }
 
+/** "Changes by agents" with its count, while some change waits for Keep or Revert: opens Home, where they are listed. */
+function AgentChangesLink({ onOpen }: { onOpen: () => void }) {
+  const { t, tn } = useI18n()
+  const count = useAgentChanges().length
+  if (!count) return null
+  return (
+    <button
+      type="button"
+      data-testid="sidebar-agent-changes"
+      onClick={onOpen}
+      title={tn('agentChanges.count', count)}
+      className="mt-1 flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-base text-muted transition-colors duration-150 hover:bg-surface-hover hover:text-text"
+    >
+      <Bot className="size-4 shrink-0 text-subtle" aria-hidden />
+      <span className="flex-1 truncate">{t('agentChanges.title')}</span>
+      <span className="rounded-full bg-accent-soft px-1.5 text-xs font-medium tabular-nums text-accent">
+        {count}
+        <span className="sr-only"> {tn('agentChanges.count', count)}</span>
+      </span>
+    </button>
+  )
+}
+
 /** The sidebar: profile switcher, sessions and folders, usage at the bottom (the screens are in the top bar). */
 export function Sidebar(props: SidebarProps) {
   const { t, tn } = useI18n()
@@ -145,6 +169,7 @@ export function Sidebar(props: SidebarProps) {
           }
         />
         {props.sessionList}
+        <AgentChangesLink onOpen={() => props.onNavigate('home')} />
         <SectionTitle
           action={<IconButton size="sm" className="size-6" label={t('toolbar.newSession')} icon={<Plus className="size-3.5" />} onClick={() => props.onNewSessionIn(null)} />}
         >

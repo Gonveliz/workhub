@@ -2,17 +2,20 @@ import { CircleAlert, Plus } from 'lucide-react'
 import { memo, useEffect, useState } from 'react'
 import { terminalChannel } from '@shared/api'
 import { Button, Spinner } from '../components/atoms'
+import { ErrorBoundary } from '../components/ErrorBoundary'
 import { EmptyState } from '../components/molecules'
 import { BrandMark } from '../components/organisms'
 import { useI18n } from '../i18n/I18nProvider'
 import { usePrefs } from '../lib/prefs'
 import { cn } from '../lib/cn'
-import type { SessionData } from '../store'
+import { useSession, type SessionData } from '../store'
 import { AiReviewAside } from './sessions/AiReviewPanel'
 import { ChatPane } from './sessions/ChatPane'
 import { MonitorPanel } from './sessions/MonitorPanel'
 import { PendingSwitchBar } from './sessions/PendingSwitchBar'
 import { SessionHeader } from './sessions/SessionHeader'
+import { StallNotice } from './sessions/StallNotice'
+import { SessionRequestsBar } from './sessions/SessionRequestsBar'
 import { TerminalPane } from './sessions/TerminalPane'
 
 export interface SessionsScreenProps {
@@ -31,7 +34,9 @@ export function SessionsScreen({ sessions, selectedId, visible, theme, onNewSess
     <div className="flex h-full min-h-0 flex-col">
       {sessions.map((s) => (
         <div key={s.view.id} className={cn('flex min-h-0 flex-1 flex-col', s.view.id !== current?.view.id && 'hidden')}>
-          <SessionPane data={s} visible={visible && s.view.id === current?.view.id} theme={theme} />
+          <ErrorBoundary where="session" variant="session">
+            <DockedSessionPane row={s} visible={visible && s.view.id === current?.view.id} theme={theme} />
+          </ErrorBoundary>
         </div>
       ))}
       {!current && (
@@ -51,6 +56,15 @@ export function SessionsScreen({ sessions, selectedId, visible, theme, onNewSess
     </div>
   )
 }
+
+/**
+ * A session's pane in the main window. It follows its own session in the store: the rows it gets
+ * hold an older chat while a reply streams, and only this pane renders for each flush.
+ */
+const DockedSessionPane = memo(function DockedSessionPane({ row, visible, theme }: { row: SessionData; visible: boolean; theme: 'light' | 'dark' }) {
+  const data = useSession(row.view.id) ?? row
+  return <SessionPane data={data} visible={visible} theme={theme} />
+})
 
 /**
  * One session's header, chat or terminals and side panel. Rendered again only when that session
@@ -77,7 +91,9 @@ export const SessionPane = memo(function SessionPane({ data, visible, theme }: {
           {t('session.startingHint')}
         </div>
       )}
+      <StallNotice view={v} />
       <PendingSwitchBar view={v} />
+      <SessionRequestsBar sessionId={v.id} />
       {v.error && (
         <div role="alert" className="flex max-h-40 shrink-0 items-start gap-2 overflow-y-auto border-b border-border bg-danger-soft px-4 py-1.5 text-sm whitespace-pre-wrap text-danger">
           <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />

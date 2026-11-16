@@ -1,0 +1,8 @@
+{
+  "version": 6,
+  "connections": [],
+  "agents": [],
+  "accounts": [],
+  "profiles": [{ "id": "acme", "name": "Acme" }],
+  "activeProfileId": "acme"
+}

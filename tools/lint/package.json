@@ -1,0 +1,13 @@
+{
+  "name": "workhub-lint",
+  "private": true,
+  "description": "ESLint toolchain, installed apart from the workspace: typescript-eslint needs the TypeScript 6 JavaScript API and the repo compiles with TypeScript 7",
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.15.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.14.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.2"
+  }
+}

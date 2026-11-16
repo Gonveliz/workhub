@@ -1,7 +1,7 @@
 // Remote access (a phone or browser paired with this desktop): what a device may do, by capability,
 // and what Settings → Remote access shows and does.
 
-import type { BackgroundTaskSummary, HistoryMessage, PullRequestItem, SubagentSummary } from '@workhub/core'
+import type { AutomationHealth, AutomationOutcome, BackgroundTaskSummary, HistoryMessage, PullRequestItem, SubagentSummary } from '@workhub/core'
 import type { CodeHostLists } from './codehost-api'
 
 /** A group of `hub` calls and events a paired device can be granted. */
@@ -27,6 +27,18 @@ export interface RemoteDeviceView {
   online: boolean
 }
 
+/**
+ * Why the last pairing offer went wrong. `second-device`: another device answered the same QR, so
+ * the offer was cancelled. `wrong-code`: the code typed was not the one the phone showed, so the
+ * offer was cancelled. `device-outdated`: the phone (`name`) runs a version from before the
+ * pairing code and must be updated (reloaded) first.
+ */
+export interface RemotePairingAlert {
+  kind: 'second-device' | 'wrong-code' | 'device-outdated'
+  name?: string
+  at: number
+}
+
 export type RemoteConnectionState = 'off' | 'connecting' | 'online' | 'error'
 
 export interface RemoteStatusView {
@@ -46,6 +58,8 @@ export interface RemoteStatusView {
   pairing: { link: string; expiresAt: number } | null
   /** A device that answered the QR and waits for the person to confirm it. */
   request: { deviceId: string; fingerprint: string; name: string; platform: RemoteDevicePlatform } | null
+  /** Why the last pairing went wrong, until the next QR. */
+  alert: RemotePairingAlert | null
 }
 
 export interface RemoteApi {
@@ -55,7 +69,8 @@ export interface RemoteApi {
   setDesktopName(name: string): Promise<RemoteStatusView>
   startPairing(): Promise<RemoteStatusView>
   cancelPairing(): Promise<RemoteStatusView>
-  acceptPairing(deviceId: string, capabilities: RemoteCapability[]): Promise<RemoteStatusView>
+  /** `code`: the six digits the phone shows; a wrong one cancels the offer (see `alert`). */
+  acceptPairing(deviceId: string, capabilities: RemoteCapability[], code: string): Promise<RemoteStatusView>
   rejectPairing(deviceId: string): Promise<RemoteStatusView>
   setCapabilities(deviceId: string, capabilities: RemoteCapability[]): Promise<RemoteStatusView>
   revoke(deviceId: string): Promise<RemoteStatusView>
@@ -83,7 +98,7 @@ export interface RemoteHistoryPage {
  * paged lists or session activity only when the desktop names the feature; an older desktop gets
  * the calls it always had.
  */
-export const REMOTE_FEATURES = { away: 'away', paging: 'paging', activity: 'activity' } as const
+export const REMOTE_FEATURES = { away: 'away', paging: 'paging', activity: 'activity', automations: 'automations', changes: 'changes' } as const
 
 /** A page of a long list a device asks for (`remote:sessions`, `remote:pullRequests`, `remote:automations`, `remote:automationRuns`). */
 export interface RemotePageRequest {
@@ -118,6 +133,22 @@ export interface RemotePullRequestsPage {
   counts: Record<RemotePullRequestList, number>
   mine?: RemotePage<PullRequestItem>
   toReview?: RemotePage<PullRequestItem>
+}
+
+/**
+ * One automation as the phone lists it (`remote:automations`): never its prompt, folder or agent.
+ * `active`: its profile has the Automations module on (when off, it does not run).
+ */
+export interface RemoteAutomation {
+  id: string
+  name: string
+  enabled: boolean
+  active: boolean
+  health: AutomationHealth
+  /** The newest run on record: when it ended (or started) and how it went. */
+  lastRun?: { at: number; outcome: AutomationOutcome }
+  /** When it next checks or runs, when the desktop knows (an interval, a wait). */
+  nextRunAt?: number
 }
 
 /** `remote:automationRuns`: the run history, newest first; `automationId` keeps one automation's runs. */

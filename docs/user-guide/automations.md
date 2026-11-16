@@ -1,8 +1,9 @@
 # Automations
 
-An automation sends a prompt or slash command to a dedicated session, either when a pull request
-message arrives in a Slack channel or on a schedule, inside a time window and under rate limits. Use
-it for repeatable chores such as a `/review-prs` skill.
+An automation sends a prompt or slash command to a dedicated session when a pull request message
+arrives in a Slack channel, when something happens on a pull request (CI failed, changes requested,
+new comments…), or on a schedule, inside a time window and under rate limits. Use it for repeatable
+chores such as a `/review-prs` skill.
 
 It is an optional module: turn on **Automations** for the profile in **Settings → Profiles → (profile) → Screens**. With
 the module off, the profile's automations do not run. The screen is at ⌘/Ctrl+5.
@@ -19,19 +20,20 @@ ready-made one that runs on each pull request posted in your review channels.
 | Field | Meaning |
 |---|---|
 | **Name**, **On** | The automation and its switch. |
-| **Prompt or slash command** | Typed into the session as is, for example `/review-prs`. |
+| **Prompt or slash command** | Typed into the session as is, for example `/review-prs`. A run started by a pull request event fills `{prUrl}` and `{prTitle}` (each in a fenced block, with a note that they are data written on the code host, not instructions) and `{prEvent}` (the events, such as `ciFailed`). Other runs leave them empty. |
 | **Agent**, **Folder**, **Model**, **Effort** | What runs it and where. |
 | **Permissions** | Unattended runs stop at every permission prompt, so pick a mode that lets the skill finish: **Ask permissions**, **Accept edits**, **Plan mode**, **Auto** or **Bypass permissions**. Understand what a mode lets the agent do before using it unattended. |
 | **Runs in** | **The chat** or **The console**. |
 | **Session** | **Reuse its session** (one dedicated session, resumed when it was closed) or **New session each run** (the new one takes the old one's sidebar place and the Slack threads it listens to). |
 | **Run on pull request messages in** | Slack channels that trigger it, and **Only pull requests of (owner)**: a GitHub organization or user (empty accepts any). Channels must also be watched in **Settings → Profiles → (profile) → Screens → Slack**. |
-| **Also every (minutes)** | An optional schedule. Empty means no schedule. |
+| **Run on pull request events** | The events of the pull request sync that start a run: **Review requested** for pull requests in your review queue, the rest (**Approved**, **Changes requested**, **New comments**, **CI failed**, **CI passing again**, **Merge conflicts**, **New commits**, **Merged**, **Closed**) for your own. They come from the code host of the automation's profile (every profile's when it has none), are checked as often as the pull request notifications, and **Only pull requests of (owner)** filters them too. Each event starts one run; events of other pull requests wait for runs of their own (at most 20), and events of the same pull request merge into its run. |
+| **Also every (minutes)** | An optional schedule. Empty means no schedule. The time of the last scheduled run survives restarts, and a new automation waits one full interval before its first run. A schedule that comes due outside the time window, or while a run is already waiting, stays due and runs once at the first moment it is allowed. |
 | **At most (runs)** in **In (minutes)**, **Per day** | Rate limits. |
 | **Wait above 5 h usage (%)** | Pauses while the account's usage is that high. |
 | **Run timeout (minutes)** | Gives up on a run that takes too long. |
 | **Hours** | The window in which it may run, from the first hour up to (not including) the second. A window may cross midnight: 22 to 6 runs from 22:00 to 05:59. Equal hours mean the whole day. |
 | **Only when the skill has pending work** | Reads the skill's JSON **State file** first (no tokens) and starts a run only when something is queued, its head moved, or a claim is older than 60 minutes. |
-| **Notifications** | **Only failures** (default): a notification when a run fails or its session errors. **Always**: also when its session replies or asks. **Never**: none. The switches in **Settings → General** still apply on top. |
+| **Notifications** | **Only failures** (default): a notification when a run fails or its session errors. **Always**: also when its session replies or asks. **Never**: none. The switches in **Settings → Notifications and alerts** still apply on top. |
 | **Replies to its Slack messages wake its session** | Off: threads its sessions write in are not followed. |
 
 ## Running and watching
@@ -42,17 +44,19 @@ the guard, past the account's usage ceiling, rate limit, backing off after failu
 **Run now** (which still runs once when the account is past a ceiling), **Stop**, **Open its session**
 and **Edit**.
 
-The **Run log** lists each run with its trigger (**Slack**, **Schedule**, **By hand**) and outcome
-(**Done**, **Error**, **Rate limited**, **Timed out**, **Skipped**, **Merged**, **Stopped**), plus what
-the run spent. Runs that arrive while one is waiting are merged into it. A Slack event fires an
-automation at most once, even across restarts.
+The **Run log** lists each run with its trigger (**Slack**, **Pull request**, **Schedule**, **By
+hand**) and outcome (**Done**, **Error**, **Rate limited**, **Timed out**, **Skipped**, **Merged**,
+**Stopped**), plus what the run spent. Runs that arrive while one is waiting are merged into it,
+except pull request events of another pull request, which wait for a run of their own. A Slack
+message or a pull request event fires an automation at most once, even across restarts and when
+several profiles see it.
 
 Runs of an automation reuse its open session and are grouped in [History](history.md). Sessions an
 automation owns are marked in the sidebar.
 
 Automations wait while their account is past a usage ceiling; see
 [Usage and budgets](usage.md). Failures notify you if **Automations** is on under **Settings →
-General → Other notifications**.
+Notifications and alerts**.
 
 ## Agents and automations
 
@@ -60,12 +64,13 @@ An agent in a Workhub session can list, add and edit automations through the loc
 endpoint (`skills/workhub-automations` teaches it how):
 
 ```sh
-curl --unix-socket "$WORKHUB_SOCKET" "http://workhub/v1/automations?session=$WORKHUB_SESSION"
+curl --unix-socket "$WORKHUB_SOCKET" -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" \
+  "http://workhub/v1/automations?session=$WORKHUB_SESSION"
 curl --unix-socket "$WORKHUB_SOCKET" -X POST http://workhub/v1/automations \
-  -H 'content-type: application/json' \
+  -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" -H 'content-type: application/json' \
   -d '{"session":"'"$WORKHUB_SESSION"'","automation":{"name":"Triage","prompt":"/triage","triggers":{"intervalMinutes":30}}}'
 curl --unix-socket "$WORKHUB_SOCKET" -X PATCH "http://workhub/v1/automations/<id>" \
-  -H 'content-type: application/json' \
+  -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" -H 'content-type: application/json' \
   -d '{"session":"'"$WORKHUB_SESSION"'","automation":{"window":{"endHour":18}}}'
 ```
 
@@ -77,8 +82,16 @@ curl --unix-socket "$WORKHUB_SOCKET" -X PATCH "http://workhub/v1/automations/<id
   the defaults of **New automation**. An edit changes only the fields sent (`triggers`, `window` and
   `limits` merge into the stored ones).
 - **An agent never turns an automation on.** What it adds starts off and what it edits is turned
-  off, so you check it on this screen and turn it on yourself. Removing one stays yours too.
-- A reviewer session can read but not change them. On Windows the endpoint is a loopback port
-  with a token (`WORKHUB_URL`, `WORKHUB_TOKEN`); the skill covers both.
+  off, so you check it on this screen and turn it on yourself. A Plan brief rule that names an automation that is off ignores it and uses the profile's agent. Removing one stays yours too.
+- **What an agent changed waits for your review.** An automation an agent added or edited carries a
+  **Changed by an agent** badge, and the change is listed under **Changes by agents** on Home with
+  each field before and after and the session that made it. **Keep** marks it as reviewed;
+  **Revert** puts the fields back as they were (an automation the agent added is removed). Revert
+  refuses when the automation changed again since (turning it on counts), so it never undoes your
+  own edit. Agents cannot mark their changes as reviewed, and paired phones do not see the list.
+- Every call sends the session's own token (`WORKHUB_SESSION_TOKEN`) and acts as that session only;
+  without it, only the list of the active profile is answered and every change is refused. A
+  reviewer session can read but not change them. On Windows the endpoint is a loopback port
+  with a token (`WORKHUB_URL`, `WORKHUB_TOKEN`) on top of the session's; the skill covers both.
 
 Next: [History](history.md).

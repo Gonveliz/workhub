@@ -42,9 +42,16 @@ Run these before opening a pull request; CI runs them on macOS, Windows and Linu
 
 ```sh
 npm run typecheck
+npm run lint
 npm test
 npm run build
 ```
+
+`npm run smoke` (after `npm run build`) starts the built app on the demo scenario in a temporary
+data folder, opens every main screen and the Settings window over the DevTools protocol, and fails
+on an error-boundary fallback, an `ERROR` line or `render-process-gone` in `main.log`. Add
+`-- --shots <dir>` to keep a screenshot per screen (History is never photographed). It never touches
+your data and removes everything it created. CI runs it on Linux under `xvfb-run` without blocking.
 
 Add or update tests with the behavior you change (Vitest; readers for other tools' files use
 fixtures and must fail soft). User-facing text goes through the i18n tables in English and

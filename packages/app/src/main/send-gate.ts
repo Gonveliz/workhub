@@ -34,6 +34,13 @@ export class SendGate {
     return this.lanes.has(sessionId)
   }
 
+  /** How many prompts wait behind the one in flight, over every session. */
+  waitingCount(): number {
+    let n = 0
+    for (const lane of this.lanes.values()) n += lane.waiting.length
+    return n
+  }
+
   /** Runs `send` once no other prompt of the session is in flight; `key` lets `withdrawOne` take it back while it waits. */
   run<T>(sessionId: string, send: () => Promise<T>, key?: string): Promise<T> {
     const lane = this.lanes.get(sessionId)

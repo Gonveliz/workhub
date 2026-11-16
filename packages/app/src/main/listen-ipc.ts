@@ -5,6 +5,7 @@
 import { accountAgentId, appOptions, knownAgents, type ListenSummaryResult, type WorkhubConfig } from '@workhub/core'
 import type { ListenSummaryRequest } from '@workhub/adapters/listen-summary'
 import { claudeConfigDirOf } from './claude-accounts'
+import type { BackgroundUsage } from './background-usage'
 import type { IpcRegistrar } from './ipc-guard'
 
 /** Longest message accepted from the renderer; the prompt keeps a much shorter part of it anyway. */
@@ -19,6 +20,9 @@ export interface ListenIpcDeps {
   env?: NodeJS.ProcessEnv
   /** Where a failed summary is reported; the app passes `main.log`. The renderer only gets the failure kind. */
   log?: (message: string) => void
+  /** Each summary is a model run on the account: its tokens and cost go to the usage data ("Workhub background"). */
+  background?: Pick<BackgroundUsage, 'record'>
+  now?: () => number
 }
 
 const isId = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 200
@@ -31,9 +35,15 @@ const isId = (v: unknown): v is string => typeof v === 'string' && v.length > 0 
 export function listenConfigDir(config: WorkhubConfig, session: { agentId: string; accountId: string | null } | null, home: string, env: NodeJS.ProcessEnv = process.env): string | null {
   const claude = knownAgents(config).find((a) => a.id === 'claude')
   if (!claude) return null
+  return claudeConfigDirOf(config, listenAccount(config, session), home, env)
+}
+
+/** The session's own Claude account, when it runs on one; null for the default folder. */
+function listenAccount(config: WorkhubConfig, session: { agentId: string; accountId: string | null } | null): WorkhubConfig['accounts'][number] | null {
+  const claude = knownAgents(config).find((a) => a.id === 'claude')
+  if (!claude || !session?.accountId) return null
   const family = accountAgentId(claude)
-  const account = session?.accountId ? (config.accounts.find((a) => a.id === session.accountId && a.agentId === family) ?? null) : null
-  return claudeConfigDirOf(config, account, home, env)
+  return config.accounts.find((a) => a.id === session.accountId && a.agentId === family) ?? null
 }
 
 export function registerListenIpc(ipc: IpcRegistrar, deps: ListenIpcDeps): void {
@@ -41,7 +51,8 @@ export function registerListenIpc(ipc: IpcRegistrar, deps: ListenIpcDeps): void 
   ipc.handle('listen:summarize', async (_e, requestId: unknown, sessionId: unknown, text: unknown): Promise<ListenSummaryResult> => {
     if (!isId(requestId) || !isId(sessionId) || typeof text !== 'string' || !text.trim()) throw new Error('Invalid listen request')
     const config = await deps.config()
-    const configDir = listenConfigDir(config, deps.session(sessionId), deps.home, deps.env)
+    const session = deps.session(sessionId)
+    const configDir = listenConfigDir(config, session, deps.home, deps.env)
     const log = deps.log ?? ((message: string) => console.warn(message))
     const report = (result: ListenSummaryResult): ListenSummaryResult => {
       if (!result.ok && result.failure !== 'cancelled') log(`listen summary failed (${result.failure}, configDir ${configDir ?? 'none'}): ${result.error}`)
@@ -51,8 +62,24 @@ export function registerListenIpc(ipc: IpcRegistrar, deps: ListenIpcDeps): void 
     running.get(requestId)?.abort()
     const controller = new AbortController()
     running.set(requestId, controller)
+    const now = deps.now ?? Date.now
+    const started = now()
     try {
-      return report(await deps.summarize({ text: text.slice(0, MAX_TEXT), model: appOptions(config).listenModel, configDir, signal: controller.signal }))
+      const model = appOptions(config).listenModel
+      const result = await deps.summarize({ text: text.slice(0, MAX_TEXT), model, configDir, signal: controller.signal })
+      // A run that reported nothing (cancelled before it started, no helper answer) spent nothing known.
+      if (result.usage || result.costUsd !== undefined) {
+        deps.background?.record({
+          kind: 'listenSummary',
+          accountId: listenAccount(config, session)?.id ?? null,
+          at: started,
+          durationMs: now() - started,
+          ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+          ...(model ? { model } : {})
+        })
+      }
+      return report(result)
     } catch (err) {
       return report({ ok: false, failure: 'failed', error: err instanceof Error ? err.message : String(err) })
     } finally {

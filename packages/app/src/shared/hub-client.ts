@@ -3,12 +3,15 @@
 // added here reaches both.
 import type { AgentEvent, HistoryMessage, SessionCeilings, LocalReviewDelivery } from '@workhub/core'
 import type { AccountUsage, UsageAlert, HistoryIndexProgress, HubApi, Platform, SessionView } from './api'
+import type { QuitIntent } from './quit-api'
 import type { UpdateStatus } from './updates-api'
 import type { PrEventBatch } from './pr-events-api'
 import type { SessionIntent } from './links-api'
 import type { AiReviewNotice, AiReviewSnapshot, ReviewLoopView } from './ai-review-api'
 import type { AutomationsSnapshot, ChatNoticeEvent, SlackSnapshot } from './chat-api'
 import type { ContinuityMoved, ContinuityOffer } from './continuity-api'
+import type { SessionRequest } from './session-requests-api'
+import type { AgentChange } from './agent-changes-api'
 import type { TrayPopoverView, TrayRoute } from './tray-api'
 import type { PullRequestWindowTab } from './codehost-api'
 import type { MenuCommand } from './windows-api'
@@ -34,6 +37,7 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
     chromeProfiles: (app) => invoke('links:chromeProfiles', app),
     config: {
       get: () => invoke('config:get'),
+      reload: () => invoke('config:reload'),
       saveConnection: (c, s) => invoke('config:saveConnection', c, s),
       deleteConnection: (id) => invoke('config:deleteConnection', id),
       saveAccount: (a) => invoke('config:saveAccount', a),
@@ -63,12 +67,15 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
     },
     sessions: {
       list: () => invoke('sessions:list'),
+      exportConversation: (conversation) => invoke('sessions:exportConversation', conversation),
+      journal: (id) => invoke('sessions:journal', id),
       ready: () => send('sessions:ready'),
       start: (input) => invoke('sessions:start', input),
       reopen: (identity, input) => invoke('sessions:reopen', identity, input),
       prompt: (id, text, images, token) => invoke('sessions:prompt', id, text, images, token),
       withdrawPrompt: (id, token) => invoke('sessions:withdrawPrompt', id, token),
-      onPromptStarted: (cb) => subscribe<[string, number]>('sessions:promptStarted', cb),
+      keepWaiting: (id) => invoke('sessions:keepWaiting', id),
+      onPromptStarted: (cb) => subscribe<[string, number, number?]>('sessions:promptStarted', cb),
       onPromptSettled: (cb) => subscribe<[string, number]>('sessions:promptSettled', cb),
       setMode: (id, mode, options) => invoke('sessions:setMode', id, mode, options),
       close: (id) => invoke('sessions:close', id),
@@ -86,13 +93,14 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       respondPermission: (id, requestId, optionId, answers) => send('sessions:permission', id, requestId, optionId, answers),
       write: (id, data) => send('sessions:write', id, data),
       resize: (id, cols, rows) => send('sessions:resize', id, cols, rows),
-      onEvent: (cb) => subscribe<[AgentEvent]>('session:event', cb),
+      onEvent: (cb) => subscribe<[AgentEvent, number?]>('session:event', cb),
       onChanged: (cb) => subscribe<[SessionView]>('session:changed', cb),
       onRemoved: (cb) => subscribe<[string]>('session:removed', cb),
-      onReplay: (cb) => subscribe<[string, HistoryMessage[]]>('session:replay', cb)
+      onReplay: (cb) => subscribe<[string, HistoryMessage[], number?]>('session:replay', cb)
     },
     history: {
       list: () => invoke('history:list'),
+      listOlder: () => invoke('history:listOlder'),
       search: (query, options) => invoke('history:search', query, options),
       indexProgress: () => invoke('history:indexProgress'),
       onIndexProgress: (cb) => subscribe<[HistoryIndexProgress]>('history:indexProgress', cb),
@@ -132,6 +140,11 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       skip: (version) => invoke('updates:skip', version),
       onPrompt: (cb) => subscribe<[UpdateStatus]>('updates:prompt', cb)
     },
+    quit: {
+      pending: () => invoke('quit:pending'),
+      cancelPending: () => invoke('quit:cancelPending'),
+      onPending: (cb) => subscribe<[QuitIntent | null]>('quit:pending', cb)
+    },
     codeHost: {
       lists: (profileId, force) => invoke('codeHost:lists', profileId, force),
       view: (profileId, url) => invoke('codeHost:view', profileId, url),
@@ -140,6 +153,10 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       comment: (profileId, url, body) => invoke('codeHost:comment', profileId, url, body),
       reply: (profileId, url, threadId, body) => invoke('codeHost:reply', profileId, url, threadId, body),
       close: (profileId, url, comment, deleteBranch) => invoke('codeHost:close', profileId, url, comment, deleteBranch),
+      draftPullRequest: (sessionId) => invoke('codeHost:draftPullRequest', sessionId),
+      createPullRequest: (sessionId, form) => invoke('codeHost:createPullRequest', sessionId, form),
+      mergeMethods: (profileId, url) => invoke('codeHost:mergeMethods', profileId, url),
+      merge: (profileId, url, method, deleteBranch) => invoke('codeHost:merge', profileId, url, method, deleteBranch),
       openWindow: (profileId, url, tab) => invoke('codeHost:openWindow', profileId, url, tab),
       showInWorkhub: (profileId, url) => invoke('codeHost:showInWorkhub', profileId, url),
       onFocus: (cb) => subscribe<[string, string | null]>('codeHost:focus', cb),
@@ -243,8 +260,8 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       openSession: (id) => invoke('automations:openSession', id),
       setViewing: (id) => send('automations:setViewing', id),
       onChanged: (cb) => subscribe<[AutomationsSnapshot]>('automations:changed', cb),
-      onPrompted: (cb) => subscribe<[string, string]>('automations:prompted', cb),
-      onTurnEnded: (cb) => subscribe<[string, string]>('automations:turnEnded', cb),
+      onPrompted: (cb) => subscribe<[string, string, number?]>('automations:prompted', cb),
+      onTurnEnded: (cb) => subscribe<[string, string, number?]>('automations:turnEnded', cb),
       onConfigChanged: (cb) => subscribe<[]>('config:changed', cb)
     },
     aiReview: {
@@ -273,6 +290,18 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       handoff: (sessionId, request) => invoke('continuity:handoff', sessionId, request),
       onOffer: (cb) => subscribe<[ContinuityOffer]>('continuity:offer', cb),
       onMoved: (cb) => subscribe<[ContinuityMoved]>('continuity:moved', cb)
+    },
+    sessionRequests: {
+      list: () => invoke('sessionRequests:list'),
+      approve: (id) => invoke('sessionRequests:approve', id),
+      dismiss: (id) => invoke('sessionRequests:dismiss', id),
+      onChanged: (cb) => subscribe<[SessionRequest[]]>('sessionRequests:changed', cb)
+    },
+    agentChanges: {
+      list: () => invoke('agentChanges:list'),
+      keep: (id) => invoke('agentChanges:keep', id),
+      revert: (id) => invoke('agentChanges:revert', id),
+      onChanged: (cb) => subscribe<[AgentChange[]]>('agentChanges:changed', cb)
     },
     setup: {
       run: () => invoke('setup:run'),
@@ -362,7 +391,7 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       setDesktopName: (name) => invoke('remote:setDesktopName', name),
       startPairing: () => invoke('remote:startPairing'),
       cancelPairing: () => invoke('remote:cancelPairing'),
-      acceptPairing: (deviceId, capabilities) => invoke('remote:acceptPairing', deviceId, capabilities),
+      acceptPairing: (deviceId, capabilities, code) => invoke('remote:acceptPairing', deviceId, capabilities, code),
       rejectPairing: (deviceId) => invoke('remote:rejectPairing', deviceId),
       setCapabilities: (deviceId, capabilities) => invoke('remote:setCapabilities', deviceId, capabilities),
       revoke: (deviceId) => invoke('remote:revoke', deviceId),
@@ -370,12 +399,17 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
     },
     diagnostics: {
       report: (report) => send('diag:report', report),
-      revealLogs: () => send('diag:revealLogs')
+      revealLogs: () => send('diag:revealLogs'),
+      exportDiagnostics: () => invoke('diag:export')
     },
     storage: {
       info: () => invoke('storage:info'),
       backup: () => invoke('storage:backup'),
-      revealBackups: () => send('storage:revealBackups')
+      revealBackups: () => send('storage:revealBackups'),
+      usage: () => invoke('storage:usage'),
+      compact: () => invoke('storage:compact'),
+      restorePoints: () => invoke('storage:restorePoints'),
+      restore: (path) => invoke('storage:restore', path)
     },
     analytics: {
       tags: (sessionId) => invoke('analytics:tags', sessionId),
@@ -385,6 +419,7 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       sessions: (query) => invoke('analytics:sessions', query),
       weekly: (query) => invoke('analytics:weekly', query),
       filters: (query) => invoke('analytics:filters', query),
+      exportCsv: (table) => invoke('analytics:exportCsv', table),
       refresh: () => invoke('analytics:refresh')
     }
   }

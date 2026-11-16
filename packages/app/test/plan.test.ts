@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  BRIEF_UNTRUSTED_NOTE,
   briefKey,
   DEFAULT_PLANNER_SETTINGS,
   emptyConfig,
@@ -16,7 +17,7 @@ import {
   type SecretStore,
   type WorkhubConfig
 } from '@workhub/core'
-import { CalendarService, PLAN_MIN_GAP_MS } from '../src/main/calendar-service'
+import { CalendarService, PLAN_MIN_GAP_MS, PLAN_RETRY_GAP_MS, PLAN_RETRY_MAX_GAP_MS, usableRead, type CalendarRead } from '../src/main/calendar-service'
 import { CalendarStateStore, CalendarWatcher } from '../src/main/calendar-watcher'
 import { BriefService, type BriefServiceDeps } from '../src/main/plan-briefs'
 import { meetingReminderWords } from '../src/main/plan-ipc'
@@ -154,6 +155,49 @@ describe('CalendarService', () => {
     expect(JSON.stringify(view)).not.toContain('private.ics')
   })
 
+  it('retries a failed read after a short gap that backs off, without being forced', async () => {
+    let now = NOW
+    const { source, reads } = fakeSource([{ ok: false, failure: 'unreachable' }])
+    const s = calendarService({ source, now: () => now })
+    await s.view('work')
+    expect(reads).toHaveLength(1)
+    now += PLAN_RETRY_GAP_MS - 1
+    await s.view('work')
+    expect(reads).toHaveLength(1)
+    now += 1
+    await s.view('work')
+    expect(reads).toHaveLength(2)
+    now += PLAN_RETRY_GAP_MS // the second failure waits twice as long
+    await s.view('work')
+    expect(reads).toHaveLength(2)
+    now += PLAN_RETRY_GAP_MS
+    await s.view('work')
+    expect(reads).toHaveLength(3)
+    for (let i = 0; i < 12; i++) {
+      now += PLAN_RETRY_MAX_GAP_MS
+      await s.view('work')
+    }
+    const before = reads.length
+    now += PLAN_RETRY_MAX_GAP_MS - 1
+    await s.view('work')
+    expect(reads).toHaveLength(before) // capped at the longest gap, not growing past it
+    now += 1
+    await s.view('work')
+    expect(reads).toHaveLength(before + 1)
+  })
+
+  it('goes back to the refresh interval once a read succeeds', async () => {
+    let now = NOW
+    const { source, reads } = fakeSource([{ ok: false, failure: 'unreachable' }, { ok: true, events: [event()] }])
+    const s = calendarService({ source, now: () => now })
+    await s.view('work')
+    now += PLAN_RETRY_GAP_MS
+    expect((await s.view('work')).state).toBe('ready')
+    now += PLAN_RETRY_MAX_GAP_MS
+    await s.view('work')
+    expect(reads).toHaveLength(2)
+  })
+
   it('says noSecret for a calendar without a stored address', async () => {
     const { source, reads } = fakeSource([{ ok: true, events: [] }])
     const view = await calendarService({ source, secrets: {} }).view('work')
@@ -169,7 +213,39 @@ describe('CalendarService', () => {
   })
 })
 
+describe('usableRead', () => {
+  const read = (state: CalendarRead['state'], events = [event()]) => ({ state, events, settings: DEFAULT_PLANNER_SETTINGS }) as unknown as CalendarRead
+  it('keeps the last good events while the state is error, and nothing when there are none', () => {
+    expect(usableRead(read('error'))?.events).toHaveLength(1)
+    expect(usableRead(read('error', []))).toBeNull()
+    expect(usableRead(read('ready'))?.events).toHaveLength(1)
+    expect(usableRead(read('moduleOff'))).toBeNull()
+    expect(usableRead(null)).toBeNull()
+  })
+})
+
 describe('CalendarWatcher', () => {
+  it('reminds from the cached events after a failed read', async () => {
+    let now = NOW
+    const { source } = fakeSource([{ ok: true, events: [event()] }, { ok: false, failure: 'unreachable' }])
+    const s = calendarService({ source, profile: profile({ refreshMinutes: 15 }), now: () => now })
+    await s.read('work')
+    now = NOW + 21 * MIN // the 10 min reminder of the meeting at +30 is due, and the refresh interval has passed
+    expect((await s.read('work'))?.state).toBe('error')
+    const reminded: string[] = []
+    const { file } = memoryFile()
+    const w = new CalendarWatcher({
+      profiles: async () => [{ id: 'work' }],
+      read: async (id) => usableRead(await s.read(id)),
+      store: new CalendarStateStore(file, () => now),
+      remind: (_p, a) => reminded.push(a.key),
+      brief: async () => undefined,
+      now: () => now
+    })
+    await w.tick()
+    expect(reminded).toEqual([`remind|default|${event().id}`])
+  })
+
   it('fires each reminder once, persists it, and survives a restart without repeating', async () => {
     const db = openTestDb()
     let now = NOW + 21 * MIN // the default 10 min reminder of a meeting at +30 is due
@@ -270,7 +346,7 @@ describe('BriefService', () => {
     const r = await service.brief('work', event(), { ruleId: 'b', automationId: 'a1' })
     expect(r).toEqual({ ok: true, sessionId: 's1', existing: false })
     expect(started[0]).toMatchObject({ profileId: 'work', agentKey: 'claude', cwd: '/w/acme', model: 'haiku', mode: 'app' })
-    expect(delivered).toEqual(['Brief for Standup with ana@example.com, bo@example.com. People: - Ana <ana@example.com>'])
+    expect(delivered).toEqual([`${BRIEF_UNTRUSTED_NOTE}\n\nBrief for \n\`\`\`text\nStandup\n\`\`\` with \n\`\`\`text\nana@example.com, bo@example.com\n\`\`\`. People: - Ana <ana@example.com>`])
     expect(deps.store.get().briefs[briefKey('work', event().id)]).toMatchObject({ status: 'started', sessionId: 's1', identity: 'ident-s1', ruleId: 'b' })
     expect(service.views('work')[event().id]).toMatchObject({ phase: 'preparing', sessionId: 's1' })
   })
@@ -313,11 +389,23 @@ describe('BriefService', () => {
     expect((await service.brief('work', event(), { automationId: 'a1' })).ok).toBe(true)
   })
 
+  it('ignores a rule automation that is off and uses the profile agent instead', async () => {
+    const { service, started, deps } = setup()
+    const config = await deps.config()
+    config.automations = [{ ...config.automations![0]!, enabled: false, agentKey: 'evil', folder: '/w/evil', model: 'x', permissionMode: 'bypassPermissions' }]
+    const r = await service.brief('work', event(), { ruleId: 'b', automationId: 'a1' })
+    expect(r.ok).toBe(true)
+    expect(started[0]!.agentKey).not.toBe('evil')
+    expect(started[0]!.cwd).not.toBe('/w/evil')
+    expect(started[0]!.model).toBeUndefined()
+    expect(started[0]!.modeId).toBeUndefined()
+  })
+
   it('prepares a 1:1 for the next meeting with the person, else a generic one', async () => {
     const { service, delivered } = setup({ template: '{title}' })
     expect((await service.oneOnOne('work', 'ana', [event({ attendees: [{ email: 'bo@example.com' }] }), event({ id: 'sync|1', title: 'Sync with Ana' })])).ok).toBe(true)
     expect((await service.oneOnOne('work', 'ana', [])).ok).toBe(true)
-    expect(delivered).toEqual(['Sync with Ana', '1:1 with Ana'])
+    expect(delivered.map((d) => d.split('\n').slice(-2, -1)[0])).toEqual(['Sync with Ana', '1:1 with Ana'])
     expect(await service.oneOnOne('work', 'nobody', [])).toEqual({ ok: false, error: 'This person is no longer in the list' })
   })
 })

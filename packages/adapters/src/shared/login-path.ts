@@ -74,6 +74,25 @@ export async function readLoginShellPath(options: { platform?: NodeJS.Platform; 
   }
 }
 
+/**
+ * Reads the login shell's PATH (bounded by its timeout) and writes the augmented PATH into `env`,
+ * so every child process started from this one (gh, glab, git, agents) sees the same PATH. Returns
+ * the PATH set, or null (env untouched) on Windows or when the login shell could not be read.
+ * `inherited` is the PATH the app started with, so a repeated call does not pile up old entries.
+ */
+export async function refreshLoginPath(
+  env: Record<string, string | undefined>,
+  inherited: string | undefined,
+  options: { platform?: NodeJS.Platform; home?: string; shell?: string; timeoutMs?: number; run?: ShellRunner } = {}
+): Promise<string | null> {
+  const platform = options.platform ?? process.platform
+  const loginShell = await readLoginShellPath({ ...options, platform })
+  if (!loginShell) return null
+  const path = augmentedPath({ platform, inherited, loginShell, home: options.home })
+  env[pathKeyOf(env)] = path
+  return path
+}
+
 /** The PATH key of an env (Windows spells it `Path`); a plain object copy is case-sensitive. */
 export function pathKeyOf(env: Record<string, string | undefined>): string {
   return Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH'

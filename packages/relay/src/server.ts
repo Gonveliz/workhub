@@ -1,6 +1,7 @@
 // The relay as a process: HTTP (health, the web client) and WebSocket on one port, behind a reverse
 // proxy that terminates TLS. Sockets that never authenticate are closed after `authTimeoutMs`;
 // idle ones are pinged so a dead phone connection is noticed.
+import { isIPv6 } from 'node:net'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { RelayCore, type Peer, type RelayCoreOptions } from './core'
@@ -11,10 +12,14 @@ export interface RelayServerOptions extends RelayCoreOptions {
   webClientDir?: string
   authTimeoutMs?: number
   heartbeatMs?: number
-  /** Trust `X-Forwarded-For` from the proxy in front (true behind nginx). */
+  /** Trust the proxy in front for the client's address (true behind nginx or Caddy). */
   trustProxy?: boolean
+  /** The one header the proxy sets with the client's address; its last entry is used. */
+  proxyHeader?: string
   version?: string
 }
+
+export const DEFAULT_PROXY_HEADER = 'x-forwarded-for'
 
 export interface RelayServer {
   http: Server
@@ -23,20 +28,38 @@ export interface RelayServer {
 }
 
 /**
- * The client's address. Behind a trusted proxy that is `X-Real-IP`, or the LAST entry of
- * `X-Forwarded-For` (the one the proxy appended; the client can write whatever it likes before it).
+ * An IPv6 address as its /64 prefix (the first four groups): one subscriber usually owns a whole
+ * /64, so counting per full address would let one client open a connection from each of billions of
+ * addresses. IPv4 and anything that is not an address are returned as they are.
  */
-export function addressOf(req: Pick<IncomingMessage, 'headers' | 'socket'>, trustProxy: boolean): string {
+export function addressBucket(address: string): string {
+  const bare = address.split('%')[0]!
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(bare)
+  if (mapped) return mapped[1]!
+  if (!isIPv6(bare)) return address
+  const [head = '', tail] = bare.split('::')
+  const headGroups = head ? head.split(':') : []
+  const tailGroups = tail ? tail.split(':') : []
+  // A dotted IPv4 tail takes the place of two groups; it is past the /64 anyway.
+  const missing = Math.max(0, 8 - headGroups.length - tailGroups.length)
+  const groups = bare.includes('::') ? [...headGroups, ...Array<string>(missing).fill('0'), ...tailGroups] : headGroups
+  return `${groups.slice(0, 4).map((g) => parseInt(g, 16).toString(16)).join(':')}::/64`
+}
+
+/**
+ * The client's address, for the per-address limits. Behind a trusted proxy it is the LAST entry of
+ * the one configured header (the hop the proxy itself appended; whatever the client wrote sits
+ * before it). Every other header is ignored, so a client cannot choose its own bucket by sending
+ * one. Without a trusted proxy, or when that header is missing, it is the socket's peer.
+ */
+export function addressOf(req: Pick<IncomingMessage, 'headers' | 'socket'>, trustProxy: boolean, header = DEFAULT_PROXY_HEADER): string {
   if (trustProxy) {
-    const real = req.headers['x-real-ip']
-    const realOne = Array.isArray(real) ? real[0] : real
-    if (realOne?.trim()) return realOne.trim()
-    const forwarded = req.headers['x-forwarded-for']
-    const joined = Array.isArray(forwarded) ? forwarded.join(',') : forwarded
+    const value = req.headers[header.toLowerCase()]
+    const joined = Array.isArray(value) ? value.join(',') : value
     const last = joined?.split(',').map((s) => s.trim()).filter(Boolean).pop()
-    if (last) return last
+    if (last) return addressBucket(last)
   }
-  return req.socket.remoteAddress ?? 'unknown'
+  return addressBucket(req.socket.remoteAddress ?? 'unknown')
 }
 
 /**
@@ -62,6 +85,7 @@ export function createRelayServer(options: RelayServerOptions = {}): RelayServer
   const authTimeoutMs = options.authTimeoutMs ?? 10_000
   const heartbeatMs = options.heartbeatMs ?? 30_000
   const trustProxy = options.trustProxy ?? false
+  const proxyHeader = options.proxyHeader ?? DEFAULT_PROXY_HEADER
 
   const http = createServer((req, res) => {
     try {
@@ -92,7 +116,7 @@ export function createRelayServer(options: RelayServerOptions = {}): RelayServer
   const alive = new WeakMap<WebSocket, boolean>()
 
   wss.on('connection', (socket, req) => {
-    const peer: Peer | null = core.connect({ send: (text) => socket.send(text), close: (code, reason) => socket.close(code, reason), buffered: () => socket.bufferedAmount }, addressOf(req, trustProxy))
+    const peer: Peer | null = core.connect({ send: (text) => socket.send(text), close: (code, reason) => socket.close(code, reason), buffered: () => socket.bufferedAmount }, addressOf(req, trustProxy, proxyHeader))
     if (!peer) return
     alive.set(socket, true)
     const authTimer = setTimeout(() => {

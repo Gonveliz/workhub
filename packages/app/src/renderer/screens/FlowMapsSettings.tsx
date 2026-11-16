@@ -11,10 +11,13 @@ import { SettingsGroup } from './settings/SettingsLayout'
 import type { Run } from './settings/run'
 import { ModuleOffNote } from './settings/shared'
 
+// Every session sends its own token (control-auth.ts); a post without it is refused.
 const ENDPOINT_EXAMPLE = `curl --unix-socket "$WORKHUB_SOCKET" -X POST http://workhub/v1/flow-maps \\
+  -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" \\
   -H 'content-type: application/json' --data-binary @my-flow.json`
 // Windows sessions reach the endpoint on a loopback port with a token (see control-server.ts).
-const ENDPOINT_EXAMPLE_WINDOWS = `curl -H "Authorization: Bearer $WORKHUB_TOKEN" -X POST "$WORKHUB_URL/v1/flow-maps" \\
+const ENDPOINT_EXAMPLE_WINDOWS = `curl -H "Authorization: Bearer $WORKHUB_TOKEN" -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" \\
+  -X POST "$WORKHUB_URL/v1/flow-maps" \\
   -H 'content-type: application/json' --data-binary @my-flow.json`
 
 /** Settings → Flow maps: the maps folder, importing files and the maps a profile (the active one unless given) reads. The screen's switch is in Modules and screens. */

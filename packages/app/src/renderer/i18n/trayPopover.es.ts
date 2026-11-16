@@ -46,7 +46,7 @@ export const trayPopoverEs: Record<keyof typeof trayPopoverEn, string> = {
   'trayPopover.menu.quietHours': 'Horas de silencio',
   'trayPopover.quietHours.off': 'apagadas',
   'trayPopover.quietHours.range': '{start} a {end}',
-  'trayPopover.menu.adjustHint': 'Abre Ajustes › Notificaciones',
+  'trayPopover.menu.adjustHint': 'Abre Ajustes › Notificaciones y alertas',
   'trayPopover.state.idle': 'En espera',
   'trayPopover.state.starting': 'Iniciando',
   'trayPopover.state.stopped': 'Detenida',

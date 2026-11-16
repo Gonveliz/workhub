@@ -72,16 +72,17 @@ function ModeSwitch({ view: v, iconsOnly }: { view: SessionView; iconsOnly: bool
   )
 }
 
-const ACTIVITY_TONE: Record<Activity, Tone> = { starting: 'warning', working: 'info', needsYou: 'warning', idle: 'neutral', stopped: 'neutral', error: 'danger' }
+const ACTIVITY_TONE: Record<Activity, Tone> = { starting: 'warning', working: 'info', stalled: 'warning', needsYou: 'warning', idle: 'neutral', stopped: 'neutral', error: 'danger' }
 
 /** Workhub 1's activity capsule: "Working 1:23", "Idle 2 min", counted from when the state began. */
 function ActivityPill({ data, visible }: { data: SessionData; visible: boolean }) {
   const { t } = useI18n()
   const v = data.view
-  const activity = activityOf(v.state, awaitingAnswer(data))
+  const activity = activityOf(v.state, awaitingAnswer(data), v.stalledSince !== undefined)
   // Hidden panes stay mounted: only the one on screen ticks every second.
   const now = useNow(visible ? (isClockActivity(activity) ? 1000 : 15_000) : 600_000)
-  const since = Math.max(v.stateSince ?? v.startedAt, v.startedAt)
+  // "No output for 12 min" counts from the agent's last event, not from when the turn began.
+  const since = activity === 'stalled' ? v.stalledSince! : Math.max(v.stateSince ?? v.startedAt, v.startedAt)
   const elapsed = activityElapsed(activity, since, Math.max(now, since))
   const label = t(`header.activity.${activity}`)
   return (
@@ -89,7 +90,7 @@ function ActivityPill({ data, visible }: { data: SessionData; visible: boolean }
       tone={ACTIVITY_TONE[activity]}
       data-testid="session-state"
       data-activity={activity}
-      title={t('header.activityHint', { activity: label, time: elapsed })}
+      title={activity === 'stalled' ? t('header.stalledHint', { time: elapsed }) : t('header.activityHint', { activity: label, time: elapsed })}
       className="shrink-0 tabular-nums"
       icon={<StateDot tone={activity === 'idle' ? STATE_TONE.ready : ACTIVITY_TONE[activity]} pulse={activity === 'working' || activity === 'starting'} />}
     >

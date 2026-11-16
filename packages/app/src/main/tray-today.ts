@@ -1,5 +1,5 @@
 import { localDay, nextMeetings, type CalendarEvent, type InboxItem, type TrayCalendarEvent, type TrayPlanItem } from '@workhub/core'
-import type { CalendarRead } from './calendar-service'
+import { usableRead, type CalendarRead } from './calendar-service'
 
 /** The most meetings the popover may list (Settings offers 1 to 3). */
 export const TRAY_CALENDAR_LIMIT = 3
@@ -50,7 +50,7 @@ export class TrayToday {
     const previous = this.last.profileId === profileId ? this.last.calendar : []
     const [calendar, due] = await Promise.all([
       within(
-        this.deps.readCalendar(profileId).then((r) => (r && (r.state === 'ready' || r.state === 'demo') ? trayCalendar(r.events, now) : [])),
+        this.deps.readCalendar(profileId).then((r) => (usableRead(r) ? trayCalendar(r!.events, now) : [])),
         READ_TIMEOUT_MS,
         previous.filter((e) => (e.endsAt ?? e.startsAt) > now)
       ),

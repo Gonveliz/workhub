@@ -2,15 +2,23 @@
  * The usage reports bridge: spend per bucket and group, totals per group, the sessions table, the
  * weekly summary, the filter values and session tags. Every argument is checked here (the renderer
  * is not trusted with shapes); a malformed query is refused with an error. None of these channels
- * is in the remote allowlist.
+ * is in the remote allowlist. The report queries go to `reports` (the app's worker process, so a
+ * large `turns` table never blocks the main process); the tags and Refresh stay here.
  */
-import { filterValues, sessionsTable, spendSeries, spendTotals, weeklySummary, type SessionRecords, type WorkhubDb } from '@workhub/adapters/sqlite-store'
-import { REPORT_FILTER_KEYS, REPORT_GROUPS, type ReportFilters, type ReportGroupBy, type SessionsQuery, type SpendQuery, type TotalsQuery } from '../shared/analytics-api'
+import { runAnalyticsReport, type AnalyticsReport, type SessionRecords, type WorkhubDb } from '@workhub/adapters/sqlite-store'
+import { REPORT_FILTER_KEYS, REPORT_GROUPS, type ReportFilters, type ReportGroupBy, type SessionsQuery, type SpendQuery, type TotalsQuery, type UsageCsvResult } from '../shared/analytics-api'
 import type { IpcRegistrar } from './ipc-guard'
 
 export interface AnalyticsIpcDeps {
   db: WorkhubDb
   records: Pick<SessionRecords, 'tags' | 'setTags'>
+  /**
+   * Runs a checked report off the main process (`AnalyticsQueries.report`); a timeout or a dead
+   * worker rejects. Without it the reports run on `db` directly (tests, no Electron).
+   */
+  reports?: (report: AnalyticsReport) => Promise<unknown>
+  /** Saves the totals table as CSV (`createUsageCsvExporter`): checks the table, asks where, writes. */
+  exportCsv?: (table: unknown) => Promise<UsageCsvResult>
   /** Runs the transcript scan now (token spend, then turns); `analytics:refresh` waits for it. */
   scan?: () => Promise<void>
   /** How long `analytics:refresh` waits for the scan at most (it goes on in the background). */
@@ -19,6 +27,13 @@ export interface AnalyticsIpcDeps {
 
 /** How long the Usage screen's Refresh waits for the scan before reading what is there. */
 export const REFRESH_CAP_MS = 20_000
+
+/**
+ * How long a report may run in its worker before the process is killed and the screen gets an
+ * error. Its SQL is fixed (no runaway like an agent's), so this only ends a stuck or swamped
+ * process; it is longer than the agents' 5 s since a large `turns` table makes honest reports slow.
+ */
+export const REPORT_BUDGET_MS = 30_000
 
 /** The longest period a query may span: a little over a year and a half. */
 export const MAX_RANGE_MS = 560 * 86_400_000
@@ -117,6 +132,8 @@ export function parseWeeklyQuery(raw: unknown): { weekStart: number; profileId?:
 
 export function registerAnalyticsIpc(ipc: IpcRegistrar, deps: AnalyticsIpcDeps): void {
   const { db, records } = deps
+  // Without a worker the report runs right here, synchronously, as it did before the worker.
+  const report = (r: AnalyticsReport): unknown => (deps.reports ? deps.reports(r) : runAnalyticsReport(db, r))
   ipc.handle('analytics:tags', (_e, sessionId: unknown) => (isId(sessionId) ? records.tags(sessionId) : []))
   // Refused, never answered with [] (the editor would show "no tags" while the database keeps them).
   ipc.handle('analytics:setTags', (_e, sessionId: unknown, tags: unknown) => {
@@ -124,14 +141,19 @@ export function registerAnalyticsIpc(ipc: IpcRegistrar, deps: AnalyticsIpcDeps):
     if (!Array.isArray(tags) || tags.length > MAX_TAGS_IN || tags.some((t) => typeof t !== 'string')) throw new Error('tags must be a list of strings')
     return records.setTags(sessionId, tags as string[])
   })
-  ipc.handle('analytics:spend', (_e, query: unknown) => spendSeries(db, parseSpendQuery(query)))
-  ipc.handle('analytics:totals', (_e, query: unknown) => spendTotals(db, parseTotalsQuery(query)))
+  // Checked here, before anything reaches the worker: a malformed query is refused synchronously.
+  ipc.handle('analytics:spend', (_e, query: unknown) => report({ name: 'spend', query: parseSpendQuery(query) }))
+  ipc.handle('analytics:totals', (_e, query: unknown) => report({ name: 'totals', query: parseTotalsQuery(query) }))
   ipc.handle('analytics:sessions', (_e, query: unknown) => {
     const { limit, cursor, turnsOnly, ...filters } = parseSessionsQuery(query)
-    return sessionsTable(db, filters, { limit, cursor, turnsOnly })
+    return report({ name: 'sessions', filters, page: { limit, cursor, turnsOnly } })
   })
-  ipc.handle('analytics:weekly', (_e, query: unknown) => weeklySummary(db, parseWeeklyQuery(query)))
-  ipc.handle('analytics:filters', (_e, query: unknown) => filterValues(db, parseFiltersQuery(query)))
+  ipc.handle('analytics:weekly', (_e, query: unknown) => report({ name: 'weekly', query: parseWeeklyQuery(query) }))
+  ipc.handle('analytics:filters', (_e, query: unknown) => report({ name: 'filters', query: parseFiltersQuery(query) }))
+  ipc.handle('analytics:exportCsv', (_e, table: unknown) => {
+    if (!deps.exportCsv) throw new Error('CSV export is not available')
+    return deps.exportCsv(table)
+  })
   // New turns reach `turns` with the token spend scan (every 10 minutes): Refresh runs it now.
   ipc.handle('analytics:refresh', async () => {
     if (!deps.scan) return

@@ -1,4 +1,5 @@
 import { dueActions, EMPTY_CALENDAR_STATE, pruneBriefs, pruneFired, type CalendarEvent, type CalendarState, type DueAction, type PlannerSettings, type StateStore } from '@workhub/core'
+import { jobReports } from './job-reporter'
 
 /** How often the Plan watcher looks for reminders and briefs that are due. */
 export const CALENDAR_WATCH_INTERVAL_MS = 30_000
@@ -57,6 +58,8 @@ export class CalendarWatcher {
   private timer: ReturnType<typeof setInterval> | null = null
   private running = false
 
+  private readonly job = jobReports.job('calendar reminders')
+
   constructor(private readonly deps: CalendarWatcherDeps) {}
 
   start(): void {
@@ -75,10 +78,14 @@ export class CalendarWatcher {
   async tick(): Promise<void> {
     if (this.running) return
     this.running = true
+    let failure: { error: unknown } | undefined
     try {
       const now = (this.deps.now ?? Date.now)()
       for (const profile of await this.deps.profiles()) {
-        const read = await this.deps.read(profile.id).catch(() => null)
+        const read = await this.deps.read(profile.id).catch((err: unknown) => {
+          failure ??= { error: err }
+          return null
+        })
         if (!read) continue
         const fired = this.deps.store.get().fired
         const due = dueActions(read.events, read.settings, now, (key) => `${profile.id}|${key}` in fired)
@@ -97,8 +104,11 @@ export class CalendarWatcher {
       }
     } catch (error) {
       this.deps.log?.(`calendar watcher: ${error instanceof Error ? error.message : 'error'}`)
+      failure ??= { error }
     } finally {
       this.running = false
+      if (failure) this.job.failed(failure.error)
+      else this.job.ok()
     }
   }
 }

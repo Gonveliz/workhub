@@ -1,16 +1,18 @@
-import { ArrowRightLeft, ArrowUp, Brain, ChevronRight, FoldVertical, CircleAlert, Clock, History, ImagePlus, Info, LoaderCircle, Pause, Play, Square, TriangleAlert, Volume2, Webhook, X, type LucideIcon } from 'lucide-react'
+import { ArrowDown, ArrowRightLeft, ArrowUp, Brain, ChevronRight, FoldVertical, CircleAlert, Clock, History, ImagePlus, Info, LoaderCircle, Pause, Play, Square, TriangleAlert, Volume2, Webhook, X, type LucideIcon } from 'lucide-react'
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
-import { appOptions, filterSlashCommands, gatePrompt, sessionIdentity, setCeiling, setSessionCeiling, slashQuery, type SlashCommandInfo, type SubagentSummary } from '@workhub/core'
+import { appOptions, filterSlashCommands, gatePrompt, isApiWindow, sessionIdentity, setApiCeiling, setCeiling, setSessionCeiling, slashQuery, type SlashCommandInfo, type SubagentSummary } from '@workhub/core'
 import { Button, IconButton } from '../../components/atoms'
 import { CopyButton, Markdown, type MarkdownActions } from '../../components/molecules'
 import { useToast } from '../../components/molecules/Toast'
 import { BrandMark, ToolCallCard } from '../../components/organisms'
+import { ChatFind } from './ChatFind'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { MessageKey } from '../../i18n/translate'
 import { cn } from '../../lib/cn'
-import { usePendingFocus } from '../../lib/pendingFocus'
-import { onComposerDraft, takeComposerDraft } from '../../lib/drafts'
-import { hasImageFiles, imageFilesOf, insertImageMarkers, pickImageFiles, PROMPT_IMAGE_TYPES, readImageFiles, removeImageMarker } from '../../lib/images'
+import { onAnswerFocus, pendingFocusTarget, usePendingFocus } from '../../lib/pendingFocus'
+import { historyKey, promptHistory, type PromptHistoryState } from '../../lib/promptHistory'
+import { clearStoredDraft, flushStoredDrafts, loadStoredDraft, onComposerDraft, saveStoredDraft, takeComposerDraft } from '../../lib/drafts'
+import { hasImageFiles, imageFilesOf, insertImageMarkers, MAX_IMAGE_FILE_MB, pickImageFiles, PROMPT_IMAGE_TYPES, readImageFiles, removeImageMarker } from '../../lib/images'
 import { acceptsInput, restoreComposer } from '../../lib/prompt-queue'
 import { isEditable, shouldFocusComposer } from '../../lib/composer-focus'
 import { interruptSession, onRecoveredPrompts, removeQueuedPrompt, submitPrompt, useQueuedPrompts } from '../../promptQueue'
@@ -18,11 +20,12 @@ import { markPermission, openChatImage, pushItem, pushNotice, type ChatItem, typ
 import { runWorkhubCommand, sessionSlashCommands } from '../../lib/chatCommands'
 import { SlashCommandMenu, slashOptionId } from './SlashCommandMenu'
 import { followLog, isAtBottom, lastPromptId, type FollowMark } from '../../lib/chatScroll'
+import { onRevealChatItem, revealEarlier, revealItemStart, showJumpToLatest, windowAfterScroll, windowStart } from '../../lib/chatWindow'
 import { refreshConfig, useConfig } from '../../configStore'
 import { isLongMessage } from '../../lib/longMessage'
 import { listen, listenId, stopListening, toggleListen, useListenPhase, type ListenOutcome } from '../../lib/listen'
 import { sessionBudget } from '../../lib/agent-usage'
-import { useAccountLabel, useAccountUsage, useNow, useSessionCeilings, useUsageSettings } from '../../lib/usage'
+import { useAccountLabel, useAccountUsage, useApiSpend, useNow, useSessionCeilings, useUsageSettings } from '../../lib/usage'
 import { BudgetNotice } from './BudgetNotice'
 import { IdleContextNotice } from './IdleContextNotice'
 import { BackgroundTasksNotice } from './BackgroundTasksNotice'
@@ -269,7 +272,10 @@ const ChatBlock = memo(function ChatBlock({ item, onAnswer, sessionId, cwd, hasS
           )}
           {typeof item.images === 'number' && <span className="text-xs text-subtle">{tn('chat.images', item.images)}</span>}
           {item.text && <UserText text={item.text} />}
-          <SentAt at={item.at} align="right" />
+          <div className="flex items-center gap-1">
+            <SentAt at={item.at} align="right" />
+            {item.text && <CopyButton text={() => item.text} />}
+          </div>
         </div>
       )
     case 'agent':
@@ -339,6 +345,15 @@ const ChatBlock = memo(function ChatBlock({ item, onAnswer, sessionId, cwd, hasS
           <span className="h-px flex-1 bg-border" />
         </div>
       )
+    case 'truncated':
+      return (
+        <div className="flex items-center gap-3 text-2xs tracking-wide text-subtle uppercase">
+          <span className="h-px flex-1 bg-border" />
+          <History className="size-3" aria-hidden />
+          {t('chat.truncated')}
+          <span className="h-px flex-1 bg-border" />
+        </div>
+      )
     case 'turnEnd':
       return (
         <div className="flex items-center gap-3 text-2xs tracking-wide text-subtle uppercase" aria-label={turnEndLabel(t, item.stopReason)}>
@@ -368,8 +383,13 @@ const ChatBlock = memo(function ChatBlock({ item, onAnswer, sessionId, cwd, hasS
 export function ChatPane({ data, active = false }: { data: SessionData; active?: boolean }) {
   const { t, tn } = useI18n()
   const v = data.view
-  const [text, setText] = useState(() => takeComposerDraft(v.id) ?? '')
+  const [text, setText] = useState(() => takeComposerDraft(v.id) ?? loadStoredDraft(v.id))
   const [images, setImages] = useState<string[]>([])
+  // The text survives the pane unmounting (detach, dock): kept while typing, read back on mount.
+  useEffect(() => {
+    saveStoredDraft(v.id, text)
+  }, [v.id, text])
+  useEffect(() => flushStoredDrafts, [])
   const queued = useQueuedPrompts(v.id)
   const bottom = useRef<HTMLDivElement>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
@@ -417,12 +437,22 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
   // it until they scroll back down or send (or queue) a prompt themselves.
   const log = useRef<HTMLDivElement>(null)
   const atBottom = useRef(true)
+  // The same, for what it shows ("Jump to latest").
+  const [awayFromBottom, setAwayFromBottom] = useState(false)
+  // Only the newest part of a long chat is rendered (see chatWindow.ts): `startId` is its first item,
+  // undefined while it follows the chat.
+  const [startId, setStartId] = useState<number | undefined>(undefined)
+  const start = windowStart(data.items, startId)
+  const shown = useMemo(() => data.items.slice(start), [data.items, start])
+  const startNow = useRef({ items: data.items, start })
+  startNow.current = { items: data.items, start }
   const followMark = useRef<FollowMark>({ lastPromptId: lastPromptId(data.items), queued: queued.length })
   useEffect(() => {
     const { follow, mark } = followLog(followMark.current, data.items, queued.length, atBottom.current)
     followMark.current = mark
     if (!follow) return
     atBottom.current = true
+    setAwayFromBottom(false)
     // Braces matter: scrollIntoView returns a Promise in recent Chromium, which React would take as a cleanup.
     void bottom.current?.scrollIntoView({ block: 'end' })
   }, [data.items, queued])
@@ -440,8 +470,57 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
   const onLogScroll = () => {
     const el = log.current
     // A hidden log (another session on screen) measures zero: that is not the reader scrolling.
-    if (el && el.clientHeight > 0) atBottom.current = isAtBottom(el)
+    if (!el || el.clientHeight === 0) return
+    const here = isAtBottom(el)
+    atBottom.current = here
+    setAwayFromBottom(!here)
+    const { items, start: first } = startNow.current
+    setStartId((id) => windowAfterScroll(id, items[first]?.id, here))
   }
+  // "Show earlier messages" keeps what was on screen where it was: the distance from the bottom is
+  // kept across the render that adds the chunk above.
+  const keepFromBottom = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const el = log.current
+    if (!el || keepFromBottom.current === null) return
+    el.scrollTop = el.scrollHeight - keepFromBottom.current
+    keepFromBottom.current = null
+  }, [start])
+  const showEarlier = () => {
+    const id = revealEarlier(data.items, start)
+    const el = log.current
+    if (id === undefined || !el) return
+    keepFromBottom.current = el.scrollHeight - el.scrollTop
+    setStartId(id)
+  }
+  const jumpToLatest = () => {
+    atBottom.current = true
+    setAwayFromBottom(false)
+    setStartId(undefined)
+    void bottom.current?.scrollIntoView({ block: 'end' })
+  }
+  // Find in the conversation and export reveal an item that may be above the window (revealChatItem).
+  const [revealing, setRevealing] = useState<number | null>(null)
+  useEffect(
+    () =>
+      onRevealChatItem((id, itemId) => {
+        if (id !== v.id) return false
+        const { items, start: first } = startNow.current
+        const next = revealItemStart(items, first, itemId)
+        if (next === null) return false
+        atBottom.current = false
+        setStartId(next)
+        setRevealing(itemId)
+        return true
+      }),
+    [v.id]
+  )
+  useLayoutEffect(() => {
+    if (revealing === null) return
+    setRevealing(null)
+    const el = log.current?.querySelector(`[data-chat-item="${revealing}"]`)
+    void (el?.firstElementChild ?? el)?.scrollIntoView({ block: 'center' })
+  }, [revealing])
 
   const acceptsImages = v.capabilities.imageInput
   const imageLabel = t('chat.imageMarkerLabel')
@@ -479,7 +558,8 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
   const now = useNow()
   const accountLabel = useAccountLabel()
   const ownCeilings = useSessionCeilings()[sessionIdentity(v)]
-  const gate = sessionBudget(v, reads, usageSettings.budget, usageSettings.accountsOf, now, ownCeilings)
+  const apiSpend = useApiSpend()
+  const gate = sessionBudget(v, reads, usageSettings.budget, usageSettings.accountsOf, now, ownCeilings, apiSpend)
   const [needsConfirm, setNeedsConfirm] = useState(false)
   useEffect(() => {
     if (gate.status.action !== 'block') setNeedsConfirm(false)
@@ -519,7 +599,11 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
     if (!gate.status.window) return
     // A ceiling set on this session is cleared on the session; the account's one in Settings.
     if (gate.fromSession) return window.hub.usage.setSessionBudget(sessionIdentity(v), setSessionCeiling(ownCeilings, gate.status.window, null))
-    const r = await window.hub.config.saveOptions({ usageBudget: setCeiling(usageSettings.budget, gate.key, gate.status.window, null) })
+    const budget = usageSettings.budget
+    const next = isApiWindow(gate.status.window)
+      ? { ...budget, apiCeilings: setApiCeiling(budget.apiCeilings, usageSettings.accountsOf(v.agentId), gate.status.window === 'api-daily' ? 'daily' : 'weekly', null) }
+      : setCeiling(budget, gate.key, gate.status.window, null)
+    const r = await window.hub.config.saveOptions({ usageBudget: next })
     if (r.ok) await refreshConfig()
   }
 
@@ -574,6 +658,7 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
     setRestored(0)
     // While the agent works the message waits for the turn's end (or joins the turn, on Claude).
     if (submitPrompt(v.id, v.state, midTurn, value, images) === 'refused') return
+    clearStoredDraft(v.id)
     setText('')
     setImages([])
   }
@@ -582,6 +667,17 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
   const pending = useMemo(() => openRequests(data.items), [data.items])
   const pendingBox = useRef<HTMLElement>(null)
   const focusAfterAnswer = usePendingFocus(pending, pendingBox, composer)
+  // Answer Pending Request (⇧⌘A): the oldest open request takes the focus; 1-9 then pick its buttons.
+  const pendingNow = useRef(pending)
+  pendingNow.current = pending
+  useEffect(
+    () =>
+      onAnswerFocus((id) => {
+        const first = pendingNow.current[0]
+        if (id === v.id && first) pendingFocusTarget(pendingBox.current, first.requestId, null)?.focus()
+      }),
+    [v.id]
+  )
   const answer = useCallback(
     (requestId: string, optionId: string | null, label: string, answers?: Record<string, string>) => {
       focusAfterAnswer(requestId)
@@ -590,6 +686,23 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
     },
     [v.id, focusAfterAnswer]
   )
+
+  // ↑ and ↓ recall the session's earlier prompts (read when pressed, not on every streamed flush); Esc puts the draft back.
+  const history = useRef<PromptHistoryState>(null)
+  const recall = (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    const key = e.key === 'ArrowUp' ? 'up' : e.key === 'ArrowDown' ? 'down' : e.key === 'Escape' ? 'escape' : null
+    const el = e.currentTarget
+    if (!key || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey || e.nativeEvent.isComposing || el.selectionStart !== el.selectionEnd) return false
+    const next = historyKey(history.current, key, promptHistory(data.items), text, el.selectionStart)
+    if (!next) return false
+    e.preventDefault()
+    history.current = next.state
+    // A recalled `/command` does not open the slash menu: ↑ and ↓ keep walking the history.
+    if (next.state) setMenuDismissedFor(next.text)
+    setText(next.text)
+    requestAnimationFrame(() => el.setSelectionRange(next.text.length, next.text.length))
+    return true
+  }
 
   // Workhub 1 keys: Return sends, Shift-Return adds a line, Esc interrupts.
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -617,8 +730,10 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
         return
       }
     }
+    if (menu.length === 0 && recall(e)) return
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
+      history.current = null
       void send()
     } else if (e.key === 'Escape' && v.state === 'busy') {
       e.preventDefault()
@@ -635,7 +750,7 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
       return
     }
     const { accepted, rejected } = pickImageFiles(files)
-    if (rejected.length) pushItem(v.id, 'error', t('chat.imageRejected'))
+    if (rejected.length) pushItem(v.id, 'error', t('chat.imageRejected', { size: MAX_IMAGE_FILE_MB }))
     if (!accepted.length) return
     const from = images.length
     const el = composer.current
@@ -654,7 +769,7 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
           el?.setSelectionRange(after, after)
         })
       },
-      () => pushItem(v.id, 'error', t('chat.imageRejected'))
+      () => pushItem(v.id, 'error', t('chat.imageRejected', { size: MAX_IMAGE_FILE_MB }))
     )
   }
   const attach = (data: DataTransfer): boolean => {
@@ -706,43 +821,64 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <div ref={log} onScroll={onLogScroll} className="min-h-0 flex-1 overflow-y-auto text-[length:var(--wh-chat-font-size,13px)]" aria-live="polite" aria-label={t('chat.log')} role="log">
-        <div className="flex w-full min-w-0 flex-col gap-3.5 px-6 py-5">
-          {data.items.length === 0 && !v.origin && <p className="py-10 text-center text-sm text-subtle">{t('chat.empty')}</p>}
-          {replayAt < 0 && originLine}
-          {data.items.map((i, n) => (
-            <Fragment key={i.id}>
-              <ChatBlock item={i} onAnswer={answer} sessionId={v.id} cwd={v.cwd} hasShell={v.modes.includes('shell')} subagents={data.monitor.subagents} />
-              {n === replayAt && originLine}
-            </Fragment>
-          ))}
-          {queued.length > 0 && (
-            <ul className="flex flex-col items-end gap-1.5" aria-label={t('chat.queuedList')} data-testid="queued-prompts">
-              {queued.map((q) => (
-                <li key={q.id} className="flex max-w-[80%] min-w-0 flex-col items-end gap-1">
-                  {q.images.length > 0 && (
-                    <div className="flex flex-wrap justify-end gap-1.5 opacity-70">
-                      {q.images.map((src, i) => (
-                        <img key={i} src={src} alt={t('chat.imageAlt', { n: i + 1 })} className="size-12 rounded-md border border-border object-cover" />
-                      ))}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <ChatFind sessionId={v.id} items={data.items} active={active} log={log} />
+        <div ref={log} data-chat-log={v.id} onScroll={onLogScroll} className="min-h-0 flex-1 overflow-y-auto text-[length:var(--wh-chat-font-size,13px)]" aria-live="polite" aria-label={t('chat.log')} role="log">
+          <div className="flex w-full min-w-0 flex-col gap-3.5 px-6 py-5">
+            {data.items.length === 0 && !v.origin && <p className="py-10 text-center text-sm text-subtle">{t('chat.empty')}</p>}
+            {start > 0 && (
+              <div className="flex justify-center">
+                <Button size="sm" variant="secondary" onClick={showEarlier} data-testid="chat-show-earlier">
+                  {t('chat.showEarlier')}
+                </Button>
+              </div>
+            )}
+            {replayAt < 0 && originLine}
+            {shown.map((i, n) => (
+              <Fragment key={i.id}>
+                {/* `contents`: the wrapper only names the item (revealChatItem); the layout is the block's own. */}
+                <div className="contents" data-chat-item={i.id}>
+                  {/* Only tool calls show sub-agents: a monitor patch replaces the list, and passing it to every block would render them all again. */}
+                  <ChatBlock item={i} onAnswer={answer} sessionId={v.id} cwd={v.cwd} hasShell={v.modes.includes('shell')} subagents={i.kind === 'tool' ? data.monitor.subagents : undefined} />
+                </div>
+                {start + n === replayAt && originLine}
+              </Fragment>
+            ))}
+            {queued.length > 0 && (
+              <ul className="flex flex-col items-end gap-1.5" aria-label={t('chat.queuedList')} data-testid="queued-prompts">
+                {queued.map((q) => (
+                  <li key={q.id} className="flex max-w-[80%] min-w-0 flex-col items-end gap-1">
+                    {q.images.length > 0 && (
+                      <div className="flex flex-wrap justify-end gap-1.5 opacity-70">
+                        {q.images.map((src, i) => (
+                          <img key={i} src={src} alt={t('chat.imageAlt', { n: i + 1 })} className="size-12 rounded-md border border-border object-cover" />
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex min-w-0 items-start gap-1.5">
+                      <div className="max-h-80 min-w-0 overflow-y-auto rounded-xl rounded-br-sm border border-dashed border-border px-3.5 py-2 whitespace-pre-wrap text-muted [overflow-wrap:anywhere]">
+                        {q.text || <span className="text-subtle">{tn('chat.images', q.images.length)}</span>}
+                      </div>
+                      <IconButton size="sm" label={t('chat.removeQueued')} icon={<X className="size-3" />} onClick={() => removeQueuedPrompt(v.id, q.id)} className="mt-1" />
                     </div>
-                  )}
-                  <div className="flex min-w-0 items-start gap-1.5">
-                    <div className="max-h-80 min-w-0 overflow-y-auto rounded-xl rounded-br-sm border border-dashed border-border px-3.5 py-2 whitespace-pre-wrap text-muted [overflow-wrap:anywhere]">
-                      {q.text || <span className="text-subtle">{tn('chat.images', q.images.length)}</span>}
-                    </div>
-                    <IconButton size="sm" label={t('chat.removeQueued')} icon={<X className="size-3" />} onClick={() => removeQueuedPrompt(v.id, q.id)} className="mt-1" />
-                  </div>
-                  <span className="flex items-center gap-1 text-2xs text-subtle">
-                    <Clock className="size-3" aria-hidden />
-                    {t('chat.queued')}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div ref={bottom} />
+                    <span className="flex items-center gap-1 text-2xs text-subtle">
+                      <Clock className="size-3" aria-hidden />
+                      {t('chat.queued')}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div ref={bottom} />
+          </div>
         </div>
+        {showJumpToLatest(!awayFromBottom, v.state) && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+            <Button size="sm" variant="secondary" className="pointer-events-auto shadow-sm" icon={<ArrowDown className="size-3.5" aria-hidden />} onClick={jumpToLatest} data-testid="chat-jump-latest">
+              {t('chat.jumpToLatest')}
+            </Button>
+          </div>
+        )}
       </div>
       {pending.length > 0 && (
         <section ref={pendingBox} data-testid="pending-requests" aria-label={t('chat.pendingRequests')} className="flex max-h-[45%] shrink-0 flex-col gap-2 overflow-y-auto border-t border-warning/30 px-6 py-3">
@@ -853,7 +989,11 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
               value={text}
               disabled={!open}
               placeholder={t(placeholder)}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                // Editing a recalled prompt makes it the draft.
+                history.current = null
+                setText(e.target.value)
+              }}
               onKeyDown={onKeyDown}
               onPaste={onPaste}
               className="block max-h-48 min-h-9 w-full resize-none overflow-y-auto bg-transparent px-3.5 pt-2.5 pb-1 text-base leading-normal text-text placeholder:text-subtle focus:outline-none disabled:opacity-60"

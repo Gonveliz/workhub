@@ -1,4 +1,5 @@
 import { performance } from 'node:perf_hooks'
+import { redactText } from '@workhub/core'
 import type { IpcRegistrar } from './ipc-guard'
 import type { Activity } from './lag-monitor'
 import type { Logger } from './log-file'
@@ -64,22 +65,8 @@ export function timeIpc(ipc: IpcRegistrar, options: IpcTimingOptions): IpcRegist
   }
 }
 
-/** Patterns that look like credentials: never written to the log, whatever error carried them. */
-const SECRETS: RegExp[] = [
-  /\b(xox[abposr]-|xapp-)[\w-]+/gi,
-  /\bgh[pousr]_[A-Za-z0-9]{20,}/g,
-  /\bglpat-[\w-]{10,}/g,
-  /\bsk-[\w-]{10,}/g,
-  /\b(bearer|basic|token)\s+[\w.~+/=-]{8,}/gi,
-  /\b[A-Za-z0-9+_-]{32,}={0,2}/g
-]
-
 /** The text with anything that looks like a token replaced, cut to `max` characters. */
-export function redact(text: string, max = 300): string {
-  let out = text
-  for (const pattern of SECRETS) out = out.replace(pattern, '[redacted]')
-  return out.length > max ? `${out.slice(0, max)}…` : out
-}
+export const redact = redactText
 
 /** An error as one short, redacted line: its class and message, never its data. */
 export function describeError(err: unknown): string {

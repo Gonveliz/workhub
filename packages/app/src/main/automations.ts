@@ -16,6 +16,7 @@ import {
   type BudgetStatus,
   type ConfigurationService,
   type DrivenSession,
+  type PrEvent,
   type Result,
   type WorkhubConfig,
   type StateStore
@@ -75,6 +76,8 @@ export class AutomationService {
   private config: WorkhubConfig | null = null
   private timer: ReturnType<typeof setInterval> | null = null
   private emitQueued = false
+  /** The snapshot last pushed, serialized: an identical tick pushes nothing. */
+  private lastEmitted: string | null = null
 
   constructor(private readonly deps: AutomationServiceDeps) {
     this.engine = new AutomationEngine(this.host(), deps.state.load(EMPTY_AUTOMATIONS_STATE))
@@ -240,6 +243,11 @@ export class AutomationService {
     return this.save({ ...a, enabled })
   }
 
+  /** New pull request events of a profile (the code host sync): the automations listening to them get a run. */
+  onPrEvents(batch: { profileId: string; events: readonly PrEvent[] }): void {
+    if (this.engine.onPrEvents(batch.profileId, batch.events)) void this.tick()
+  }
+
   async runNow(id: string): Promise<void> {
     this.engine.runNow(id)
     await this.tick()
@@ -292,20 +300,24 @@ export class AutomationService {
       if (s.pausedUntil && s.pausedUntil > now) status.pausedUntil = s.pausedUntil
       if (s.lastError) status.lastError = s.lastError
       if (s.lastCheck) status.lastCheck = s.lastCheck
-      if (a.triggers.intervalMinutes && s.lastIntervalAt) status.nextIntervalAt = s.lastIntervalAt + a.triggers.intervalMinutes * 60_000
+      if (a.triggers.intervalMinutes && state.intervals[a.id]) status.nextIntervalAt = state.intervals[a.id]! + a.triggers.intervalMinutes * 60_000
       if (state.sessions[a.id]) status.session = state.sessions[a.id]
       return status
     })
     return { automations, runs: state.runs }
   }
 
-  /** Coalesces the snapshot pushes of one tick into one. */
+  /** Coalesces the snapshot pushes of one tick into one, and drops it when nothing changed since the last push. */
   private changed(): void {
     if (this.emitQueued) return
     this.emitQueued = true
     queueMicrotask(() => {
       this.emitQueued = false
-      this.deps.emit(this.snapshot())
+      const snap = this.snapshot()
+      const key = JSON.stringify(snap)
+      if (key === this.lastEmitted) return
+      this.lastEmitted = key
+      this.deps.emit(snap)
     })
   }
 }

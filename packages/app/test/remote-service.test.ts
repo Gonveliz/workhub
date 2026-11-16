@@ -8,6 +8,7 @@ import {
   makeAuth,
   offerFromLink,
   openBox,
+  pairingCode,
   parseChannelMessage,
   parsePushPayload,
   parseRelayMessage,
@@ -15,6 +16,7 @@ import {
   sealBox,
   startHandshake,
   verifyPairAccept,
+  verifyPairChallenge,
   type ChannelMessage,
   type Identity,
   type PairingOffer,
@@ -122,10 +124,19 @@ class ScriptedDevice {
     return this.inbox.flatMap((m) => (m.t === 'from' && m.body.k === 'box' ? [{ e: m.body.e, c: m.body.c }] : []))
   }
 
-  pair(offer: PairingOffer, name = 'Ana’s phone') {
-    const request = answerPairingOffer(this.identity, offer, name, 'ios')
+  pair(offer: PairingOffer, name = 'Ana’s phone', version: 1 | 2 = 2) {
+    const request = answerPairingOffer(this.identity, offer, name, 'ios', version)
     const box = sealBox(offer.desktop, encodeJson(request))
     this.to({ k: 'box', e: box.e, c: box.c })
+  }
+
+  /** The pairing code this device shows, from the desktop's last signed challenge; null before one came. */
+  code(offer: PairingOffer): string | null {
+    for (const box of this.boxes().reverse()) {
+      const challenge = verifyPairChallenge(offer, this.identity.public, decodeJson(openBox(this.identity, box)!))
+      if (challenge) return pairingCode(offer, this.identity.public, challenge.nonce)
+    }
+    return null
   }
 
   handshake(desktop: { sign: string; dh: string }) {
@@ -171,7 +182,7 @@ function harness(initial: Partial<RemoteState> = {}) {
   const { ipc, handlers } = recordIpc({ handle: () => {}, on: () => {} } as IpcRegistrar)
   ipc.handle('sessions:list', () => [{ id: 's1', name: 'Fix tests' }])
   ipc.handle('hub:pickFolder', () => '/anywhere')
-  const hub = new RemoteHub({ handlers, profileFolders: async () => ['/work/api'] })
+  const hub = new RemoteHub({ handlers, profileFolders: async () => ['/work/api'], startMode: async () => null })
   const service = new RemoteService({
     store: { load: (fallback) => ({ ...fallback, relayUrl: 'https://relay.example.com', desktopName: 'Ana’s MacBook', ...initial }), save: (s) => void saved.push(structuredClone(s)) },
     secrets: { get: async (ref) => secrets.get(ref) ?? null, set: async (ref, value) => void secrets.set(ref, value) },
@@ -247,12 +258,14 @@ describe('RemoteService', () => {
     const request = h.service.status().request
     expect(request).toMatchObject({ deviceId: phone.identity.id, name: 'Ana’s phone', platform: 'ios' })
 
-    const after = h.service.acceptPairing(phone.identity.id, ['sessions', 'health'])
+    const code = phone.code(offer)
+    expect(code).toMatch(/^[0-9]{6}$/)
+    const after = h.service.acceptPairing(phone.identity.id, ['sessions', 'health'], code!)
     expect(after.pairing).toBeNull()
     expect(after.request).toBeNull()
     expect(after.devices).toHaveLength(1)
     expect(after.devices[0]).toMatchObject({ id: phone.identity.id, capabilities: ['sessions', 'health'], online: false })
-    const box = phone.boxes()[0]!
+    const box = phone.boxes().at(-1)!
     const accept = verifyPairAccept(offer, phone.identity, decodeJson(openBox(phone.identity, box)!))
     expect(accept).toMatchObject({ capabilities: ['sessions', 'health'], name: 'Ana’s MacBook' })
   })
@@ -271,10 +284,10 @@ describe('RemoteService', () => {
     const offer = offerFromLink(status.pairing!.link)!
     phone.pair({ ...offer, secret: 'A'.repeat(43) })
     expect(h.service.status().request).toBeNull()
-    expect(() => h.service.acceptPairing(phone.identity.id, ['sessions'])).toThrow(/no device/)
+    expect(() => h.service.acceptPairing(phone.identity.id, ['sessions'], '000000')).toThrow(/no device/)
   })
 
-  it('keeps the first device that answers an offer; a second one is ignored and logged', async () => {
+  it('cancels the offer when a second device answers it, and tells the person', async () => {
     const h = harness({ enabled: true })
     await h.service.start()
     await h.settle()
@@ -283,10 +296,66 @@ describe('RemoteService', () => {
     const first = new ScriptedDevice(h.core, me)
     const second = new ScriptedDevice(h.core, me)
     first.pair(offer, 'Ana’s phone')
-    second.pair(offer, 'Ana’s phone')
     expect(h.service.status().request).toMatchObject({ deviceId: first.identity.id })
+    // The same device asking again (it reconnected) is no second device, and keeps its code.
+    const code = first.code(offer)!
+    first.pair(offer, 'Ana’s phone')
+    expect(first.code(offer)).toBe(code)
+    expect(h.service.status().request).toMatchObject({ deviceId: first.identity.id })
+
+    second.pair(offer, 'Ana’s phone')
+    const status = h.service.status()
+    expect(status.pairing).toBeNull()
+    expect(status.request).toBeNull()
+    expect(status.alert).toMatchObject({ kind: 'second-device' })
+    expect(h.changes.at(-1)?.alert?.kind).toBe('second-device')
     expect(h.log.warn).toHaveBeenCalledWith(expect.stringContaining('a second device'))
-    expect(() => h.service.acceptPairing(second.identity.id, ['sessions'])).toThrow(/no device/)
+    // Neither device can be accepted, even with the right code.
+    expect(() => h.service.acceptPairing(first.identity.id, ['sessions'], code)).toThrow(/no device/)
+    expect(() => h.service.acceptPairing(second.identity.id, ['sessions'], second.code(offer) ?? '000000')).toThrow(/no device/)
+    expect(h.service.status().devices).toEqual([])
+    // A new QR clears the warning.
+    expect((await h.service.startPairing()).alert).toBeNull()
+  })
+
+  it('refuses the request and cancels the offer when the code typed is wrong', async () => {
+    const h = harness({ enabled: true })
+    await h.service.start()
+    await h.settle()
+    const me = h.service.status().desktopId!
+    const offer = offerFromLink((await h.service.startPairing()).pairing!.link)!
+    const phone = new ScriptedDevice(h.core, me)
+    phone.pair(offer)
+    const right = phone.code(offer)!
+    const wrong = String((Number(right) + 1) % 1_000_000).padStart(6, '0')
+    const after = h.service.acceptPairing(phone.identity.id, ['sessions'], wrong)
+    expect(after.devices).toEqual([])
+    expect(after.request).toBeNull()
+    expect(after.pairing).toBeNull()
+    expect(after.alert).toMatchObject({ kind: 'wrong-code' })
+    // One guess per QR: the right code no longer helps.
+    expect(() => h.service.acceptPairing(phone.identity.id, ['sessions'], right)).toThrow(/no device/)
+    // Nothing was sent but the challenge: no accept for the phone to verify.
+    expect(phone.boxes().every((box) => verifyPairAccept(offer, phone.identity, decodeJson(openBox(phone.identity, box)!)) === null)).toBe(true)
+  })
+
+  it('tells the person to update a phone that answers with the pairing version before the code', async () => {
+    const h = harness({ enabled: true })
+    await h.service.start()
+    await h.settle()
+    const me = h.service.status().desktopId!
+    const offer = offerFromLink((await h.service.startPairing()).pairing!.link)!
+    const phone = new ScriptedDevice(h.core, me)
+    phone.pair(offer, 'Ana’s old phone', 1)
+    const status = h.service.status()
+    expect(status.request).toBeNull()
+    expect(status.alert).toMatchObject({ kind: 'device-outdated', name: 'Ana’s old phone' })
+    expect(status.pairing).not.toBeNull()
+    expect(phone.code(offer)).toBeNull()
+    // Updated (the same phone, reloaded), it answers the same QR and gets its code.
+    phone.pair(offer, 'Ana’s phone')
+    expect(h.service.status()).toMatchObject({ request: { deviceId: phone.identity.id }, alert: null })
+    expect(phone.code(offer)).toMatch(/^[0-9]{6}$/)
   })
 
   it('keeps a live link when a stale hello is replayed; the new channel takes over only once it opens a message', async () => {
@@ -297,7 +366,7 @@ describe('RemoteService', () => {
     const offer = offerFromLink((await h.service.startPairing()).pairing!.link)!
     const phone = new ScriptedDevice(h.core, me)
     phone.pair(offer)
-    h.service.acceptPairing(phone.identity.id, ['sessions'])
+    h.service.acceptPairing(phone.identity.id, ['sessions'], phone.code(offer)!)
     phone.handshake(offer.desktop)
     const firstHello = phone.inbox.filter((m) => m.t === 'from' && m.body.k === 'hs').length
     phone.sendChannel({ t: 'ready' })
@@ -330,7 +399,7 @@ describe('RemoteService', () => {
     const offer = offerFromLink((await h.service.startPairing()).pairing!.link)!
     const phone = new ScriptedDevice(h.core, me)
     phone.pair(offer)
-    h.service.acceptPairing(phone.identity.id, ['sessions'])
+    h.service.acceptPairing(phone.identity.id, ['sessions'], phone.code(offer)!)
     phone.handshake(offer.desktop)
     phone.sendChannel({ t: 'ready' })
     await phone.next()
@@ -351,7 +420,7 @@ describe('RemoteService', () => {
     const offer = offerFromLink((await h.service.startPairing()).pairing!.link)!
     const phone = new ScriptedDevice(h.core, me)
     phone.pair(offer)
-    h.service.acceptPairing(phone.identity.id, ['sessions'])
+    h.service.acceptPairing(phone.identity.id, ['sessions'], phone.code(offer)!)
 
     phone.handshake(offer.desktop)
     expect(phone.channel).not.toBeNull()
@@ -380,7 +449,7 @@ describe('RemoteService', () => {
     const offer = offerFromLink((await h.service.startPairing()).pairing!.link)!
     const phone = new ScriptedDevice(h.core, me)
     phone.pair(offer)
-    h.service.acceptPairing(phone.identity.id, ['sessions'])
+    h.service.acceptPairing(phone.identity.id, ['sessions'], phone.code(offer)!)
     const stranger = new ScriptedDevice(h.core, me)
     stranger.handshake(offer.desktop)
     expect(stranger.channel).toBeNull()
@@ -400,7 +469,7 @@ describe('RemoteService', () => {
     const offer = offerFromLink((await h.service.startPairing()).pairing!.link)!
     const phone = new ScriptedDevice(h.core, me)
     phone.pair(offer)
-    h.service.acceptPairing(phone.identity.id, ['sessions'])
+    h.service.acceptPairing(phone.identity.id, ['sessions'], phone.code(offer)!)
     h.pushStore.set(phone.identity.id, { sub: { endpoint: 'https://push.example.com/p', keys: { p256dh: 'B'.repeat(87), auth: 'C'.repeat(22) } }, rooms: [me], updatedAt: NOW })
 
     // Offline: a sealed box goes out by push; only the phone opens it.
@@ -435,7 +504,7 @@ describe('RemoteService', () => {
     const offer = offerFromLink((await h.service.startPairing()).pairing!.link)!
     const phone = new ScriptedDevice(h.core, me)
     phone.pair(offer)
-    h.service.acceptPairing(phone.identity.id, ['sessions'])
+    h.service.acceptPairing(phone.identity.id, ['sessions'], phone.code(offer)!)
     phone.handshake(offer.desktop)
     phone.sendChannel({ t: 'ready' })
     await phone.next()

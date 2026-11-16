@@ -115,6 +115,8 @@ export const SETTINGS_INDEX: readonly SettingsIndexEntry[] = [
       "settingsV2.general.keepInTrayHint",
       "help.general.menuBar",
     ],
+    ["settingsV2.general.confirmQuit", "settingsV2.general.confirmQuitHint"],
+    ["settingsV2.general.stuckSessions", "settingsV2.general.stuckSessionsHint"],
   ]),
   ...rows("general", "voice.group", [
     ["settingsV2.voice.default", "voice.defaultHint", "voice.help"],
@@ -451,6 +453,7 @@ export const SETTINGS_INDEX: readonly SettingsIndexEntry[] = [
     ["storage.database", "storage.databaseHint"],
     ["storage.backupNow"],
     ["storage.revealBackups"],
+    ["storage.restore", "storage.restoreHint"],
   ]),
 ];
 

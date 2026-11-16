@@ -24,10 +24,13 @@ import type {
   Unsubscribe
 } from '@workhub/core'
 import { pathKeyOf } from '../shared/login-path'
+import { StderrTail, withStderr } from '../shared/stderr-tail'
 import { CLAUDE_PERMISSION_MODES, ClaudeBridgeMapper, claudePermissionMode, permissionResult, resultStopReason, settleResult } from './mapping'
 
 /** The permission modes Claude Code starts in; any other mode id (an ACP agent's) is ignored. */
 const CLAUDE_MODES: ReadonlySet<string> = new Set(CLAUDE_PERMISSION_MODES.map((m) => m.id))
+
+const DEFAULT_START_TIMEOUT_MS = 60_000
 
 export interface ClaudeNativeRuntimeOptions {
   /** Folder holding `bridge.mjs` and `sessions.mjs`. */
@@ -41,6 +44,8 @@ export interface ClaudeNativeRuntimeOptions {
   nodeCommand?: string
   /** How long a stopping bridge gets to end Claude cleanly (it runs SessionEnd hooks) before it is killed. */
   stopTimeoutMs?: number
+  /** How long the bridge gets to report `ready` before it is stopped and the start fails. 60 s by default (as the ACP runtime). */
+  startTimeoutMs?: number
   /**
    * The PATH a session starts with (the login shell's, see shared/login-path.ts), read at each
    * start; the process PATH when unset or when it returns undefined.
@@ -64,6 +69,8 @@ interface NativeSession {
   cancelled: boolean
   stopping: boolean
   models: ModelOption[]
+  /** What the bridge last wrote to stderr: the cause when it exits on its own. */
+  stderr: StderrTail
   /** The bridge's last `error` line, kept so its exit does not report the session as stopped. */
   error?: string
 }
@@ -105,7 +112,8 @@ export class ClaudeNativeRuntime implements AgentRuntime, SessionControls, Sessi
       pending: [],
       cancelled: false,
       stopping: false,
-      models: []
+      models: [],
+      stderr: new StderrTail()
     }
     this.sessions.set(id, session)
 
@@ -121,7 +129,10 @@ export class ClaudeNativeRuntime implements AgentRuntime, SessionControls, Sessi
     // A bridge that is gone (or never started) makes a write fail with EPIPE: the exit reports it.
     child.stdin?.on('error', () => {})
     child.stderr?.setEncoding('utf8')
-    child.stderr?.on('data', (d: string) => d.split('\n').filter(Boolean).forEach((line) => this.emit({ sessionId: id, type: 'stderr', line })))
+    child.stderr?.on('data', (d: string) => {
+      session.stderr.push(d)
+      d.split('\n').filter(Boolean).forEach((line) => this.emit({ sessionId: id, type: 'stderr', line }))
+    })
     const lines = createInterface({ input: child.stdout! })
     let linesClosed = false
     lines.once('close', () => (linesClosed = true))
@@ -143,7 +154,7 @@ export class ClaudeNativeRuntime implements AgentRuntime, SessionControls, Sessi
       const finish = () => {
         if (done) return
         done = true
-        failStart(new Error(`the Claude bridge exited during start (code ${code})`))
+        failStart(new Error(withStderr(`the Claude bridge exited during start (code ${code})`, session.stderr)))
         this.finishPending(session, 'cancelled')
         // Background tasks die with the process; nothing else would clear them.
         this.emit({ sessionId: id, type: 'monitor', snapshot: { backgroundTasks: [] } })
@@ -151,7 +162,7 @@ export class ClaudeNativeRuntime implements AgentRuntime, SessionControls, Sessi
         if (this.sessions.get(id) === session) {
           this.sessions.delete(id)
           const failed = !session.stopping && (code !== 0 || session.error !== undefined)
-          this.emit({ sessionId: id, type: 'state', state: failed ? 'error' : 'stopped', error: failed ? (session.error ?? `Claude exited (code ${code})`) : undefined })
+          this.emit({ sessionId: id, type: 'state', state: failed ? 'error' : 'stopped', error: failed ? (session.error ?? withStderr(`Claude exited (code ${code})`, session.stderr)) : undefined })
         }
       }
       // A stopping session ends as stopped whatever it printed last.
@@ -171,6 +182,9 @@ export class ClaudeNativeRuntime implements AgentRuntime, SessionControls, Sessi
       // A reviewer: plan mode, and the edit tools refused outright. Else the mode asked for, when Claude has it.
       ...(req.readOnly ? { permissionMode: 'plan', readOnly: true } : req.modeId && CLAUDE_MODES.has(req.modeId) ? { permissionMode: req.modeId } : {})
     })
+    // A bridge that starts but never reports ready would leave the session starting forever.
+    const startTimeoutMs = this.options.startTimeoutMs ?? DEFAULT_START_TIMEOUT_MS
+    const deadline = setTimeout(() => failStart(new Error(`the Claude bridge did not finish starting within ${Math.round(startTimeoutMs / 1000)} s; it was stopped`)), startTimeoutMs)
     try {
       await ready
     } catch (err) {
@@ -178,6 +192,8 @@ export class ClaudeNativeRuntime implements AgentRuntime, SessionControls, Sessi
       const message = err instanceof Error ? err.message : String(err)
       this.emit({ sessionId: id, type: 'state', state: 'error', error: message })
       throw new Error(message)
+    } finally {
+      clearTimeout(deadline)
     }
     this.emit({ sessionId: id, type: 'state', state: 'ready' })
     if (req.readOnly) return { agentSessionId, agentName: 'Claude Code', permissionMode: { id: 'plan', label: 'Plan (read-only)', source: 'workhub' } }

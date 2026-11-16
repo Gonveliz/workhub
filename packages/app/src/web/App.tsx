@@ -8,6 +8,7 @@ import { WebAppProvider, navigate, useClient, useClientStatus, useRoute, type We
 import { NOTIFY_ASKED_KEY } from './device'
 import { parseRoute, routeHash } from './routes'
 import { AlertsScreen } from './screens/AlertsScreen'
+import { AutomationsScreen } from './screens/AutomationsScreen'
 import { HistoryScreen } from './screens/HistoryScreen'
 import { HomeScreen } from './screens/HomeScreen'
 import { NewSessionScreen } from './screens/NewSessionScreen'
@@ -16,6 +17,7 @@ import { PairScreen } from './screens/PairScreen'
 import { PullRequestsScreen } from './screens/PullRequestsScreen'
 import { SessionScreen } from './screens/SessionScreen'
 import { SubagentScreen } from './screens/SubagentScreen'
+import { ChangesScreen } from './screens/ChangesScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
 import { PlanScreen } from './screens/PlanScreen'
 import { NewItemScreen, PlanItemScreen } from './screens/PlanItemScreen'
@@ -109,11 +111,17 @@ function Shell({ defaultName }: { defaultName: string }) {
     case 'subagent':
       screen = capabilities.includes('sessions') ? <SubagentScreen sessionId={route.sessionId} id={route.id} /> : <NotAllowed what={t('web.capability.sessions')} />
       break
+    case 'changes':
+      screen = capabilities.includes('sessions') ? <ChangesScreen sessionId={route.sessionId} /> : <NotAllowed what={t('web.capability.sessions')} />
+      break
     case 'pullRequests':
       screen = capabilities.includes('pullRequests') ? <PullRequestsScreen /> : <NotAllowed what={t('web.capability.pullRequests')} />
       break
     case 'alerts':
       screen = capabilities.includes('health') ? <AlertsScreen /> : <NotAllowed what={t('web.capability.health')} />
+      break
+    case 'automations':
+      screen = capabilities.includes('automations') ? <AutomationsScreen /> : <NotAllowed what={t('web.capability.automations')} />
       break
     case 'plan':
       screen = capabilities.includes('plan') ? <PlanScreen tab={route.tab} /> : <NotAllowed what={t('web.capability.plan')} />

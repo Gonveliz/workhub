@@ -99,6 +99,11 @@ export const usageReportsEs: Record<keyof typeof usageReportsEn, string> = {
   'reports.pager.rangeOf': '{from}–{to} de {total}',
   'reports.pager.rangeMore': '{from}–{to} de más de {to}',
   'reports.table.pages': 'Páginas de la tabla',
+  'reports.csv.export': 'Exportar CSV',
+  'reports.csv.activeSeconds': 'Tiempo de agente (segundos)',
+  'reports.csv.cost': 'Costo (USD)',
+  'reports.csv.saved': 'Guardado en {path}',
+  'reports.csv.failed': 'No se pudo guardar el archivo: {error}',
   'reports.sessions.pages': 'Páginas de sesiones',
   'reports.sessions.untitled': 'Sesión sin título',
   'reports.sessions.openHint': 'Mostrarla en el historial de sesiones',
@@ -145,5 +150,6 @@ export const usageReportsEs: Record<keyof typeof usageReportsEn, string> = {
   'tags.error.invalid': 'No se pudieron guardar las etiquetas: cada una tiene que ser texto y una sesión guarda una cantidad limitada.',
   'tags.error.noSession': 'Esta sesión todavía no tiene id, así que no se pueden guardar sus etiquetas.',
   'tags.error.failed': 'No se pudieron guardar las etiquetas. Probá de nuevo.',
-  'copy.failed': 'No se pudo copiar'
+  'copy.failed': 'No se pudo copiar',
+  'reports.workhubBackground': 'Segundo plano de Workhub'
 }

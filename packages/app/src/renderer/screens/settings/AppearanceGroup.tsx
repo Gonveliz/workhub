@@ -85,15 +85,17 @@ export function LanguageAppearanceGroup() {
             />
           </SettingRow>
           <SizeRow label={t('appearance.fontSize')} prefKey="terminalFontSize" value={prefs.terminalFontSize} fallback={13} />
+          <SizeRow label={t('appearance.scrollback')} hint={t('appearance.scrollbackHint')} prefKey="terminalScrollback" value={prefs.terminalScrollback} fallback={10_000} step={1000} unit="lines" />
         </div>
       </Disclosure>
     </SettingsGroup>
   )
 }
 
-function SizeRow({ label, hint, prefKey, value, fallback }: { label: string; hint?: string; prefKey: keyof typeof SIZE_RANGES; value: number; fallback: number }) {
+function SizeRow({ label, hint, prefKey, value, fallback, step = 1, unit = 'px' }: { label: string; hint?: string; prefKey: keyof typeof SIZE_RANGES; value: number; fallback: number; step?: number; unit?: 'px' | 'lines' }) {
   const { t } = useI18n()
   const [min, max] = SIZE_RANGES[prefKey]
+  const shown = unit === 'lines' ? t('appearance.lines', { count: value.toLocaleString() }) : t('appearance.px', { size: value })
   return (
     <SettingRow label={label} hint={hint}>
       <div className="flex items-center gap-2">
@@ -101,14 +103,14 @@ function SizeRow({ label, hint, prefKey, value, fallback }: { label: string; hin
           type="range"
           min={min}
           max={max}
-          step={1}
+          step={step}
           value={value}
           aria-label={label}
-          aria-valuetext={t('appearance.px', { size: value })}
+          aria-valuetext={shown}
           onChange={(e) => setPrefs({ [prefKey]: Number(e.target.value) })}
           className="min-w-0 flex-1 accent-[var(--wh-accent)]"
         />
-        <span className="w-11 text-right text-sm text-muted tabular-nums">{t('appearance.px', { size: value })}</span>
+        <span className={`${unit === 'lines' ? 'w-24' : 'w-11'} text-right text-sm text-muted tabular-nums`}>{shown}</span>
         <Button size="sm" variant="ghost" disabled={value === fallback} onClick={() => setPrefs({ [prefKey]: fallback })} aria-label={t('appearance.resetNamed', { name: label })}>
           {t('appearance.reset')}
         </Button>

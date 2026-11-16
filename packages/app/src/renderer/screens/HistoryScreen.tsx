@@ -9,7 +9,7 @@ import { Dialog, EmptyState, useToast, RefreshButton } from '../components/molec
 import { TagsEditor } from '../components/molecules/TagsEditor'
 import { HistoryIndexingNote, HistorySnippet, titleSnippetFits } from '../components/molecules/HistorySnippet'
 import { useI18n } from '../i18n/I18nProvider'
-import { useSessions } from '../store'
+import { useSessionRows } from '../lib/sessionGroups'
 import { folderName } from '../lib/home'
 import { resumeInput } from '../lib/links'
 import { readPrefs } from '../lib/prefs'
@@ -82,8 +82,9 @@ const ALL = '*'
 export function HistoryScreen({ profileId, profiles = [], onOpened, visible = true, focus }: HistoryScreenProps) {
   const { t, tn, formatDate } = useI18n()
   const toast = useToast()
-  const sessionMap = useSessions()
-  const open = useMemo(() => openSessionsByHistory(Object.values(sessionMap).map((s) => s.view)), [sessionMap])
+  // The rows, not every session: History stays mounted, hidden, and must not render for each streamed chunk.
+  const rows = useSessionRows()
+  const open = useMemo(() => openSessionsByHistory(rows.map((s) => s.view)), [rows])
   // Workhub 1 lists the active profile's sessions unless "All profiles" is picked.
   const [profileFilter, setProfileFilter] = useState(profileId ?? ALL)
   useEffect(() => setProfileFilter(profileId ?? ALL), [profileId])
@@ -112,6 +113,18 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
   useEffect(() => {
     if (visible) void load()
   }, [load, visible])
+  // Accounts with more sessions than the listing went to: list a page further back.
+  const loadOlder = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      setResult(await window.hub.history.listOlder())
+    } catch (e) {
+      setError(errorText(e))
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const [home, setHome] = useState<string | undefined>()
   useEffect(() => {
@@ -281,12 +294,14 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
                 >
                   {t('history.resume')}
                 </Button>
-                <IconButton
-                  label={t('history.resumeConsole')}
-                  icon={opening === `${e.agentSessionId}:console` ? <Spinner className="size-3.5" /> : <SquareTerminal className="size-4" />}
-                  disabled={opening !== null}
-                  onClick={() => void resume(e, 'console')}
-                />
+                {e.consoleResumable !== false && (
+                  <IconButton
+                    label={t('history.resumeConsole')}
+                    icon={opening === `${e.agentSessionId}:console` ? <Spinner className="size-3.5" /> : <SquareTerminal className="size-4" />}
+                    disabled={opening !== null}
+                    onClick={() => void resume(e, 'console')}
+                  />
+                )}
               </>
             )}
           </li>
@@ -298,9 +313,11 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
                 <ContextMenu.Item className={MENU_ITEM} onSelect={() => void resume(e, 'app')}>
                   {t('history.resumeApp')}
                 </ContextMenu.Item>
-                <ContextMenu.Item className={MENU_ITEM} onSelect={() => void resume(e, 'console')}>
-                  {t('history.resumeInConsole')}
-                </ContextMenu.Item>
+                {e.consoleResumable !== false && (
+                  <ContextMenu.Item className={MENU_ITEM} onSelect={() => void resume(e, 'console')}>
+                    {t('history.resumeInConsole')}
+                  </ContextMenu.Item>
+                )}
                 <ContextMenu.Separator className="my-1 h-px bg-border" />
               </>
             )}
@@ -456,6 +473,14 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
           {tn('history.showMore', page.hidden)}
         </Button>
       )}
+      {result?.truncated?.length && (searching ? searched && !searched.nextCursor : page.hidden === 0) ? (
+        <div className="flex flex-col items-center gap-1.5" data-testid="history-older">
+          <p className="text-xs text-subtle">{t('history.truncated')}</p>
+          <Button variant="secondary" disabled={loading} onClick={() => void loadOlder()}>
+            {t('history.loadOlder')}
+          </Button>
+        </div>
+      ) : null}
       {result && (searching ? found.length > 0 : groups.length > 0) && <p className="text-xs text-subtle">{t('history.doubleClick')}</p>}
       <Dialog
         open={tagging !== null}

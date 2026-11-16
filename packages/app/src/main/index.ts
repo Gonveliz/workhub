@@ -1,4 +1,4 @@
-import { app, autoUpdater as nativeUpdater, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, safeStorage, screen, session, shell, utilityProcess, type BrowserWindowConstructorOptions } from 'electron'
+import { app, autoUpdater as nativeUpdater, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, safeStorage, screen, session, shell, utilityProcess, type BrowserWindowConstructorOptions } from 'electron'
 import { existsSync, mkdirSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
@@ -12,14 +12,14 @@ import { JsonConfigStore } from '@workhub/adapters/config-json'
 import { SafeStorageSecretStore } from '@workhub/adapters/secrets-electron'
 import { TerminalRuntime } from '@workhub/adapters/agent-terminal'
 import { createCliRunner } from '@workhub/adapters/cli'
-import { augmentedPath, readLoginShellPath, utf8LocaleEnv } from '@workhub/adapters/login-path'
+import { augmentedPath, pathKeyOf, refreshLoginPath, utf8LocaleEnv } from '@workhub/adapters/login-path'
 import { readNotificationPermission } from '@workhub/adapters/notification-permission'
 import { ClaudeTranscriptReader, copyClaudeSession, readClaudeHandoffFacts } from '@workhub/adapters/transcript-claude'
 import { CodexPlanUsageReader, CodexSessionHistory, CodexTranscriptReader } from '@workhub/adapters/transcript-codex'
 import { KiroPlanUsageReader, KiroSessionHistory, KiroTranscriptReader, readKiroCreditEntries } from '@workhub/adapters/transcript-kiro'
 import { GitReview, LocalChanges } from '@workhub/adapters/git-review'
 import { GitWorktrees } from '@workhub/adapters/git-worktree'
-import { AutomationRunLog, BACKUP_FOLDER, backupDatabase, DB_FILE, describeImport, importLegacyJson, listBackups, SessionRecords, SqliteFlowMaps, SqliteHistoryIndex, SqlitePrEventStore, Timelines, TurnIngest, repoProjects, WorkhubDb, type ProjectResolver } from '@workhub/adapters/sqlite-store'
+import { AutomationRunLog, BackgroundRuns, BACKUP_FOLDER, backupDatabase, DB_FILE, describeImport, importLegacyJson, listBackups, SessionRecords, SqliteFlowMaps, SqliteHistoryIndex, SqlitePrEventStore, Timelines, TurnIngest, repoProjects, WorkhubDb, type ProjectResolver } from '@workhub/adapters/sqlite-store'
 import { DemoCalendarSource, IcsCalendarSource } from '@workhub/adapters/calendar-ics'
 import { OpenCodeSessionHistory, OpenCodeTranscriptReader } from '@workhub/adapters/transcript-opencode'
 import {
@@ -77,6 +77,7 @@ import type { SlackSnapshot } from '../shared/chat-api'
 import { TRAY_POPOVER_HASH, type TrayRendererState } from '../shared/tray-api'
 import type { PullRequestWindowTab } from '../shared/codehost-api'
 import { Notifier } from './notifier'
+import { createQuitGuard, watchSystemShutdown } from './quit-guard-electron'
 import { TrayService } from './tray'
 import { TrayPopover } from './tray-popover'
 import { TrayToday } from './tray-today'
@@ -98,28 +99,45 @@ import { AiReviewService, registerAiReviewIpc, reviewBudgetGate } from './ai-rev
 import { claudeConfigDirOf } from './claude-accounts'
 import { registerListenIpc } from './listen-ipc'
 import { CodeHostService, registerCodeHostIpc } from './codehost'
+import { PullRequestCreateService, registerPullRequestCreateIpc } from './pull-request-create'
 import { ContinuityService, type ContinuityDeps } from './continuity'
 import { HealthService } from './health-service'
-import { guardIpc, isTrustedRendererUrl } from './ipc-guard'
+import { guardIpc, isTrustedRendererUrl, rendererDevServerUrl } from './ipc-guard'
 import { timeIpc } from './ipc-timing'
-import { isRemoteSender, pageHistory, promptFromDevice, readActivity, recordIpc, RemoteActivityLog, RemoteHub, RemoteService, registerRemoteIpc, readRemoteFile, touchedPaths, type RemoteState } from './remote'
+import { broadcastToWindowsAndDevices, isRemoteSender, pageHistory, promptFromDevice, readActivity, recordIpc, RemoteActivityLog, RemoteHub, RemoteService, registerRemoteIpc, readRemoteFile, touchedPaths, type RemoteHubDeps, type RemoteState } from './remote'
 import { rendererReporter, startDiagnostics } from './diagnostics'
+import { createDiagnosticsExporter } from './diagnostics-export-app'
+import { createUsageCsvExporter } from './usage-csv'
+import { createConversationExporter } from './chat-export'
+import { jobReports } from './job-reporter'
+import { ReloadGuard, watchRenderer } from './render-recovery'
+import { ChatJournals } from './chat-journal'
 import { permissionAllowed } from './permissions'
-import { historySearchOptions, listAllHistory, searchAllHistory } from './history'
+import { HISTORY_LIST_DEPTH, historySearchOptions, listAllHistory, searchAllHistory } from './history'
 import { HistoryIndexer } from './history-indexer'
+import { createTranscriptReader } from './transcript-worker-electron'
 import { RecentCall } from './recent-call'
 import { PrEventService, registerPrEventsIpc } from './pr-events-service'
+import { OutputCoalescer } from './output-coalescer'
+import { routeSessionEvent } from './terminal-routing'
 import { SessionDriver } from './session-driver'
 import { OwnerStarts } from './owner-starts'
 import { resolveChoice, SessionManager, ticketPrefixes } from './session-manager'
 import { registerLinksIpc } from './links'
 import { LocalReviewService, opensAsProgram, registerLocalReviewIpc } from './local-review'
-import { CONTROL_ENV_KEYS, controlEnv, controlSocketPath, newControlToken, startControlServer, startLoopbackControlServer, usesLoopbackControl, type ControlDeps, type ControlEndpoint } from './control-server'
+import { RemoteChanges, registerRemoteChangesIpc } from './remote/changes'
+import { registerRemoteReviewIpc } from './remote/review'
+import { CONTROL_ENV_KEYS, controlEnv, controlSocketPath, newControlToken, reviewPathOutside, startControlServer, startLoopbackControlServer, usesLoopbackControl, type ControlDeps, type ControlEndpoint } from './control-server'
 import { createAnalyticsControl } from './analytics-control'
+import { ControlTokens } from './control-auth'
 import { kiroUsageProbeEnabled } from './kiro-usage-probe'
-import { AnalyticsQueries } from './analytics-queries'
+import { AnalyticsQueries, type QueryWorker } from './analytics-queries'
+import { registerStorageMaintenanceIpc, StorageMaintenance } from './storage-maintenance'
+import { DatabaseRestore, registerDatabaseRestoreIpc } from './database-restore'
 import { createAutomationControl } from './automation-control'
+import { createAgentChanges, journalControl, registerAgentChangesIpc, type AgentChangeState } from './agent-changes'
 import { createPlanControl, resolveControlProfile } from './plan-control'
+import { registerSessionRequestsIpc, SessionRequests } from './session-control'
 import { FlowHistoryStore } from './flow-history'
 import { saveFlowMap } from './flow-maps'
 import { registerFlowMapsIpc } from './flow-maps-ipc'
@@ -132,11 +150,12 @@ import { TicketService } from './tickets-service'
 import type { SpendSources, WorktreeLink } from '@workhub/adapters/token-spend'
 import { ingestsTranscripts, spendSources, TokenSpendService, turnOwners, turnProjects } from './token-spend'
 import { AnalyticsRecorder } from './analytics-recorder'
-import { registerAnalyticsIpc } from './analytics-ipc'
+import { registerAnalyticsIpc, REPORT_BUDGET_MS } from './analytics-ipc'
 import { ApiSpendService, CostLedger, spendAgentId, type CostLedgerState } from './api-spend'
+import { backgroundUsage } from './background-usage'
 import { UpdateService } from './updates'
 import { readUpdatePromptState, shouldPromptUpdate, type UpdatePromptState } from './update-prompt'
-import { buildAppMenuTemplate } from './app-menu'
+import { buildAppMenuTemplate, isSessionCommand } from './app-menu'
 import { SessionNames } from './session-names'
 import { OpenSessions, type SavedOpenSessions } from './open-sessions'
 import { boundsOnScreen, SessionWindows, type SavedSessionWindows, type WindowBounds } from './session-windows'
@@ -152,7 +171,7 @@ import { AgentToolsService, registerAgentToolsIpc, WORKHUB_MCP_SCRIPT, workhubMc
 import { SetupInstaller } from './setup-install'
 import { registerSetupInstallIpc } from './setup-ipc'
 import { probe, SetupService } from './setup-service'
-import { CalendarService } from './calendar-service'
+import { CalendarService, usableRead } from './calendar-service'
 import { CalendarStateStore, CalendarWatcher } from './calendar-watcher'
 import { demoScenario, seedScenarioAnalytics, seedScenarioConfig, seedScenarioState } from './demo-scenario'
 import { BriefService } from './plan-briefs'
@@ -160,7 +179,7 @@ import { meetingReminderWords, planView, registerPlanIpc } from './plan-ipc'
 import { PlannerService, type PlannerState } from './planner-service'
 import { addControlInboxItems, registerPlannerIpc } from './planner-ipc'
 import { expandHome } from './automations'
-import { gatePrompt, owningProfile, profileRefreshMs, productCalendarEvents, ticketsInProgress, type CalendarState, type DueAction } from '@workhub/core'
+import { defaultStartMode, gatePrompt, owningProfile, profileFolderPaths, profileRefreshMs, productCalendarEvents, ticketsInProgress, type CalendarState, type DueAction } from '@workhub/core'
 import type { SetupPage } from '../shared/setup-api'
 
 // The control endpoint of a Workhub this one was started from (a dev run launched from a session of
@@ -240,19 +259,19 @@ const sessionRecords = new SessionRecords(db)
 const automationRuns = new AutomationRunLog(db)
 // Agents' read-only SQL (the analytics endpoint) runs in a utility process on its own read-only
 // connection to the same file; a query past its time budget gets the process killed.
-const analyticsQueries = new AnalyticsQueries({
-  path: db.path,
-  spawn: () => {
-    const child = utilityProcess.fork(join(__dirname, 'analytics-worker.js'), [], { serviceName: 'Workhub analytics', stdio: 'ignore' })
-    return {
-      post: (m) => child.postMessage(m),
-      onMessage: (fn) => child.on('message', fn),
-      onExit: (fn) => child.on('exit', (code) => fn(code)),
-      kill: () => child.kill()
-    }
-  },
-  log: (m) => diagnostics.log.warn(m)
-})
+const spawnAnalyticsWorker = (serviceName: string) => (): QueryWorker => {
+  const child = utilityProcess.fork(join(__dirname, 'analytics-worker.js'), [], { serviceName, stdio: 'ignore' })
+  return {
+    post: (m) => child.postMessage(m),
+    onMessage: (fn) => child.on('message', fn),
+    onExit: (fn) => child.on('exit', (code) => fn(code)),
+    kill: () => child.kill()
+  }
+}
+const analyticsQueries = new AnalyticsQueries({ path: db.path, spawn: spawnAnalyticsWorker('Workhub analytics'), log: (m) => diagnostics.log.warn(m) })
+// The Usage and reports screen's queries, in a second process of the same worker: they never wait
+// behind an agent's query (or get it killed), and their longer budget suits a large `turns` table.
+const usageReports = new AnalyticsQueries({ path: db.path, spawn: spawnAnalyticsWorker('Workhub usage reports'), budgetMs: REPORT_BUDGET_MS, log: (m) => diagnostics.log.warn(m) })
 const timelines = new Timelines(db)
 // The demo's weeks of synthetic sessions and turns, written once into an empty database.
 if (scenario && firstInstance && seedScenarioAnalytics(db, dataDir)) diagnostics.log.info('demo scenario: synthetic usage history seeded')
@@ -268,6 +287,32 @@ if (firstInstance) {
   setTimeout(daily, 30_000).unref?.()
   setInterval(daily, 24 * 3_600_000).unref?.()
 }
+// 12 months of usage detail, then daily summaries; Compact now runs VACUUM with both workers stopped.
+const storageMaintenance = new StorageMaintenance({ db, stats: () => usageReports.storage(), exclusive: (task) => usageReports.exclusive(() => analyticsQueries.exclusive(task)), log: (m) => diagnostics.log.info(m) })
+if (firstInstance) storageMaintenance.start()
+// Restore…: checked now, swapped in on the way out once the database is closed (see will-quit), then relaunched.
+const databaseRestore = new DatabaseRestore({
+  dbPath: join(dataDir, DB_FILE),
+  backupDir: join(dataDir, BACKUP_FOLDER),
+  stopJobs: () => storageMaintenance.stop(),
+  relaunchAndQuit: () => {
+    app.relaunch()
+    app.quit()
+  },
+  showError: (m) => dialog.showErrorBox('Workhub 2 could not restore the backup', m),
+  log: (m) => diagnostics.log.info(m)
+})
+
+/** Help → Export diagnostics…: logs, versions, job table, database size and the redacted config in a folder. */
+jobReports.attach(diagnostics.log)
+const exportDiagnostics = createDiagnosticsExporter({
+  window: () => (win && !win.isDestroyed() ? win : null),
+  logsDir: diagnostics.logsDir,
+  flush: () => diagnostics.flush(),
+  jobs: () => jobReports.table(),
+  storage: () => ({ path: db.path, sizeBytes: db.sizeBytes(), backupFolder: '', lastBackup: listBackups(join(dataDir, BACKUP_FOLDER))[0] ?? null, recovered: db.recovered() }),
+  config: () => configuration.current()
+})
 
 /** Help → Reveal Logs: the log file selected in the file manager, written up to now. */
 function revealLogs(): void {
@@ -275,6 +320,21 @@ function revealLogs(): void {
   shell.showItemInFolder(diagnostics.logPath)
 }
 
+/** The agent and account a start resolves to, as the session manager picks them (the profile that owns the folder wins). */
+const startModeOf: RemoteHubDeps['startMode'] = async (input) => {
+  const config = await configuration.current()
+  const owner = owningProfile(input.cwd, config.profiles, homedir())
+  const owned = owner && owner.id !== input.profileId && resolveChoice(config, owner.id, input.agentKey) ? owner.id : input.profileId
+  const choice = resolveChoice(config, owned, input.agentKey)
+  if (!choice) return null
+  return {
+    configured: defaultStartMode(config, choice.agent.id, choice.account),
+    modes: async () => {
+      const options = await agentOptions.get(choice.agent, choice.account)
+      return { modes: options.modes, permissionModes: options.modeSemantics === 'permission' }
+    }
+  }
+}
 /** Every window's handlers, reachable by a paired device too (Settings → Remote access); filled by registerIpc. */
 const recordedIpc = recordIpc(timeIpc(guardIpc(ipcMain, (url) => isTrustedRendererUrl(url, rendererOrigin)), diagnostics))
 /** The latest sub-agents and background tasks of each session, for a device that connects late. */
@@ -286,27 +346,31 @@ const remoteHub = new RemoteHub({
     const profile = profileId ? config.profiles.find((p) => p.id === profileId) : undefined
     return profile ? (await profileWorkspaces(profile, homedir())).map((f) => f.path) : []
   },
+  startMode: startModeOf,
   log: diagnostics.log
 })
 /** Tells every window, and every paired device, that the config changed. */
 const configChanged = () => {
-  BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('config:changed'))
-  remoteHub.tap('config:changed', [])
+  broadcastToWindowsAndDevices(BrowserWindow.getAllWindows(), remoteHub, 'config:changed')
 }
 // Every write tells every window (`config:changed`): a change in the Settings window shows in the main window.
-const configStore = broadcastingConfigStore(new JsonConfigStore(join(dataDir, 'config.json')), configChanged)
+const configPath = join(dataDir, 'config.json')
+const configStore = broadcastingConfigStore(new JsonConfigStore(configPath), configChanged)
 const secrets = new SafeStorageSecretStore(join(dataDir, 'secrets.json'), safeStorage)
 const configuration = new ConfigurationService(configStore, secrets)
 let loadError: string | undefined
+// The main window asked for the sessions of the last run; they are reopened once the config loads.
+let sessionsWanted = false
 // WORKHUB_DEMO_CODEHOST=1 reads synthetic pull requests instead of a real host (screenshots, demos).
 // The demo moves on one step at a time (`prEvents.demoAdvance`) so pull request events can be seen.
 let demoPrStep = 0
-const codeHost = new CodeHostService(() => configuration.current(), { demo: process.env['WORKHUB_DEMO_CODEHOST'] === '1', demoStep: () => demoPrStep })
+const codeHost = new CodeHostService(() => configuration.current(), { demo: process.env['WORKHUB_DEMO_CODEHOST'] === '1', demoStep: () => demoPrStep, onListsChanged: () => scheduleTray() })
 const prEvents = new PrEventService({
   source: codeHost,
   store: new SqlitePrEventStore(db),
   config: () => configuration.current(),
   emit: (batch) => send('prEvents:events', batch),
+  onEvents: (batch) => automations.onPrEvents(batch),
   record: (profileId, events) => void timelines.appendPrEvents(profileId, events),
   demo: process.env['WORKHUB_DEMO_CODEHOST'] === '1' ? { advance: () => ++demoPrStep } : undefined
 })
@@ -323,13 +387,25 @@ const calendar = new CalendarService({ configuration, secrets, source: new IcsCa
 
 let win: BrowserWindow | null = null
 /** What session and sub-agent windows follow too: the sessions' live state and what their screens show. */
-const SHARED_CHANNELS = new Set(['session:event', 'session:changed', 'session:removed', 'session:replay', 'automations:prompted', 'automations:turnEnded', 'aiReview:changed', 'agentReview:changed', 'usage:changed'])
-const send = (channel: string, ...args: unknown[]) => {
+const SHARED_CHANNELS = new Set(['session:event', 'session:changed', 'session:removed', 'session:replay', 'automations:prompted', 'automations:turnEnded', 'aiReview:changed', 'agentReview:changed', 'usage:changed', 'sessionRequests:changed'])
+// Every session's chat, so a window that loads later rebuilds it; chat messages go out numbered.
+const chatJournal = new ChatJournals()
+const send = (channel: string, ...message: unknown[]) => {
+  const args = chatJournal.tap(channel, message)
   if (win && !win.isDestroyed()) win.webContents.send(channel, ...args)
   if (SHARED_CHANNELS.has(channel)) sessionWindows.broadcastShared(channel, args)
   settingsWindow.send(channel, args)
   remoteHub.tap(channel, args)
 }
+// Terminal output goes out batched (one message per frame per channel), only to the windows that can show it; everything else at once.
+const sessionOutput = new OutputCoalescer((e) =>
+  routeSessionEvent(e, {
+    everywhere: (ev) => send('session:event', ev),
+    main: (ev) => win && !win.isDestroyed() && win.webContents.send('session:event', ev),
+    sessionWindow: (id, ev) => sessionWindows.sendToSession(id, 'session:event', [ev]),
+    devices: (ev) => remoteHub.tap('session:event', [ev])
+  })
+)
 // Sessions in windows of their own ("Open in New Window"); the session's runtime stays here, shared.
 const sessionWindows = new SessionWindows({
   create: (hash, size, bounds) =>
@@ -425,10 +501,17 @@ const bridgeDir = app.isPackaged ? join(process.resourcesPath, 'bridge') : join(
  * and when it cannot be, the inherited PATH plus the usual CLI folders. Windows: unchanged.
  */
 Object.assign(process.env, utf8LocaleEnv(process.platform, process.env))
-let cliPath = augmentedPath({ platform: process.platform, inherited: process.env['PATH'], loginShell: null })
-void readLoginShellPath().then((loginShell) => {
-  if (loginShell) cliPath = augmentedPath({ platform: process.platform, inherited: process.env['PATH'], loginShell })
-})
+const launchPath = process.env['PATH']
+let cliPath = augmentedPath({ platform: process.platform, inherited: launchPath, loginShell: null })
+// The same PATH goes into this process's environment, which gh, glab and git inherit: they would
+// otherwise run under the Finder's bare PATH while Setup (sessionPath) finds them. Read again after
+// a Setup install, which may have added a folder to the shell profile.
+const refreshCliPath = async (): Promise<void> => {
+  const path = await refreshLoginPath(process.env, launchPath)
+  if (path) cliPath = path
+}
+if (process.platform !== 'win32') process.env[pathKeyOf(process.env)] = cliPath
+void refreshCliPath()
 const sessionPath = (): string | undefined => (process.platform === 'win32' ? undefined : cliPath)
 // The Claude Code binary the Agent SDK ships with: the terminal's `claude` when the user has none.
 const bundledClaudeDir = join(
@@ -452,7 +535,9 @@ const runtimes = {
   }),
   terminal
 }
-const claudeHistory = new ClaudeSessionHistory({ bridgeDir })
+// Claude transcripts are parsed in a utility process, never on this one (a 50 MB file froze every window).
+const transcriptReader = createTranscriptReader((m) => diagnostics.log.warn(m))
+const claudeHistory = new ClaudeSessionHistory({ bridgeDir, transcripts: transcriptReader.read })
 // Kiro's data folder (~/.kiro); WORKHUB_KIRO_DIR points the readers elsewhere (smoke runs, demos).
 const kiroDir = process.env['WORKHUB_KIRO_DIR'] ? resolve(process.env['WORKHUB_KIRO_DIR']) : undefined
 // Past sessions per agent id; the readers behind them are kiro, opencode and codex (PLAN D9).
@@ -513,8 +598,11 @@ async function scanTurns(sources: SpendSources): Promise<void> {
     diagnostics.log.warn(`turn scan failed: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
+// The model runs Workhub starts by itself (Slack reads, Listen summaries) as usage: one turn each.
+const background = backgroundUsage(new BackgroundRuns(db), { log: (m) => diagnostics.log.warn(m) })
 // Token spend per folder for Home: scanned in the background from start-up, cached on disk.
 const tokenSpend = new TokenSpendService({
+  background: () => background.week(),
   config: () => configuration.current(),
   store: db.state('token-spend', 2_000),
   sources: async () => spendSources(await configuration.current(), homedir(), kiroDir),
@@ -533,6 +621,8 @@ const loopbackControl = usesLoopbackControl()
 const controlToken = newControlToken()
 // Set only once the endpoint listens; sessions started before (or when it cannot listen) get none.
 let controlEndpoint: ControlEndpoint | null = null
+// Each session's own token for the endpoint, minted at its start and revoked when it is removed.
+const controlTokens = new ControlTokens()
 // The sessions Workhub runs and what their monitors relate them to, for the usage reports.
 const analyticsRecorder = new AnalyticsRecorder({
   records: sessionRecords,
@@ -540,8 +630,10 @@ const analyticsRecorder = new AnalyticsRecorder({
   log: (m) => diagnostics.log.warn(m) })
 const sessions = new SessionManager({
   config: configuration,
+  log: (m) => diagnostics.log.warn(m),
   worktrees: new GitWorktrees(),
-  sessionEnv: (sessionId) => controlEnv(sessionId, controlEndpoint),
+  text: (key, params) => trayText(trayLocale).t(key, params),
+  sessionEnv: (sessionId) => controlEnv(sessionId, controlEndpoint, () => controlTokens.mint(sessionId)),
   // Workhub's MCP server (Settings → Agents → Workhub tools), for sessions that reach the endpoint.
   sessionMcp: async (env) => {
     if (!appOptions(await configuration.current()).workhubMcp) return []
@@ -566,7 +658,7 @@ const sessions = new SessionManager({
     agentReview.onEvent(e)
     analyticsRecorder.onEvent(e)
     remoteActivity.onEvent(e)
-    send('session:event', e)
+    sessionOutput.push(e)
   },
   emitChanged: (s) => {
     // A session that stopped wrote its transcript: History's search index reads it again shortly.
@@ -580,6 +672,8 @@ const sessions = new SessionManager({
     openSessions.changed()
   },
   emitRemoved: (id) => {
+    controlTokens.revoke(id)
+    sessionRequests.forget(id)
     analyticsRecorder.sessionRemoved(id)
     remoteActivity.forget(id)
     send('session:removed', id)
@@ -672,10 +766,19 @@ const usage = new AgentUsageService({
     scheduleTray()
   },
   alert: (alerts: UsageAlert[]) => (usageAlertsReady ? send('usage:alerts', alerts) : pendingUsageAlerts.push(...alerts)),
-  alertState: db.state('usage-alerts', 500)
+  alertState: db.state('usage-alerts', 500),
+  apiSpend: () => apiSpend.summary()
 })
 const budgetOf = (agentId: string, accountId: string | null) => usage.budgetOf(agentId, accountId)
 
+/** Asks before quitting while sessions are busy, and can wait for them to go idle (see quit-guard.ts). */
+const quitGuard = createQuitGuard({
+  views: () => sessions.list(),
+  queuedPrompts: () => sessions.queuedPromptCount(),
+  text: () => trayText(trayLocale),
+  publish: (pending) => send('quit:pending', pending),
+  showMain: () => showMain()
+})
 const updates = new UpdateService((s) => send('updates:changed', s), (url) => openLink(null, url))
 // "A new version is available": after an automatic check, at most once a day, never for a skipped version.
 const updatePromptFile = db.state<UpdatePromptState>('update-prompt', 0)
@@ -699,6 +802,23 @@ async function automaticUpdateCheck(): Promise<void> {
 // Slack watcher and automations (P6a). WORKHUB_DEMO_SLACK=1 reads synthetic Slack instead of
 // asking an agent, and never touches a Claude account's settings.
 const driver = new SessionDriver(sessions, (id, text) => send('automations:prompted', id, text))
+// What agents ask of other sessions over the control endpoint, waiting for the user (session-control.ts).
+const sessionRequests = new SessionRequests({
+  sessions: () => sessions.list(),
+  profile: async (profileId) => {
+    const config = await configuration.current()
+    const profile = profileId ? config.profiles.find((p) => p.id === profileId) : undefined
+    return { agents: resolveEffectiveAgents(config, profileId).map((a) => ({ key: a.key, name: a.label })), folders: profile ? profileFolderPaths(profile, homedir()).map((f) => f.path) : [] }
+  },
+  startMode: startModeOf,
+  start: (input) => sessions.start(input),
+  rename: (id, name) => sessions.rename(id, name),
+  deliver: (id, text) => driver.deliver(id, text),
+  notify: (n) => showSessionNotification(n),
+  changed: (requests) => send('sessionRequests:changed', requests),
+  text: (key, params) => trayText(trayLocale).t(key, params),
+  log: (m) => diagnostics.log.warn(m)
+})
 driver.onTurnEnded = (id, stopReason) => send('automations:turnEnded', id, stopReason)
 const demoSlack = process.env['WORKHUB_DEMO_SLACK'] === '1' ? new DemoChatSource() : null
 // One start per session identity: the sidebar's reopen and a Slack wake for the same session share it.
@@ -719,6 +839,7 @@ const slack = new SlackWatcherService({
   home: homedir(),
   usage: () => usage.current(),
   budgetOf,
+  background,
   myPullRequests: async () => {
     const lists = await codeHost.lists((await configuration.current()).activeProfileId ?? null)
     return new Set(lists.mine.map((i) => canonicalUrl(i.pr.url)))
@@ -905,8 +1026,32 @@ async function snapshot(): Promise<ConfigSnapshot> {
     providers: [...CONNECTION_PROVIDERS],
     connectionsWithSecret: withSecret.filter((x): x is string => x !== null),
     dataDir,
-    loadError
+    configPath,
+    loadError,
+    ...(loadError ? { loadIssues: configuration.loadFailure()?.issues ?? [] } : {})
   }
+}
+
+/** Loads the config file again: after the user fixed it, the app works with it without a restart. */
+async function reloadConfig(): Promise<ConfigSnapshot> {
+  try {
+    await configuration.load()
+    loadError = undefined
+    const moved = await configuration.migrateAccountEnv()
+    if (moved) diagnostics.log.info(`moved ${moved} account environment value(s) to the secret store`)
+  } catch (err) {
+    loadError = err instanceof Error ? err.message : String(err)
+  }
+  configChanged()
+  scheduleMenu()
+  void refreshOptionsCache()
+  if (!loadError && sessionsWanted) restoreSessions()
+  return snapshot()
+}
+
+/** Never against the empty stand-in config: its start-up would drop every stored session. */
+function restoreSessions(): void {
+  void openSessions.restore().catch((err: unknown) => diagnostics.log.warn(`could not reopen the sessions of the last run: ${err instanceof Error ? err.message : String(err)}`))
 }
 
 /** Every config write is refused while the file on disk could not be read, so it is never clobbered. */
@@ -1016,11 +1161,19 @@ function openSetupWindow(page: SetupPage): void {
   created.on('closed', () => setupWindows.delete(page))
 }
 
-// Listing the history starts a process per account that reads every transcript's head: calls made
-// meanwhile share it, and the sidebar's lookups (several right after start-up) take one up to 10 s old.
+// Listing the history starts a process per account that reads the newest transcripts' heads: calls
+// made meanwhile share it, and the sidebar's lookups (several right after start-up) take one up to
+// 10 s old. Each account lists `historyDepth` sessions, deeper once the user asks for older ones;
+// older sessions the search index holds are listed from it, not read again.
+let historyDepth = HISTORY_LIST_DEPTH
+let listedDepth = 0
 const namedHistory = new RecentCall(async () => {
+  const depth = historyDepth
   const config = await configuration.current()
-  const result = await diagnostics.activity.run('history list', async () => listAllHistory(config, homedir(), historySources))
+  const result = await diagnostics.activity.run('history list', async () =>
+    listAllHistory(config, homedir(), historySources, { depth, indexed: (agentId, accountId) => historyIndex?.entries(agentId, accountId) ?? [] })
+  )
+  listedDepth = depth
   // A session the user named shows that name in the history too; an automation's runs say which one they are.
   const named = result.entries.map((e) => ({ ...e, title: sessionNames.get(e.agentSessionId) ?? e.title }))
   return { ...result, entries: linkAutomationHistory(named, config.automations ?? [], automations.engine.snapshot().owned, homedir()) }
@@ -1065,6 +1218,7 @@ function registerIpc(): void {
   const report = rendererReporter(diagnostics.log)
   ipc.on('diag:report', (e, r: unknown) => report(e.sender === win?.webContents ? 'main' : 'aux', r))
   ipc.on('diag:revealLogs', revealLogs)
+  ipc.handle('diag:export', exportDiagnostics)
   ipc.on('hub:setTheme', (_e, theme: ThemePreference, chrome?: unknown) => {
     if (theme === 'system' || theme === 'light' || theme === 'dark') nativeTheme.themeSource = theme
     // The same light/dark with another palette fires no `updated`: sync here as well.
@@ -1087,6 +1241,7 @@ function registerIpc(): void {
   })
 
   ipc.handle('config:get', () => snapshot())
+  ipc.handle('config:reload', () => reloadConfig())
   ipc.handle('config:saveConnection', guarded((c, s) => configuration.saveConnection(c, s)))
   ipc.handle('config:deleteConnection', guarded((id: string) => configuration.deleteConnection(id)))
   ipc.handle('config:saveAccount', guarded((a) => configuration.saveAccount(a)))
@@ -1134,11 +1289,19 @@ function registerIpc(): void {
   ipc.handle('updates:status', () => updates.status())
   ipc.handle('updates:check', () => updates.check())
   ipc.handle('updates:install', () => updates.install())
-  ipc.handle('updates:restart', () => updates.restart())
+  ipc.handle('updates:restart', () => quitGuard.request('restart', () => updates.restart()))
+  ipc.handle('quit:pending', () => quitGuard.pending)
+  ipc.handle('quit:cancelPending', () => quitGuard.cancelPending())
   ipc.handle('updates:skip', (_e, version: unknown) => {
     if (typeof version === 'string' && version) saveUpdatePrompt({ skippedVersion: version })
   })
   ipc.handle('history:list', () => namedHistory.get())
+  ipc.handle('history:listOlder', async () => {
+    historyDepth += HISTORY_LIST_DEPTH
+    const result = await namedHistory.get()
+    // A listing already under way went only as deep as before: list once more.
+    return listedDepth < historyDepth ? namedHistory.get() : result
+  })
   ipc.handle('history:search', (_e, query: unknown, options: unknown) => searchPastSessions(typeof query === 'string' ? query.slice(0, 500) : '', historySearchOptions(options)))
   ipc.handle('history:indexProgress', () => historyIndexer.progress())
   ipc.handle('history:find', async (_e, keys: unknown) => {
@@ -1194,7 +1357,15 @@ function registerIpc(): void {
   })
 
   ipc.handle('setup:run', () => setup.run())
-  registerSetupInstallIpc(ipc, { install: (id) => setupInstaller.install(id) })
+  registerSetupInstallIpc(ipc, {
+    install: async (id) => {
+      try {
+        return await setupInstaller.install(id)
+      } finally {
+        await refreshCliPath()
+      }
+    }
+  })
   registerAgentToolsIpc(ipc, agentTools)
   ipc.on('setup:openWindow', (_e, page: SetupPage) => {
     if (page === 'welcome' || page === 'check' || page === 'help') openSetupWindow(page)
@@ -1249,8 +1420,11 @@ function registerIpc(): void {
   }).openWindow
 
   ipc.handle('sessions:list', () => sessions.list())
+  ipc.handle('sessions:journal', (_e, id: unknown) => (typeof id === 'string' ? chatJournal.get(id) : null))
   ipc.on('sessions:ready', (e) => {
-    if (win && !win.isDestroyed() && e.sender === win.webContents) void openSessions.restore()
+    if (!win || win.isDestroyed() || e.sender !== win.webContents) return
+    sessionsWanted = true
+    if (!loadError) restoreSessions()
   })
   // The New session dialog's Group: main saves the place, so it follows the session's identity.
   ipc.handle('sessions:start', (_e, input: StartSessionInput) =>
@@ -1284,15 +1458,26 @@ function registerIpc(): void {
       )
     }
     if (typeof token !== 'number') return sessions.prompt(id, text, images)
+    let started = false
     const onStart = () => {
-      if (!e.sender.isDestroyed()) e.sender.send('sessions:promptStarted', id, token)
+      started = true
+      // The sender shows its own bubble (with its images) and learns its number first, so the
+      // broadcast that puts the prompt in the journal and every other window is not shown twice.
+      if (!e.sender.isDestroyed()) e.sender.send('sessions:promptStarted', id, token, chatJournal.nextSeq(id))
+      send('automations:prompted', id, text)
     }
     // Sent like the session's events (not with the invoke's answer, which can overtake them), so
     // the window ends the turn after its last message.
     const settled = () => {
       if (!e.sender.isDestroyed()) e.sender.send('sessions:promptSettled', id, token)
     }
-    return sessions.prompt(id, text, images, { key: `${e.sender.id}:${token}`, onStart }).finally(settled)
+    return sessions
+      .prompt(id, text, images, { key: `${e.sender.id}:${token}`, onStart })
+      .then((stopReason) => {
+        if (started) send('automations:turnEnded', id, stopReason)
+        return stopReason
+      })
+      .finally(settled)
   })
   ipc.handle('sessions:withdrawPrompt', (e, id: string, token: unknown) => typeof token === 'number' && sessions.withdrawPrompt(id, `${e.sender.id}:${token}`))
   ipc.handle('sessions:setMode', (_e, id: string, mode: SessionMode, options?: { now?: unknown }) => sessions.setMode(id, mode, { now: options?.now === true }))
@@ -1330,6 +1515,7 @@ function registerIpc(): void {
   ipc.handle('windows:snapshot', (e, id: string) => sessionWindows.snapshot(id, e.sender))
   ipc.on('windows:snapshotReply', (_e, requestId: string, snapshot: SessionSnapshot | null) => sessionWindows.reply(requestId, snapshot))
   ipc.handle('sessions:cancel', (_e, id: string) => sessions.cancel(id))
+  ipc.handle('sessions:keepWaiting', (_e, id: string) => sessions.keepWaiting(id))
   ipc.handle('sessions:stop', (_e, id: string) => sessions.stop(id))
   ipc.on('sessions:permission', (_e, id: string, requestId: string, optionId: string | null, answers?: unknown) =>
     sessions.respondPermission(id, requestId, optionId, validAnswers(answers))
@@ -1338,6 +1524,7 @@ function registerIpc(): void {
   ipc.on('sessions:resize', (_e, id: string, cols: number, rows: number) => sessions.resize(id, cols, rows))
 
   registerCodeHostIpc(ipc, { service: codeHost, openWindow: openPullRequestWindow, showInWorkhub: showPullRequestInMain, openExternal: (url, profileId) => openLink(profileId, url) })
+  registerPullRequestCreateIpc(ipc, new PullRequestCreateService({ sessions: () => sessions.list(), codeHost, brief: (id) => agentReview.briefOf(id) }))
   registerLinksIpc({ ipcMain: ipc, loadConfig: () => configuration.current(), mainWindow: () => win })
   registerPrEventsIpc(ipc, { service: prEvents, notify: showPullRequestNotification, recognizes: (profileId, url) => codeHost.recognizes(profileId, url) })
   ipc.handle('health:get', (_e, profileId: string | null, force?: boolean) => health.get(profileId, force === true))
@@ -1353,7 +1540,8 @@ function registerIpc(): void {
     return { path: db.path, sizeBytes: db.sizeBytes(), backupFolder, lastBackup: listBackups(backupFolder)[0] ?? null, recovered: db.recovered() }
   })
   // The usage reports and session tags (main window only: not in the remote allowlist).
-  registerAnalyticsIpc(ipc, { db, records: sessionRecords, scan: () => tokenSpend.scanNow() })
+  registerAnalyticsIpc(ipc, { db, records: sessionRecords, scan: () => tokenSpend.scanNow(), reports: (r) => usageReports.report(r), exportCsv: createUsageCsvExporter({ window: () => (win && !win.isDestroyed() ? win : null) }) })
+  ipc.handle('sessions:exportConversation', createConversationExporter({ window: () => (win && !win.isDestroyed() ? win : null) }))
   ipc.handle('storage:backup', async (): Promise<StorageBackupResult> => {
     try {
       const path = await backupDb(true)
@@ -1362,6 +1550,10 @@ function registerIpc(): void {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
+  registerStorageMaintenanceIpc(ipc, storageMaintenance)
+  registerDatabaseRestoreIpc(ipc, databaseRestore)
+  registerSessionRequestsIpc(ipc, sessionRequests)
+  registerAgentChangesIpc(ipc, agentChanges)
   ipc.on('storage:revealBackups', () => {
     const folder = join(dataDir, BACKUP_FOLDER)
     mkdirSync(folder, { recursive: true, mode: 0o700 })
@@ -1405,6 +1597,18 @@ function registerIpc(): void {
   // A paired device that connected while sub-agents or background tasks ran reads them here, for one
   // session or a list (see remote/activity.ts).
   ipc.handle('remote:activity', (_e, ids: unknown) => readActivity(remoteActivity, () => sessions.list().map((v) => v.id), ids))
+  // A paired device reads what a session changed, through the desktop's own local review (remote/changes.ts),
+  // and takes the decisions its review loop offers while it waits for the person (remote/review.ts).
+  registerRemoteChangesIpc(ipc, new RemoteChanges({ sessions: () => sessions.list(), load: (id, scope) => localReview.load(id, scope, 'repo') }))
+  registerRemoteReviewIpc(ipc, {
+    sessions: () => sessions.list(),
+    reviews: () => aiReview.snapshot().reviews,
+    loops: () => agentReview.snapshot(),
+    continueReview: (id) => aiReview.continue(id),
+    stopReview: (id) => aiReview.stopReview(id),
+    approveLoop: (id, keep, note) => agentReview.approve(id, keep, note),
+    stopLoop: (id) => agentReview.stop(id)
+  })
   registerChatIpc(ipc, { slack, automations, configuration, guarded })
   // The chat's Listen button: a long agent message is summarized (one small Haiku query) before it is read aloud.
   const listenSummarizer = new ListenSummarizer({ bridgeDir, cwd: dataDir })
@@ -1413,7 +1617,8 @@ function registerIpc(): void {
     config: () => configuration.current(),
     session: (id) => sessions.list().find((v) => v.id === id) ?? null,
     home: homedir(),
-    log: (m) => diagnostics.log.warn(m)
+    log: (m) => diagnostics.log.warn(m),
+    background
   })
   registerAiReviewIpc(ipc, aiReview)
   registerAgentReviewIpc(ipc, agentReview, reviewLoopWindows((hash, title) => createAuxWindow(hash, title, REVIEW_LOOP_WINDOW_SIZE)))
@@ -1632,8 +1837,7 @@ async function demoBriefNotice(action: DueAction): Promise<void> {
 const calendarWatcher = new CalendarWatcher({
   profiles: () => calendar.plannerProfiles(),
   read: async (profileId) => {
-    const r = await calendar.read(profileId)
-    return r && (r.state === 'ready' || r.state === 'demo') ? { events: r.events, settings: r.settings } : null
+    return usableRead(await calendar.read(profileId))
   },
   store: calendarState,
   remind: meetingReminder,
@@ -1672,9 +1876,11 @@ const planner = new PlannerService({
   profiles: async () => (await configuration.current()).profiles,
   store: db.state<PlannerState>('planner-state', 500),
   tracker: (profileId, connectionId) => ticketService.trackerFor(profileId, connectionId),
-  // Every window: the main one, and the windows of single inbox items and milestones.
-  changed: (profileId) => BrowserWindow.getAllWindows().forEach((w) => !w.isDestroyed() && w.webContents.send('planner:changed', profileId))
+  // Every window (the main one, and the windows of single inbox items and milestones) and every paired device.
+  changed: (profileId) => broadcastToWindowsAndDevices(BrowserWindow.getAllWindows(), remoteHub, 'planner:changed', profileId)
 })
+// What agents change over the control endpoint, kept for Keep or Revert on Home (desktop windows only).
+const agentChanges = createAgentChanges({ store: db.state<AgentChangeState>('agent-changes', 0), changed: (list) => send('agentChanges:changed', list), automations, flowMaps, planner, sessions: () => sessions.list() })
 
 const ticketWatcher = new TicketWatcher({
   activeProfileId: async () => (await configuration.current()).activeProfileId ?? null,
@@ -1691,6 +1897,7 @@ const ticketWatcher = new TicketWatcher({
 async function refreshOptionsCache(): Promise<void> {
   const options = appOptions(await configuration.current())
   keepInTray = options.keepInTray
+  quitGuard.setEnabled(options.confirmQuit)
   appBadge.setEnabled(options.showAppBadge)
   scheduleTray()
 }
@@ -1708,7 +1915,7 @@ async function trayState(): Promise<TrayState> {
   const stamped = stampSince(sessionSince, listed, Date.now())
   sessionSince = stamped.since
   const sessionsNow = stamped.sessions
-  const [lists, today] = await Promise.all([codeHost.lists(profileId).catch(() => null), trayToday.read(profileId)])
+  const [lists, today] = await Promise.all([codeHost.cachedLists(profileId).catch(() => null), trayToday.read(profileId)])
   const agentNames = new Map(knownAgents(config).map((a) => [a.id, a.name]))
   const slackOn = lastSlack && lastSlack.health !== 'off'
   const me = lastSlack?.me ?? ''
@@ -1847,14 +2054,18 @@ function createAuxWindow(hash: string, title: string, size: AuxWindowSize = TICK
   })
   // Links inside the app never navigate or open windows of their own.
   aux.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  if (process.env['ELECTRON_RENDERER_URL']) void aux.loadURL(process.env['ELECTRON_RENDERER_URL'] + hash)
+  if (devServerUrl()) void aux.loadURL(devServerUrl() + hash)
   else void aux.loadFile(rendererFile, { hash: hash.replace(/^#/, '') })
   return aux
 }
 
 const rendererFile = join(__dirname, '../renderer/index.html')
+/** The dev server's address; always undefined in a packaged app, whatever its environment holds. */
+function devServerUrl(): string | undefined {
+  return rendererDevServerUrl(process.env, app.isPackaged)
+}
 /** The only pages allowed to talk to the main process. */
-const rendererOrigin = { fileUrl: pathToFileURL(rendererFile).href, devServerUrl: process.env['ELECTRON_RENDERER_URL'] }
+const rendererOrigin = { fileUrl: pathToFileURL(rendererFile).href, devServerUrl: devServerUrl() }
 
 /**
  * Every window and webview the app ever creates stays on the app's renderer: navigations and
@@ -1862,7 +2073,10 @@ const rendererOrigin = { fileUrl: pathToFileURL(rendererFile).href, devServerUrl
  * are denied, and <webview> tags never attach. A window that rendered untrusted Markdown (a pull
  * request, a ticket) can then never turn into a remote page that still holds `window.hub`.
  */
+const reloadGuard = new ReloadGuard()
 app.on('web-contents-created', (_event, contents) => {
+  // Every BrowserWindow (main, auxiliary, popover) passes through here: one place for crash recovery.
+  watchRenderer(contents, diagnostics.log, reloadGuard)
   contents.on('will-navigate', (event, url) => {
     if (url === contents.getURL()) return
     event.preventDefault()
@@ -1905,7 +2119,7 @@ function createWindow(): void {
     }
   })
   // Navigation and new-window guards for every window: see 'web-contents-created' above.
-  if (process.env['ELECTRON_RENDERER_URL']) void win.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  if (devServerUrl()) void win.loadURL(devServerUrl()!)
   else void win.loadFile(rendererFile)
   appBadge.refresh()
   // "Keep running in the menu bar": closing hides the window; sessions, watchers and notifications go on.
@@ -1918,7 +2132,7 @@ function createWindow(): void {
 
 /** The renderer's popover route (main.tsx), in the dev server or the built files. */
 function loadPopover(popover: BrowserWindow): void {
-  if (process.env['ELECTRON_RENDERER_URL']) void popover.loadURL(process.env['ELECTRON_RENDERER_URL'] + TRAY_POPOVER_HASH)
+  if (devServerUrl()) void popover.loadURL(devServerUrl() + TRAY_POPOVER_HASH)
   else void popover.loadFile(rendererFile, { hash: TRAY_POPOVER_HASH.slice(1) })
 }
 
@@ -1929,8 +2143,10 @@ function loadPopover(popover: BrowserWindow): void {
 function runMenuCommand(command: MenuCommand): void {
   const focused = BrowserWindow.getFocusedWindow()
   const sessionWindow = sessionWindows.sessionOf(focused) !== undefined
-  const sessionCommand = command.kind === 'closeSession' || command.kind === 'showMode' || command.kind === 'openInWindow'
+  const sessionCommand = isSessionCommand(command)
   if (sessionCommand && sessionWindow && focused) return focused.webContents.send('menu:command', command)
+  // ⌘F is also Settings' own search: another window gets the key back instead of losing it.
+  if (command.kind === 'findInChat' && focused && focused !== win) return focused.webContents.send('menu:command', command)
   if (sessionCommand && focused !== win) return
   if (command.kind === 'navigate' && command.route === 'settings') return settingsWindow.open()
   showMain()
@@ -1962,6 +2178,7 @@ async function refreshMenu(): Promise<void> {
         openHelp: () => void openLink(null, HELP_URL),
         openSetup: openSetupWindow,
         revealLogs,
+        exportDiagnostics: () => void exportDiagnostics(),
         developer: !app.isPackaged
       })
     )
@@ -2041,18 +2258,24 @@ void app.whenReady().then(async () => {
       .then((config) => agentOptions.refreshAll(listableAgentTargets(knownAgents(config), config.accounts)))
       .catch((err: unknown) => diagnostics.log.warn(`agent options: ${err instanceof Error ? err.message : String(err)}`))
   }, 8_000).unref()
-  const controlDeps: ControlDeps = {
-    openReview: (sessionId, repos) => {
+  const controlDeps: ControlDeps = journalControl({
+    auth: controlTokens.auth(() => sessions.list()),
+    openReview: async (sessionId, repos) => {
       const v = sessions.list().find((s) => s.id === sessionId)
       if (!v) return { ok: false, status: 404, error: 'unknown session' }
       if (v.readOnly) return { ok: false, status: 403, error: 'a reviewer session cannot open a review' }
+      // An agent may only point the review at its own folder, its worktree or its profile's folders.
+      const profile = (await configuration.current()).profiles.find((p) => p.id === v.profileId)
+      const roots = [v.cwd, ...(profile ? profileFolderPaths(profile, homedir()).map((f) => f.path) : [])]
+      const outside = reviewPathOutside(repos, roots)
+      if (outside) return { ok: false, status: 400, error: `not inside this session's folder, worktree or profile folders: ${outside}` }
       localReview.request(sessionId, repos)
       openLocalReviewWindow(sessionId, true)
       return { ok: true }
     },
     saveFlowMap: (map) => saveFlowMap(flowMaps, map, { keepAlerts: true }),
     addInboxItems: async (body) => {
-      // A reviewer cannot propose items; a request without a session may (see resolveControlProfile).
+      // A reviewer cannot propose items; the session in the body is the caller's (bound by its token).
       const b = (body && typeof body === 'object' && !Array.isArray(body) ? body : {}) as Record<string, unknown>
       const who = await resolveControlProfile(controlProfiles, { session: b['session'], profile: b['profile'] }, { write: true })
       if (!who.ok) return who
@@ -2076,8 +2299,9 @@ void app.whenReady().then(async () => {
       runs: (query) => automationRuns.list(query)
     }),
     analytics: createAnalyticsControl({ ...controlProfiles, db, queries: analyticsQueries, log: (m) => diagnostics.log.info(m) }),
+    sessions: sessionRequests,
     log: (m) => diagnostics.log.warn(m)
-  }
+  }, agentChanges)
   if (loopbackControl) {
     const started = await startLoopbackControlServer(controlToken, controlDeps)
     controlServer = started?.server ?? null
@@ -2112,6 +2336,7 @@ void app.whenReady().then(async () => {
   // One after the other: both rewrite profiles.
   void fillDefaultFoldersOnStart().catch(() => undefined)
   await refreshOptionsCache()
+  watchSystemShutdown(quitGuard)
   try {
     startTray()
   } catch {
@@ -2143,6 +2368,15 @@ void app.whenReady().then(async () => {
     if (isLocale(system)) trayLocale = system
   }
   calendarWatcher.start()
+  // The network is often not up yet when the laptop wakes: read the calendars again a few seconds later.
+  powerMonitor.on('resume', () => {
+    setTimeout(() => {
+      void calendar.plannerProfiles().then(async (ps) => {
+        await Promise.all(ps.map((p) => calendar.read(p.id, true).catch(() => null)))
+        await calendarWatcher.tick()
+      })
+    }, 5_000)
+  })
   planner.start()
   historyIndexer.start()
   // First run: no profile yet and the welcome was not finished.
@@ -2169,6 +2403,8 @@ nativeUpdater.on('before-quit-for-update', () => {
   if (firstInstance) db.flushAll()
 })
 app.on('before-quit', (event) => {
+  // Busy sessions: ask first (or wait for idle); nothing below runs until the quit is decided.
+  if (quitGuard.intercept(() => app.quit())) return event.preventDefault()
   void remoteService.stop()
   allowWindowClose = true
   // Session windows closing from here on stay remembered: the next launch reopens them.
@@ -2210,16 +2446,20 @@ app.on('before-quit', (event) => {
 let dbClosed = false
 app.on('will-quit', (event) => {
   historyIndexer.stop()
+  transcriptReader.close()
   if (dbClosed) return
   event.preventDefault()
   const closeDb = () => {
     if (dbClosed) return
     dbClosed = true
-    if (firstInstance) db.close()
+    if (firstInstance) {
+      db.close()
+      databaseRestore.finish()
+    }
     // A quit asked for again from here is ignored once will-quit was cancelled; everything ran, so exit.
     app.exit(0)
   }
-  void analyticsQueries.closeAndWait(2000).then(closeDb, closeDb)
+  void Promise.all([analyticsQueries.closeAndWait(2000), usageReports.closeAndWait(2000)]).then(closeDb, closeDb)
 })
 // Kept in the menu bar, the app outlives its windows (a window closed some other way than its
 // close button is opened again from the icon); otherwise closing the last window quits.

@@ -1,6 +1,7 @@
 import { admitFlowAlerts, admitHealthAlerts, flowAlertsOf, healthAlertSettingsOf, notifiesFlowAlerts, withAlertThresholds, type FlowAlert, type HealthAlertChannel, type HealthAlertSettings, healthAlerts, ticketChanges, worstHealth, type HealthAlert, type HealthBaseline, type HealthState, type KnownTickets, type Ticket, type TicketChange } from '@workhub/core'
 import type { FlowMapResult, FlowMapSummary, HealthView } from '../shared/health-api'
 import type { TicketsResult } from '../shared/tickets-api'
+import { jobReports } from './job-reporter'
 
 /** How often the watchers look; Health itself only reads again once its refresh interval passed. */
 export const WATCH_INTERVAL_MS = 60_000
@@ -43,6 +44,7 @@ export class HealthWatcher {
   private last: HealthSummary | null = null
   private timer: ReturnType<typeof setInterval> | null = null
   private firedAt: Record<string, number>
+  private readonly job = jobReports.job('health alerts')
 
   constructor(private readonly deps: HealthWatcherDeps) {
     this.firedAt = deps.cooldowns?.load() ?? {}
@@ -97,8 +99,10 @@ export class HealthWatcher {
         }
       }
       if (JSON.stringify(this.last) !== before) this.deps.changed()
-    } catch {
+      this.job.ok()
+    } catch (err) {
       // Health reports its own failures as states; anything else waits for the next tick.
+      this.job.failed(err)
     }
   }
 }
@@ -132,6 +136,7 @@ export class FlowAlertWatcher {
   private first: ReturnType<typeof setTimeout> | null = null
   private firedAt: Record<string, number>
   private running = false
+  private readonly job = jobReports.job('flow alerts')
 
   constructor(private readonly deps: FlowAlertWatcherDeps) {
     this.firedAt = deps.cooldowns?.load() ?? {}
@@ -160,6 +165,7 @@ export class FlowAlertWatcher {
   async tick(): Promise<void> {
     if (this.running) return
     this.running = true
+    let failure: { error: unknown } | undefined
     try {
       const profileId = await this.deps.activeProfileId()
       if (!profileId || !(await this.deps.enabled(profileId))) return
@@ -176,8 +182,9 @@ export class FlowAlertWatcher {
             // A map whose limits say `notify: false` is checked on screen only.
             if (!result.ok || !result.reading || !notifiesFlowAlerts(result.map)) continue
             found.push(...flowAlertsOf(result.map, result.reading, env))
-          } catch {
+          } catch (err) {
             // This map in this environment waits for the next tick.
+            failure ??= { error: err }
           }
         }
       }
@@ -191,10 +198,13 @@ export class FlowAlertWatcher {
           // A failed notification does not hide the next one.
         }
       }
-    } catch {
+    } catch (err) {
       // Anything unexpected waits for the next tick.
+      failure ??= { error: err }
     } finally {
       this.running = false
+      if (failure) this.job.failed(failure.error)
+      else this.job.ok()
     }
   }
 }
@@ -250,6 +260,7 @@ export interface TicketWatcherDeps {
 export class TicketWatcher {
   private timer: ReturnType<typeof setInterval> | null = null
   private lastRead = 0
+  private readonly job = jobReports.job('ticket changes')
   private known: Record<string, KnownTickets>
   private readAt: Record<string, number>
 
@@ -291,7 +302,7 @@ export class TicketWatcher {
       }
       this.lastRead = now
       const r = await this.deps.list(profileId)
-      if (!r.ok) return
+      if (!r.ok) return this.job.failed(r.error)
       const readAt = this.readAt[profileId]
       const fresh = readAt !== undefined && now - readAt <= TICKET_MEMORY_STALE_MS
       const before = fresh ? this.known[profileId] : undefined
@@ -311,8 +322,10 @@ export class TicketWatcher {
       }
       if (changes.length > TICKET_BURST_LIMIT) this.deps.announceSummary?.(profileId, changes)
       else for (const change of changes) this.deps.announce(profileId, change)
-    } catch {
+      this.job.ok()
+    } catch (err) {
       // A tracker failure is not news; the next read tries again.
+      this.job.failed(err)
     }
   }
 

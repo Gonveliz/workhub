@@ -12,6 +12,7 @@ import type { ChatWatcherSettings } from '../chat/types'
 import type { AutomationDefinition } from '../automations/types'
 import { DEFAULT_AI_REVIEW_SETTINGS as AI_REVIEW, MAX_REVIEW_IDLE_SECONDS, MAX_REVIEW_ROUNDS, MIN_REVIEW_IDLE_SECONDS, MIN_REVIEW_ROUNDS } from '../ai-review/defaults'
 import { REVIEW_LANGUAGES, REVIEWER_SESSION_MODES } from '../ai-review/types'
+import { validUsdCeiling } from '../usage/api-budget'
 import { DEFAULT_USAGE_BUDGET, type UsageBudgetOptions } from '../usage/budget'
 import { AGENT_MILESTONE_MODES, MILESTONE_MARGIN_RANGE } from '../milestones'
 import { INBOX_LIMITS } from '../inbox/types'
@@ -96,6 +97,10 @@ export interface AppOptions {
   healthRefreshFloorMinutes: number
   /** Closing the main window keeps the app running in the menu bar / notification area. */
   keepInTray: boolean
+  /** Quitting (or restarting for an update) while a session works, has queued prompts or an open request asks first. */
+  confirmQuit: boolean
+  /** Minutes a working session may stay silent before its header says so (0: never). Nothing is stopped automatically. */
+  stuckSessionMinutes: number
   /**
    * The sessions in the sidebar when the app quit (running or stopped) come back at the next
    * launch, stopped: no process runs until one is opened. Off: the sidebar starts empty.
@@ -174,7 +179,12 @@ export const DEFAULT_REMIND_NEEDS_ANSWER_MINUTES = 15
 export const MAX_REMIND_NEEDS_ANSWER_MINUTES = 240
 export const REMIND_NEEDS_ANSWER_CHOICES = [0, 5, 15, 30, 60] as const
 
-export const DEFAULT_OPTIONS: AppOptions = { claudePlanUsage: false, notifyReplied: true, notifyNeedsAnswer: true, remindNeedsAnswerMinutes: DEFAULT_REMIND_NEEDS_ANSWER_MINUTES, notifyError: true, checkForUpdates: false, notifyPrEvents: DEFAULT_PR_EVENT_TOGGLES, codexUsage: false, kiroUsage: true, usageBudget: DEFAULT_USAGE_BUDGET, notifySlack: true, notifyAutomations: true, notifyTickets: true, notifyHealth: true, notifyFlowMaps: true, notifyMeetings: true, notifyMetricAlerts: true, healthRefreshFloorMinutes: DEFAULT_HEALTH_FLOOR_MINUTES, keepInTray: true, reopenSessions: true, startSessionsAtLaunch: false, showAppBadge: true, trayPopover: DEFAULT_TRAY_POPOVER_OPTIONS, notificationsEnabled: true, readAloud: false, speechVoice: '', speechRate: DEFAULT_SPEECH_RATE, listenModel: DEFAULT_LISTEN_MODEL, welcomeDone: false, workhubMcp: true }
+/** How long a working session may stay silent before it is flagged, and the choices Settings offers (0: off). */
+export const DEFAULT_STUCK_SESSION_MINUTES = 10
+export const MAX_STUCK_SESSION_MINUTES = 240
+export const STUCK_SESSION_CHOICES = [0, 5, 10, 15, 30, 60] as const
+
+export const DEFAULT_OPTIONS: AppOptions = { claudePlanUsage: false, notifyReplied: true, notifyNeedsAnswer: true, remindNeedsAnswerMinutes: DEFAULT_REMIND_NEEDS_ANSWER_MINUTES, notifyError: true, checkForUpdates: false, notifyPrEvents: DEFAULT_PR_EVENT_TOGGLES, codexUsage: false, kiroUsage: true, usageBudget: DEFAULT_USAGE_BUDGET, notifySlack: true, notifyAutomations: true, notifyTickets: true, notifyHealth: true, notifyFlowMaps: true, notifyMeetings: true, notifyMetricAlerts: true, healthRefreshFloorMinutes: DEFAULT_HEALTH_FLOOR_MINUTES, keepInTray: true, confirmQuit: true, stuckSessionMinutes: DEFAULT_STUCK_SESSION_MINUTES, reopenSessions: true, startSessionsAtLaunch: false, showAppBadge: true, trayPopover: DEFAULT_TRAY_POPOVER_OPTIONS, notificationsEnabled: true, readAloud: false, speechVoice: '', speechRate: DEFAULT_SPEECH_RATE, listenModel: DEFAULT_LISTEN_MODEL, welcomeDone: false, workhubMcp: true }
 
 export function appOptions(config: Pick<WorkhubConfig, 'options'>): AppOptions {
   const options = { ...DEFAULT_OPTIONS, ...config.options }
@@ -223,7 +233,8 @@ const capabilities = z.object({
   subagents: z.boolean(),
   permissionRequests: z.boolean(),
   imageInput: z.boolean().default(false),
-  midTurnInput: z.boolean().optional()
+  midTurnInput: z.boolean().optional(),
+  resume: z.boolean().optional()
 })
 
 const consoleLaunch = z.object({
@@ -440,7 +451,7 @@ const planner = z.object({
   agentMilestones: z.enum(AGENT_MILESTONE_MODES).optional()
 })
 
-const folderOptions = z.object({ onlyGitRepos: z.boolean().optional(), subfoldersAreProjects: z.boolean().optional(), worktrees: z.boolean().optional() })
+const folderOptions = z.object({ onlyGitRepos: z.boolean().optional(), subfoldersAreProjects: z.boolean().optional(), worktrees: z.boolean().optional(), setupCommand: z.string().trim().min(1).max(2000).optional() })
 
 // Optional with defaults on every field, so it needs no config version bump: an older file simply has none.
 const worktrees = z.object({
@@ -471,6 +482,7 @@ const profile = z.object({
   pullRequests: z.object({ owners: z.array(z.string().trim().min(1).max(200)).max(50).optional(), excludeRepos: z.array(z.string().trim().min(1).max(200)).max(200).optional() }).optional(),
   health: healthSettings.optional(),
   slackArchiveMinutes: z.number().int().min(1).optional(),
+  slackWakeFrom: z.array(z.string().trim().min(1).max(200)).max(200).optional(),
   aiReview: aiReview.optional(),
   worktrees: worktrees.optional(),
   accountFailover: z.enum(['ask', 'automatic', 'off']).optional(),
@@ -547,7 +559,8 @@ export const automationSchema = z.object({
       chatChannelIds: z.array(z.string()).default([]),
       prOwner: z.string().default(''),
       intervalMinutes: atLeast(1).nullable().default(null),
-      pendingGate: z.object({ kind: z.literal('prReviewQueue'), stateFile: z.string() }).optional()
+      pendingGate: z.object({ kind: z.literal('prReviewQueue'), stateFile: z.string() }).optional(),
+      prEvents: z.array(z.enum(PR_EVENT_KINDS)).optional()
     })
     .default({ chatChannelIds: [], prOwner: '', intervalMinutes: null }),
   window: z.object({ days: weekdays, startHour: hour, endHour: hour }).default({ days: [1, 2, 3, 4, 5], startHour: 9, endHour: 19 }),
@@ -565,6 +578,9 @@ export const automationSchema = z.object({
 /** A percentage from the config: rounded and clamped into 1..100 (a hand-edited value never keeps the config from loading). */
 const percent = z.number().transform((n) => Math.min(100, Math.max(1, Math.round(n))))
 
+/** A dollar ceiling from the config: a positive amount, else none. */
+const usdCeiling = z.unknown().transform((v) => validUsdCeiling(v) ?? undefined).optional()
+
 const usageBudget = z.object({
   alerts: z.boolean().default(DEFAULT_USAGE_BUDGET.alerts),
   thresholds: z
@@ -575,7 +591,12 @@ const usageBudget = z.object({
     .number()
     .transform((n) => Math.min(50, Math.max(0, Math.round(n))))
     .default(DEFAULT_USAGE_BUDGET.warnMargin),
-  ceilings: z.record(z.string(), z.record(z.string(), percent)).default({})
+  ceilings: z.record(z.string(), z.record(z.string(), percent)).default({}),
+  // A hand-edited amount that is no positive number is dropped instead of keeping the config from loading.
+  apiCeilings: z
+    .record(z.string(), z.object({ daily: usdCeiling, weekly: usdCeiling }))
+    .transform((all) => Object.fromEntries(Object.entries(all).flatMap(([k, v]) => (v.daily !== undefined || v.weekly !== undefined ? [[k, { ...(v.daily !== undefined ? { daily: v.daily } : {}), ...(v.weekly !== undefined ? { weekly: v.weekly } : {}) }]] : []))))
+    .default({})
 })
 
 const popoverBlock = (key: keyof TrayPopoverOptions) => z.boolean().default(DEFAULT_TRAY_POPOVER_OPTIONS[key] as boolean).catch(DEFAULT_TRAY_POPOVER_OPTIONS[key] as boolean)
@@ -627,6 +648,8 @@ export const configSchema = z.object({
         .default(DEFAULT_HEALTH_FLOOR_MINUTES)
         .catch(DEFAULT_HEALTH_FLOOR_MINUTES),
       keepInTray: z.boolean().default(true),
+      confirmQuit: z.boolean().default(true),
+      stuckSessionMinutes: clamped([0, MAX_STUCK_SESSION_MINUTES], DEFAULT_STUCK_SESSION_MINUTES),
       reopenSessions: z.boolean().default(true),
       startSessionsAtLaunch: z.boolean().default(false),
       showAppBadge: z.boolean().default(true),

@@ -106,8 +106,13 @@ reset, not a calendar, too large, no address stored) and keeps the events of its
 
 Every timed meeting gets a notification **Default reminder** minutes before it starts (default 10;
 **Off** turns it off). Clicking the notification opens the meeting's call link, or the Plan screen
-when there is none. **Settings → General → Other notifications → Meeting reminders** silences them,
+when there is none. **Settings → Notifications and alerts** (Work, meetings) silences them,
 and **Pause notifications** applies too.
+
+When a calendar cannot be read (for example right after the laptop wakes, before the network is up),
+Workhub retries within seconds, waiting longer after each failure up to five minutes, and reads again
+a few seconds after the system resumes. Reminders and the tray agenda keep using the last good events
+meanwhile; the Plan screen still shows the error.
 
 **Reminder rules** change the reminder of the meetings they match. A rule matches when every
 condition you set holds:
@@ -131,7 +136,8 @@ a **Brief rule** start it on its own a number of minutes before matching meeting
   you closed it); a brief that failed can be retried.
 - A brief runs with the profile's preferred agent in its default folder. A brief rule can name an
   automation in **Run with**: the brief then uses that automation's agent, folder, model, effort and
-  permission mode.
+  permission mode. An automation that is off is ignored: the brief runs with the profile's agent
+  instead, so an agent's edit of that automation takes effect only after you turn it on again.
 - The automations' usage guards apply: a usage ceiling blocks a brief, and a brief started by a
   rule waits while the account's 5-hour usage is over its threshold. A blocked brief shows why and
   can be retried.
@@ -146,6 +152,12 @@ The **Brief prompt** (empty means the default) may use these placeholders:
 | `{meetingUrl}` | The call link, if any |
 | `{people}` | Your people among the attendees, with their notes |
 | `{context}` | Your open pull requests and tickets in progress, and those that involve the people coming |
+
+The meeting's title, attendees, call link and description are written by whoever sent the invite,
+and the pull request and ticket titles in `{context}` by whoever opened them.
+Workhub puts each of them in a quoted block, after a first sentence in the prompt that says they are
+untrusted content to read and never instructions to follow, and it cuts long values and any text that
+would close the block. The rest of your prompt is sent as you wrote it.
 
 Workhub never starts a brief by itself unless a brief rule says so.
 
@@ -298,12 +310,13 @@ Items come from:
 - **Send to inbox** on a metric alert (**Health → Alerts**, see [Health](health.md#alerts)): a
   pending bug with the alert's details.
 - **Agents and automations**, through Workhub's local control endpoint. A session has
-  `WORKHUB_SESSION` and `WORKHUB_SOCKET` in its environment (on Windows `WORKHUB_URL` and
-  `WORKHUB_TOKEN`; see [Agents and the plan](#agents-and-the-plan)):
+  `WORKHUB_SESSION`, its own token `WORKHUB_SESSION_TOKEN` and `WORKHUB_SOCKET` in its environment
+  (on Windows `WORKHUB_URL` and `WORKHUB_TOKEN` instead of the socket; see
+  [Agents and the plan](#agents-and-the-plan)):
 
   ```sh
   curl --unix-socket "$WORKHUB_SOCKET" -X POST http://workhub/v1/inbox \
-    -H 'content-type: application/json' \
+    -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" -H 'content-type: application/json' \
     -d '{"session":"'"$WORKHUB_SESSION"'","source":"Weekly sync","items":[
           {"kind":"task","title":"Send the rollout plan","detail":"Agreed in the sync",
            "people":["ana@example.com"],"due":"2026-11-05"}]}'
@@ -315,12 +328,13 @@ Items come from:
   (`YYYY-MM-DD`), and optionally `area`, `criticality`, an http(s) `link` and `links`, a list of up
   to 20 `{ "label": "…", "url": "https://…" }` (a bare address works too; the label is at most 200
   characters). The detail may use Markdown. At most 20 items per
-  request. The items go to the profile of `session`, else of `profile` (a profile id), else of the
-  profile whose folders hold `cwd` (the folder the agent works in), else the active one, which
-  must have Plan on. `source` names where they came from, and `"sourceType":
+  request. The items go to the profile of the session whose token sent them (a session without a
+  profile: the profile whose folders hold `cwd`, the folder the agent works in, else the active
+  one), which must have Plan on. A proposal without a session token is refused. `source` names where they came from, and `"sourceType":
   "meeting"` marks them as meeting follow-ups. Items with the same title as an open one are
   skipped and listed under `duplicates` in the answer. The endpoint only listens on a socket in the
-  data folder (a named pipe on Windows) readable by your own user. A brief prompt can ask the agent
+  data folder readable by your own user (on Windows a loopback port with a token made at each
+  launch). A brief prompt can ask the agent
   to propose follow-ups this way. See [Agents and the plan](#agents-and-the-plan) for everything
   else an agent can read and change.
 
@@ -365,11 +379,19 @@ first read marks those whose ticket is done as **Done**.
 ## Agents and the plan
 
 An agent running in a Workhub session can read your plan and keep the inbox up to date through the
-same local control endpoint, and the `workhub-plan` skill tells it how. Every call names the
-session (`session=$WORKHUB_SESSION` in the query, or `"session"` in a body) and acts on that
-session's profile; without it, on `profile` (a profile id), else on the profile whose folders
-hold `cwd` (the folder the agent works in, `cwd=` in the query or `"cwd"` in a body), else the
-active profile. When Plan is
+same local control endpoint, and the `workhub-plan` skill (or Workhub's MCP tools) tells it how.
+
+Every session gets its own token, `WORKHUB_SESSION_TOKEN`, made when the session starts and
+dropped when you remove the session. Every call sends it as `X-Workhub-Token`, and the call acts as
+that session and on that session's profile only (a session without a profile: the profile whose
+folders hold `cwd`, the folder the agent works in, else the active profile). A call that names
+another session (`session=` in the query or `"session"` in a body) is refused with `403`; naming a
+`profile` does not move it to another one. A reviewer session can read but never change anything.
+The token of a removed session is refused with `401`.
+
+Without a token (a `curl` you type in your own terminal), Workhub answers only reads of the active
+profile's plan (`GET` of `/v1/plan/today`, `/v1/inbox`, `/v1/milestones` and `/v1/people`, without
+`session`, `profile` or `cwd`) and notes it in the log; every change answers `401`. When Plan is
 off in the profile, the answers are empty and say why.
 
 | Endpoint | Answer |
@@ -391,16 +413,28 @@ it. A proposal over a milestone you edited after the agent asked cannot be appli
 proposal never undoes your edit. With **Apply at once** the change answers `200` with
 `applied: true`.
 
+Every change an agent makes this way that is in effect (items it proposes, its edits and notes on
+items, milestone changes applied at once) is also listed under **Changes by agents** on Home, with
+the fields before and after. **Keep** marks it as reviewed; **Revert** puts the values from before
+back (a proposed item is discarded, a milestone it created is deleted, one it deleted comes back).
+Revert refuses when the item or milestone changed again since, so it never undoes a later edit; a
+value too long to keep in the journal (over 2000 characters) is shown shortened and must be changed
+by hand. Proposals that wait under **Proposed by agents** are not listed there: Apply and Reject
+review them already.
+
 ```sh
-curl --unix-socket "$WORKHUB_SOCKET" "http://workhub/v1/inbox?session=$WORKHUB_SESSION&status=local&q=rollout"
+curl --unix-socket "$WORKHUB_SOCKET" -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" \
+  "http://workhub/v1/inbox?session=$WORKHUB_SESSION&status=local&q=rollout"
 curl --unix-socket "$WORKHUB_SOCKET" -X PATCH http://workhub/v1/inbox/<id> \
-  -H 'content-type: application/json' \
+  -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" -H 'content-type: application/json' \
   -d '{"session":"'"$WORKHUB_SESSION"'","status":"done","note":"Sent in the release thread"}'
 ```
 
 On Windows the session has `WORKHUB_URL` and `WORKHUB_TOKEN` instead of `WORKHUB_SOCKET` (a loopback
 port with a token made at each launch): replace `--unix-socket "$WORKHUB_SOCKET" http://workhub` with
-`-H "Authorization: Bearer $WORKHUB_TOKEN" "$WORKHUB_URL"` in these examples.
+`-H "Authorization: Bearer $WORKHUB_TOKEN" "$WORKHUB_URL"` in these examples, and keep the
+`X-Workhub-Token` header: the launch token only reaches the endpoint, the session token says which
+session is calling.
 
 What an agent cannot do: approve an item. Turning a task or bug into a tracker issue stays your
 action on the Inbox tab; an agent only proposes items, keeps, closes, discards or reopens them,

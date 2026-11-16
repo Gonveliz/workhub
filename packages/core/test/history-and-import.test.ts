@@ -139,5 +139,14 @@ describe('slugId', () => {
   it('makes ids from any name', () => {
     expect(slugId('Ñandú Trabajo', 'x')).toBe('nandu-trabajo')
     expect(slugId('***', 'fallback')).toBe('fallback')
+    expect(slugId('Acme Notes --', 'x')).toBe('acme-notes')
+    expect(slugId('-- Acme', 'x')).toBe('acme')
+  })
+
+  it('trims trailing dashes in linear time', () => {
+    const started = Date.now()
+    expect(slugId(`a${'-'.repeat(100_000)}b`, 'x')).toBe(`a${'-'.repeat(63)}`)
+    expect(slugId(`a${'-'.repeat(100_000)}`, 'x')).toBe('a')
+    expect(Date.now() - started).toBeLessThan(500)
   })
 })

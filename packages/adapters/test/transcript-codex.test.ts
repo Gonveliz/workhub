@@ -161,6 +161,7 @@ describe('CodexSessionHistory', () => {
     expect(entries[0]?.agentSessionId).toBe(ID)
     expect(entries[0]?.accountId).toBe('work')
     expect(await new CodexSessionHistory({ limit: 1 }).list({ agentId: 'codex', accountId: null, configDir: dir })).toHaveLength(1)
+    expect(await new CodexSessionHistory({ limit: 5 }).list({ agentId: 'codex', accountId: null, configDir: dir }, { limit: 1 })).toHaveLength(1)
   })
 
   it('lists nothing without a sessions folder, and keeps no messages', async () => {

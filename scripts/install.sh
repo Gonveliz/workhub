@@ -8,6 +8,9 @@
 # WORKHUB_BUNDLE_NAME (default "Workhub", like scripts/install-mac.sh). A running copy keeps
 # working; the new version starts the next time the app is opened. Building from source is
 # scripts/install-mac.sh instead.
+#
+# The install stops when the checksum cannot be fetched or does not match. Only if you accept that
+# risk, WORKHUB_SKIP_CHECKSUM=1 installs without checking it.
 set -euo pipefail
 
 repo="SoldierIced/workhub"
@@ -28,10 +31,13 @@ trap 'rm -rf "$tmp"' EXIT
 zip="$tmp/$(basename "$url")"
 echo "Downloading the latest Workhub 2..."
 curl -fL --progress-bar -o "$zip" "$url" || fail "could not download $url (no published release yet?); see https://github.com/$repo/releases"
-if curl -fsSL -o "$zip.sha256" "$url.sha256"; then
+if [[ "${WORKHUB_SKIP_CHECKSUM:-}" == 1 ]]; then
+  echo "WARNING: WORKHUB_SKIP_CHECKSUM=1, installing without checking the download." >&2
+else
+  curl -fsSL -o "$zip.sha256" "$url.sha256" || fail "could not fetch the checksum $url.sha256; nothing was installed (set WORKHUB_SKIP_CHECKSUM=1 to install without checking)"
   want="$(awk '{print $1}' "$zip.sha256")"
   got="$(shasum -a 256 "$zip" | awk '{print $1}')"
-  [[ "$got" == "$want" ]] || fail "the download does not match its checksum; nothing was installed"
+  [[ -n "$want" && "$got" == "$want" ]] || fail "the download does not match its checksum; nothing was installed"
   echo "Checksum OK."
 fi
 

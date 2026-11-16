@@ -3,6 +3,7 @@ import { detectPrEvents, EMPTY_PR_EVENT_STATE, profileRefreshMs, type PrEventSta
 import type { CodeHostLists } from '../shared/codehost-api'
 import type { PrEventBatch, PrNotification } from '../shared/pr-events-api'
 import type { IpcRegistrar } from './ipc-guard'
+import { jobReports } from './job-reporter'
 
 /** How often the service checks which profiles are due; each profile syncs at its code host connection's interval (3 minutes by default, as Workhub 1). */
 export const PR_SYNC_TICK_MS = 30_000
@@ -25,6 +26,8 @@ export interface PrEventServiceDeps {
   config: () => Promise<WorkhubConfig>
   /** Delivers a batch to the renderer; called only once the renderer is listening. */
   emit: (batch: PrEventBatch) => void
+  /** Hands every batch to the automations as soon as it is found, whether or not the renderer listens. */
+  onEvents?: (batch: PrEventBatch) => void
   /**
    * Appends to the pull request timeline (once each; a failure is ignored): the events a sync
    * detected, `opened` the first time a PR of mine is seen open, and `reviewed` when a PR leaves
@@ -46,6 +49,7 @@ export class PrEventService {
   private loaded = false
   private timer: ReturnType<typeof setInterval> | undefined
   private running: Promise<void> | undefined
+  private readonly job = jobReports.job('pull request events')
   private listening = false
   private buffered: PrEventBatch[] = []
   private readonly now: () => number
@@ -99,16 +103,20 @@ export class PrEventService {
     }
     const config = await this.deps.config()
     const profiles = config.profiles.filter((p) => (this.deps.demo ? p.id === config.activeProfileId : Boolean(p.connections.codeHost)))
+    let failure: { error: unknown } | undefined
     for (const profile of profiles) {
       const last = this.syncedAt.get(profile.id)
       if (onlyDue && last !== undefined && this.now() - last < profileRefreshMs(config, profile.id, 'codeHost')) continue
       this.syncedAt.set(profile.id, this.now())
       try {
         await this.syncProfile(profile.id)
-      } catch {
+      } catch (err) {
         // A failed sync keeps the memory as it was; the next one tries again.
+        failure ??= { error: err }
       }
     }
+    if (failure) this.job.failed(failure.error)
+    else this.job.ok()
   }
 
   private async syncProfile(profileId: string): Promise<void> {
@@ -143,7 +151,14 @@ export class PrEventService {
         // The timeline is a record: the notification goes out anyway.
       }
     }
-    if (result.events.length) this.deliver({ profileId, events: result.events })
+    if (!result.events.length) return
+    const batch = { profileId, events: result.events }
+    try {
+      this.deps.onEvents?.(batch)
+    } catch {
+      // An automation that cannot start never keeps the notification from going out.
+    }
+    this.deliver(batch)
   }
 
   /** Demo mode: advance the demo and sync now. */

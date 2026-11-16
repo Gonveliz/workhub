@@ -11,7 +11,8 @@ const NOT_WOKEN: Record<string, MessageKey> = {
   noReplies: 'slack.notice.notWoken.noReplies',
   openElsewhere: 'slack.notice.notWoken.openElsewhere',
   budget: 'slack.notice.notWoken.budget',
-  openFailed: 'slack.notice.notWoken.openFailed'
+  openFailed: 'slack.notice.notWoken.openFailed',
+  notAllowed: 'slack.notice.notWoken.notAllowed'
 }
 
 /**
@@ -48,8 +49,8 @@ export function useChatNotices(): void {
       const automation = n.kind === 'automationFailed'
       if (n.kind !== 'tracking') window.hub.notifications.show({ title: w.title, body: w.body, sessionId: '', kind: automation ? 'automations' : 'slack', route: automation ? 'automations' : 'slack' })
     })
-    const offPrompted = window.hub.automations.onPrompted((id, text) => pushUser(id, text))
-    const offTurnEnded = window.hub.automations.onTurnEnded((id, stopReason) => pushTurnEnd(id, stopReason))
+    const offPrompted = window.hub.automations.onPrompted((id, text, seq) => pushUser(id, text, undefined, seq))
+    const offTurnEnded = window.hub.automations.onTurnEnded((id, stopReason, seq) => pushTurnEnd(id, stopReason, seq))
     return () => {
       offNotice()
       offPrompted()

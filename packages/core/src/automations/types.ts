@@ -1,6 +1,7 @@
 import type { EventLedger } from '../chat/ledger'
 import type { Money, SessionMonitorSnapshot } from '../domain/monitor'
 import { EFFORT_LEVELS } from '../domain/agent'
+import type { PrEventKind } from '../pr-events/types'
 
 /**
  * An automation sends a prompt or slash command to a dedicated, visible session when a chat
@@ -87,6 +88,12 @@ export interface AutomationTriggers {
   intervalMinutes: number | null
   /** When set, an interval tick only starts a run if this zero-token check finds pending work. */
   pendingGate?: PendingGate
+  /**
+   * Pull request events from the code host sync that start a run: `reviewRequested` for pull
+   * requests in my review queue, the others for my own. `prOwner` filters them too. Absent or
+   * empty: none.
+   */
+  prEvents?: PrEventKind[]
 }
 
 /** A model-free check of a skill's JSON state file that decides whether an interval tick is worth a run. */
@@ -114,7 +121,17 @@ export type AutomationOutcome = 'ok' | 'error' | 'rateLimited' | 'timeout' | 'sk
 
 export const FAILURE_OUTCOMES: readonly AutomationOutcome[] = ['error', 'rateLimited', 'timeout']
 
-export type AutomationTrigger = 'chat' | 'interval' | 'manual'
+export type AutomationTrigger = 'chat' | 'interval' | 'manual' | 'prEvent'
+
+/** The pull request a `prEvent` run is about; its prompt's `{prUrl}`, `{prTitle}` and `{prEvent}` placeholders read it. */
+export interface PrTriggerContext {
+  url: string
+  title: string
+  /** `repo#12`. */
+  name: string
+  /** The events of this pull request merged into the run, first one first. */
+  kinds: PrEventKind[]
+}
 
 /** One run of an automation, for the log. */
 export interface AutomationRun {
@@ -123,7 +140,7 @@ export interface AutomationRun {
   /** The automation's name when the run was logged, still shown once it is removed. */
   automationName: string
   trigger: AutomationTrigger
-  /** The chat message the run was triggered by, when there is one. */
+  /** The chat message (or, for `prEvent`, the pull request) the run was triggered by, when there is one. */
   triggerLink?: string
   /** Epoch milliseconds. */
   queuedAt: number
@@ -182,11 +199,13 @@ export interface AutomationsState {
   runs: AutomationRun[]
   /** Per automation: start times (epoch ms) of the last two days, for the limits. */
   starts: Record<string, number[]>
+  /** Per automation: when its interval last fired (or was first seen), so a restart keeps the count. */
+  intervals: Record<string, number>
   /** Chat events that already fired a run. */
   ledger: EventLedger
 }
 
-export const EMPTY_AUTOMATIONS_STATE: AutomationsState = { sessions: {}, owned: {}, retiring: [], runs: [], starts: {}, ledger: {} }
+export const EMPTY_AUTOMATIONS_STATE: AutomationsState = { sessions: {}, owned: {}, retiring: [], runs: [], starts: {}, intervals: {}, ledger: {} }
 
 export const RUN_LOG_LIMIT = 50
 

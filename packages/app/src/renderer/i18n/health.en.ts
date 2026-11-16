@@ -1,4 +1,4 @@
-/** English copy of the Health module (P6): the Health screen, the Home pills and Settings → Health. */
+/** English copy of the Health module (P6): the Health screen, the Home pills and Settings → Profiles → Screens → Health. */
 export const healthEn = {
   'health.subtitle': 'Errors, pods and slow endpoints of each environment, read from Elasticsearch. Nothing is called healthy unless it could be read.',
   'health.refresh': 'Refresh',
@@ -8,7 +8,7 @@ export const healthEn = {
   'health.environments': 'Environments',
   'health.failed.title': '{environment} could not be read',
   'health.failed.noDetail': 'Elasticsearch did not answer.',
-  'health.failed.hint': 'Check the VPN and the connection in Settings → Health, then try again.',
+  'health.failed.hint': 'Check the VPN and the connection in Settings → Connections → Health (Elasticsearch), then try again.',
   'health.retry': 'Try again',
   'health.loadFailed': 'Health could not be read: {message}',
   'health.stale': 'The last read failed: these figures are from {time}.',
@@ -92,11 +92,11 @@ export const healthEn = {
   'health.status.noConnection.title': 'Connect Elasticsearch',
   'health.status.noConnection.hint': 'Add the Elasticsearch URL and a read-only API key (or a user) for this profile to see errors, pods and slow endpoints.',
   'health.status.incomplete.title': 'The Health connection is incomplete',
-  'health.status.incomplete.hint': 'Add the URL, the user and the secret in Settings → Health.',
+  'health.status.incomplete.hint': 'Add the URL, the user and the secret in Settings → Connections → Health (Elasticsearch).',
   'health.status.noEnvironments.title': 'No environment to watch',
-  'health.status.noEnvironments.hint': 'Add an environment (its service.environment values and indices) in Settings → Health.',
+  'health.status.noEnvironments.hint': 'Add an environment (its service.environment values and indices) in Settings → Profiles → Screens → Health.',
   'health.status.unsupported.title': 'This health provider is not supported yet',
-  'health.status.unsupported.hint': 'Health can be read from Elasticsearch (Elastic APM). Pick it in Settings → Health.',
+  'health.status.unsupported.hint': 'Health can be read from Elasticsearch (Elastic APM). Pick it in Settings → Profiles → Screens → Health.',
   'health.openSettings': 'Open Health settings',
   'health.pill.title': '{name}: {state}',
   'health.pill.open': 'Open Health',
@@ -229,7 +229,7 @@ export const healthEn = {
   'health.pods.missing.title': 'Pod metrics are expected, but none arrived in the last 24 hours',
   'health.pods.missing.hint': 'Ask infra whether the kube-state exporter is running for {environment}. Until metrics arrive, pod state is not visible.',
   'health.pods.noSuffix.title': 'The Kubernetes index suffix is not set',
-  'health.pods.noSuffix.hint': 'Set it in Settings → Health to read pod state for {environment}.',
+  'health.pods.noSuffix.hint': 'Set it in Settings → Profiles → Screens → Health to read pod state for {environment}.',
   'health.pods.copyRequest': 'Copy request for infra',
   'health.pods.copied': 'Copied: paste it to infra.',
   'health.pods.request': 'Could you enable kube-state metrics (pod and event metrics) for the {environment} cluster in Elasticsearch?',

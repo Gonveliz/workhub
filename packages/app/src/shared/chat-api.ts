@@ -4,6 +4,7 @@ import type {
   AutomationDefinition,
   AutomationHealth,
   AutomationRun,
+  BackgroundSummary,
   ChatMessage,
   ChatNotice,
   ChatRun,
@@ -42,6 +43,8 @@ export interface SlackSnapshot {
   runs: ChatRun[]
   me: string
   hooks: SlackHookAccount[]
+  /** What the reads cost: runs, tokens and dollars today and over 7 days (absent in demo mode). */
+  cost?: BackgroundSummary
 }
 
 export type SlackResult = { ok: true } | { ok: false; error: string }
@@ -128,10 +131,13 @@ export interface AutomationsApi {
   /** The session the user is looking at, so a replaced session on screen is not stopped under them. */
   setViewing(sessionId: string | null): void
   onChanged(cb: (snapshot: AutomationsSnapshot) => void): () => void
-  /** A prompt Workhub typed into a session's chat, so the chat shows it. */
-  onPrompted(cb: (sessionId: string, text: string) => void): () => void
+  /**
+   * A prompt that went out to a session's chat (Workhub's, a device's, or one typed in another
+   * window), so the chat shows it. `seq`: its number in main's chat journal.
+   */
+  onPrompted(cb: (sessionId: string, text: string, seq?: number) => void): () => void
   /** The turn of such a prompt ended, so the chat shows its end like the user's own turns. */
-  onTurnEnded(cb: (sessionId: string, stopReason: string) => void): () => void
+  onTurnEnded(cb: (sessionId: string, stopReason: string, seq?: number) => void): () => void
   /** The stored config changed outside the renderer (an automation moved a session's sidebar place). */
   onConfigChanged(cb: () => void): () => void
 }

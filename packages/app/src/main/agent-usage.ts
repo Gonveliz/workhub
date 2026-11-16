@@ -2,12 +2,15 @@ import { join, resolve } from 'node:path'
 import {
   accountAgentId,
   accountBudgetStatus,
+  evaluateApiBudget,
   evaluateUsageAlerts,
   knownAgents,
   launchEnvironment,
   parseUsageAlertState,
   pruneUsageAlerts,
+  strictestBudget,
   usageAccountKey,
+  type ApiAgentSpend,
   type BudgetStatus,
   type PlanUsageWindow,
   type UsageAlertState,
@@ -68,6 +71,8 @@ export interface AgentUsageDeps {
   /** Crossings to notify; only called while alerts are on. */
   alert: (alerts: UsageAlert[]) => void
   alertState: { load(fallback: UsageAlertState): UsageAlertState; save(state: UsageAlertState): void }
+  /** Spend of agents billed by API key, for the dollar ceilings (`ApiSpendService.summary`). */
+  apiSpend?: () => Promise<ApiAgentSpend[]>
   now?: () => number
   intervalMs?: number
 }
@@ -82,7 +87,9 @@ export const FORCE_FLOOR_MS = 30_000
 export class AgentUsageService {
   private last: AccountUsage[] = []
   private budget: UsageBudgetOptions | null = null
+  private spend: ApiAgentSpend[] = []
   private timer: ReturnType<typeof setInterval> | null = null
+  private spendTimer: ReturnType<typeof setInterval> | null = null
   private alerts: UsageAlertState
   private running: Promise<AccountUsage[]> | null = null
   private forcedAt: number | null = null
@@ -97,13 +104,25 @@ export class AgentUsageService {
 
   start(): void {
     void this.refresh()
+    void this.readSpend()
     this.timer = setInterval(() => void this.refresh(), this.deps.intervalMs ?? 5 * 60_000)
     this.timer.unref?.()
+    // Dollar spend moves faster than a plan window does; the service behind it caches for a minute.
+    this.spendTimer = setInterval(() => void this.readSpend(), 60_000)
+    this.spendTimer.unref?.()
+  }
+
+  /** Reads the API spend the dollar ceilings are judged against; a failed read keeps the last one. */
+  async readSpend(): Promise<void> {
+    if (!this.deps.apiSpend) return
+    this.spend = await this.deps.apiSpend().catch(() => this.spend)
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer)
     this.timer = null
+    if (this.spendTimer) clearInterval(this.spendTimer)
+    this.spendTimer = null
   }
 
   current(): AccountUsage[] {
@@ -112,12 +131,15 @@ export class AgentUsageService {
 
   /**
    * The budget verdict of an account now: past windows that have reset no longer count. Allow
-   * (fail open) when the account is not read or its usage is unknown.
+   * (fail open) when the account is not read or its usage is unknown. The agent's dollar
+   * ceilings (API-key billing) count too, the stricter verdict wins.
    */
   budgetOf(agentId: string, accountId: string | null): BudgetStatus {
+    if (!this.budget) return { action: 'allow' }
     const u = this.last.find((x) => x.agentId === agentId && x.accountId === accountId)
-    if (!u || !this.budget) return { action: 'allow' }
-    return accountBudgetStatus(this.budget, u.key, u.windows, this.now())
+    const plan: BudgetStatus = u ? accountBudgetStatus(this.budget, u.key, u.windows, this.now()) : { action: 'allow' }
+    const api = evaluateApiBudget(this.spend.find((s) => s.agent === agentId), this.budget.apiCeilings[agentId], this.budget.warnMargin, this.now())
+    return strictestBudget(plan, api)
   }
 
   /**

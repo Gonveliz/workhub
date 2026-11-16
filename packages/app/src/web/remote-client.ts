@@ -15,7 +15,9 @@ import {
   identityFromSeed,
   makeAuth,
   offerFromLink,
+  offerOutdated,
   openBox,
+  pairingCode,
   parseChannelMessage,
   parseRelayMessage,
   reconnectDelayMs,
@@ -23,6 +25,7 @@ import {
   startHandshake,
   toBase64Url,
   verifyPairAccept,
+  verifyPairChallenge,
   displayFingerprint,
   type ChannelMessage,
   type Identity,
@@ -94,6 +97,12 @@ export interface ClientStatus {
   fingerprint: string
   /** An offer waiting for the person's confirmation; `relay` is the host the link points at. */
   offer: { desktopName: string; desktopFingerprint: string; relay: string } | null
+  /** While pairing: the code the person types on the desktop, once the desktop answered. */
+  code: string | null
+  /**
+   * `expired`, `desktop-outdated` (the desktop predates the pairing code) and `phone-outdated`
+   * (this page predates the desktop's pairing) for a link; connection errors otherwise.
+   */
   error?: string
   vapidPublicKey?: string
 }
@@ -153,6 +162,8 @@ export class RemoteClient {
   /** When the relay last sent anything on the current socket. */
   private lastHeard = 0
   private pendingOffer: PairingOffer | null = null
+  /** The pairing code of the pending offer, once the desktop sent its signed challenge. */
+  private pairCode: string | null = null
   private nextId = 1
   private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; cancel: () => void }>()
   private readonly listeners = new Map<string, Set<(...args: any[]) => void>>()
@@ -270,6 +281,7 @@ export class RemoteClient {
       desktops: this.desktops(),
       fingerprint: displayFingerprint(this.identity.id),
       offer: offer ? { desktopName: offer.name, desktopFingerprint: displayFingerprint(fingerprintOf(offer.desktop)), relay: offer.relay } : null,
+      code: this.state === 'pairing' ? this.pairCode : null,
       ...(this.error ? { error: this.error } : {}),
       ...(this.vapidPublicKey ? { vapidPublicKey: this.vapidPublicKey } : {})
     }
@@ -350,6 +362,14 @@ export class RemoteClient {
       this.changed()
       return false
     }
+    // Both ends must speak the pairing with a code: say which one needs updating instead of
+    // sending a request the other cannot answer.
+    const outdated = offerOutdated(offer)
+    if (outdated) {
+      this.error = `${outdated}-outdated`
+      this.changed()
+      return false
+    }
     this.pendingOffer = offer
     this.error = undefined
     this.changed()
@@ -362,6 +382,7 @@ export class RemoteClient {
     if (!offer) return
     this.disconnect()
     this.state = 'pairing'
+    this.pairCode = null
     this.error = undefined
     this.changed()
     this.connect(offer.relay, offer)
@@ -369,6 +390,7 @@ export class RemoteClient {
 
   cancelPairing(): void {
     this.pendingOffer = null
+    this.pairCode = null
     if (this.state === 'pairing') {
       this.disconnect()
       this.state = this.desktop ? 'connecting' : 'unpaired'
@@ -649,6 +671,13 @@ export class RemoteClient {
       } catch {
         return
       }
+      // First the desktop's challenge: the code to show, made with a nonce only that desktop signs.
+      const challenge = verifyPairChallenge(offer, this.identity.public, accept)
+      if (challenge) {
+        this.pairCode = pairingCode(offer, this.identity.public, challenge.nonce)
+        this.changed()
+        return
+      }
       const verified = verifyPairAccept(offer, this.identity, accept)
       if (!verified) {
         this.deps.log?.warn('remote: the desktop sent an accept that does not verify')
@@ -660,6 +689,7 @@ export class RemoteClient {
       this.persisted.active = id
       this.savePersisted()
       this.pendingOffer = null
+      this.pairCode = null
       this.error = undefined
       // Same socket, same room: go straight to the handshake.
       const socket = this.socket!

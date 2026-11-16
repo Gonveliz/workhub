@@ -357,7 +357,16 @@ function SettingsBody({
       else onClose();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // The menu's Find owns ⌘F: it reaches this window as a command.
+    const offFind = window.hub.menu.onCommand((command) => {
+      if (command.kind !== "findInChat") return;
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    });
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      offFind();
+    };
   }, [query, onClose, unsaved]);
 
   const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {

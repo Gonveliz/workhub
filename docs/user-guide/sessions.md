@@ -21,7 +21,7 @@ declares what it supports, and the screen shows only the controls that agent has
   when Workhub starts, without sending a prompt, so a model gained since the last session (a
   Claude Code update, the `fable` alias moving to a newer Fable) is offered without opening one.
   Codex and OpenCode list theirs only when a session starts. **Use a worktree** and **Branch** start the session in its own git worktree;
-  see [Worktree per session](profiles.md#worktree-per-session). **Group** lists the sidebar's
+  see [Worktree per session](profiles.md#worktree-per-session), which also covers `.worktreeinclude` (ignored files copied into the new worktree) and the setup command that prepares it; a notice at the start of the session reports both. **Group** lists the sidebar's
   session groups (a sub-group by its path, such as "Work / Backend"); it starts on **No group**.
   **New group…** shows a field for the name of a new group (a group with that name, if there is
   one, is reused). The session starts in the group picked.
@@ -56,9 +56,16 @@ middle of a turn, the switch waits for it ("Switches to Terminal when the turn e
 answer questions in the meantime; **Switch now** stops the turn and switches immediately, **Cancel**
 stays in the current view.
 
+Each terminal keeps 10,000 lines to scroll back through (change it in **Settings → General → Text size → Adjust…**, from 1,000 to 100,000). Workhub sends a
+terminal's output to the screen in batches of about one frame, so a command that prints without pause (a long build log) does not slow the app down.
+
 ## The composer
 
 - **Return** sends, **Shift+Return** adds a line, **Esc** interrupts the agent.
+- **Earlier prompts**: **↑** in an empty message box (or with the caret on its first line) brings
+  back the session's previous prompt; keep pressing for older ones (up to the last 50). **↓** comes
+  forward and, past the newest, puts back what you were typing; so does **Esc**. Editing a recalled
+  prompt makes it your draft.
 - Under the input, two small menus show the session's **Model** and **Mode** (permission mode, or
   the agent for Kiro and OpenCode). Change them live. When the agent does not let a session switch
   one, it is shown without a chevron. The mode is tinted when tools run unattended, such as
@@ -68,8 +75,8 @@ stays in the current view.
   turn ends (**Queued: sent when the agent finishes**). With Claude Code the message joins the turn
   in progress instead. If you interrupt, queued messages come back into the composer, unsent. Each
   queued message has a **Remove queued message** button.
-- **Pasted images**: paste or drag images into the composer (agents that accept images only: up to
-  6 per message, PNG, JPEG, GIF or WebP, 5 MB each). They show as thumbnails you can remove, and
+- **Pasted images**: paste or drag images into the composer (agents that accept images only: PNG,
+  JPEG, GIF or WebP, up to 3.75 MB each). They show as thumbnails you can remove, and
   appear in the conversation, where **Click to view** opens them in the file viewer.
 - **Timestamps**: every message shows the day and hour it was sent; hover for the full date with
   seconds.
@@ -79,7 +86,8 @@ stays in the current view.
   answered elsewhere (the phone, another window) shows as such; one the agent withdrew, or that a
   stopped turn left behind, shows as withdrawn. Above the message box a line says how many requests
   wait for your answer; after you answer one, the focus moves to the next request or back to the
-  message box. While one waits and the session is not on screen (its window visible and focused),
+  message box. From the keyboard, **⌘/Ctrl+Shift+A** moves the focus to the oldest request, and
+  **1**-**9** pick its buttons in order. While one waits and the session is not on screen (its window visible and focused),
   Workhub notifies again at the interval set in **Settings → Notifications and alerts** (15 minutes
   by default, counted again from when you last looked at it; it follows the **Needs an answer**
   switch and an automation's own Notify setting).
@@ -94,6 +102,17 @@ stays in the current view.
 - **Long messages**: a message of yours taller than about 25 lines on screen (a pasted log or
   crash report, even one with no line breaks) is shown collapsed; **Show more** opens it, **Show less** folds it again. Long lines
   wrap inside the bubble, and code blocks and tables in replies scroll inside themselves.
+- **Long conversations**: the conversation shows its latest 200 or so messages, starting where one
+  of your messages begins; **Show earlier messages** at the top shows the next 200 above, without
+  moving what you are reading. The conversation follows new output while you are at its bottom;
+  scroll up while the agent writes and **Jump to latest** takes you back down.
+- **Copy**: under each message of yours and each reply, next to its time.
+- **Find in the conversation**: **⌘/Ctrl+F** (View → **Find in Conversation**) opens a find bar over
+  the chat. It ignores case, shows which match you are on (**3 of 12**), and **Return** /
+  **Shift+Return** or the arrows go to the next and previous match, wrapping around at the ends.
+  Matches are highlighted and the chat scrolls to the current one. It searches your messages, the
+  replies, errors and the names of tool calls, not collapsed thinking or tool output. **Esc** closes
+  the bar. It works in the App view; the Terminal and Shell views are not searched.
 - **Listen**: next to **Copy** under each agent message. A short message (under about 400
   characters once code, links and formatting are left out) is read aloud as it is. A longer one is
   first summarized into a few spoken sentences, in the message's language, by a small Claude model
@@ -143,6 +162,13 @@ that wake the session, and **Stop**. On a narrow window the secondary controls f
 The panel button at the right end (**Hide the monitor**, ⇧⌘M) folds the side panel away and
 brings it back; its icon shows whether the panel is open.
 
+- **No output for 12 min**: a session that is working and whose agent has sent nothing for 10
+  minutes (the limit is in **Settings → General → On open and close**, or off) shows a notice
+  under the header and **No output for …** in place of **Working**, with **Stop** and **Keep
+  waiting**. Nothing is stopped for you: the agent may be thinking. **Keep waiting** asks again
+  after another full interval, and any new output from the agent clears the notice. A session
+  that waits for a permission or an answer is never flagged. A session that is still **Starting**
+  after 60 seconds is stopped and shows the error, for the Claude Code bridge as for other agents.
 - **Review before PR** and **Review changes**: see [Review before PR](review-before-pr.md).
 - **Files**: the files the agent edited, wrote or read in this session, opened in a file viewer
   window (text, images and PDFs).
@@ -156,10 +182,17 @@ brings it back; its icon shows whether the panel is open.
 ## Resume, rename, close
 
 - **Resume**: History lists past sessions of every account and agent; see
-  [History](history.md). In the sidebar, a folder's menu has **Resume session…**. Only Claude Code
-  sessions can be resumed so far.
+  [History](history.md). In the sidebar, a folder's menu has **Resume session…**. Claude Code,
+  Kiro, OpenCode and Codex sessions can be resumed. Kiro, OpenCode, Codex and Gemini CLI continue
+  the conversation only when the agent can load a past session; otherwise a new conversation starts
+  below the earlier messages, with a **New conversation** notice saying the agent does not remember
+  them.
 - **Rename**: **Rename…** in the session's menu, or double-click its name, or `/rename <name>` in
   the chat. Leave the name empty to show the agent's name again.
+- **Export conversation…**: in the session's menu in the sidebar. A save dialog asks where; the
+  file is Markdown named after the session and the date (`my-session-2026-11-05.md`). It has your
+  messages and the agent's replies in order with their times (UTC), each tool call as one line
+  with its status, and no tool output.
 - **Sign in** (Claude): `/login` in the chat opens the Terminal view and runs `/login` there, since
   Claude Code only signs in from its terminal UI. Once signed in, go back to App (⌘⌥1).
 - **Close**: the close button on the row. A session that is working asks first (**Stop and
@@ -172,9 +205,27 @@ brings it back; its icon shows whether the panel is open.
 - **Keep my sessions in the sidebar** (**Settings → General → On open and close**, on by default):
   every session in the sidebar when Workhub quit, running or stopped, comes back in its group and
   window, **stopped**: no agent process runs and nothing is spent until you open it, which resumes
-  its conversation. **Delete session** takes one out of the sidebar for good; it stays in
+  its conversation (with the notice above when the agent cannot). **Delete session** takes one out of the sidebar for good; it stays in
   History. **Start them when Workhub starts** (off by default) runs every one again right away
   instead. Nothing is sent to the agents either way.
+
+## Quitting while sessions are busy
+
+Quitting Workhub (⌘Q, the menu, or **Restart now** after an update) would stop running turns
+and drop queued prompts and unanswered requests. So when any session is working, has prompts
+waiting or has an open permission request, Workhub asks first and says how many of each:
+
+- **Quit anyway** (**Restart anyway**): stops everything and quits.
+- **Quit when idle** (**Restart when idle**): quits by itself once no session has been busy for
+  a few seconds. A banner at the top of the window says it is waiting and has **Cancel**; a new
+  prompt simply postpones it.
+- **Cancel**: stays open.
+
+Prompts waiting in a window's own queue are not counted themselves (only the main process is
+asked); they only exist while a turn runs, so that session already counts as working.
+Shutting the computer down or logging out never waits: Workhub quits at once. Turn the question
+off with **Ask before quitting while sessions are busy** in **Settings → General → On open and
+close**.
 
 ## Detached windows
 
@@ -182,6 +233,11 @@ brings it back; its icon shows whether the panel is open.
 a session to its own window. The main window shows "This session is in its own window" with **Show
 Window**; closing that window, or **Move to Main Window** there, brings it back. Sub-agents can also
 be opened in a new window.
+
+Every window shows the whole chat of a running session, including messages sent from another
+window or a paired phone, and a window that reloads (by itself after a crash, or with **Reload**)
+gets its chats back. Workhub keeps the latest part of each chat for this; a very long chat starts
+with "Earlier messages are not shown", and the full conversation stays in History.
 
 ## The sidebar
 
@@ -192,6 +248,11 @@ be opened in a new window.
   icon badge and OS notifications follow the same events (**Settings → Notifications and alerts**).
   A session whose console asks for a permission or a question counts as **Needs an answer** too,
   until you press Enter in that console or it stops.
+- **From the keyboard**: **⌘/Ctrl+Alt+↓** and **⌘/Ctrl+Alt+↑** show the next and previous session
+  in sidebar order, and **⌘/Ctrl+J** jumps to the next session that needs you (**Needs an answer**,
+  **Ready to review** or **Error**), cycling through them. **⌘/Ctrl+K** opens the command palette:
+  type part of a session's name, folder or state, a screen, **New session** or a Settings section
+  or setting, and press Return.
 - **Groups**: **New group** creates a folder of sessions. Drag a session onto a group or onto
   another session to move it; drag groups to reorder them. The row menu has **Move up** and **Move
   down** (Alt+↑ and Alt+↓), **Move to group**, **Take out of group**, and for groups **Rename
@@ -209,5 +270,32 @@ be opened in a new window.
   command in the background ("wait for the CI checks") or a watcher, its row shows a timer with
   the number of tasks (hover for what each one does), and the chat shows them above the message
   box with how long each has run. They disappear when the tasks end or the session stops.
+- **Requests from agents**: a row with an inbox icon and a number has requests from its agent waiting
+  for you (see below).
+
+## Agents that work with other sessions
+
+With Workhub's tools for agents on (**Settings → Agents → Workhub tools**, or the
+`workhub-sessions` skill), an agent can see the other sessions of its profile (name, agent,
+folder, state and whether one needs you; never what was said in them) and ask for two things.
+Neither happens until you say so:
+
+- **Start a new session**: the agent proposes an agent, a folder of the profile and a first
+  prompt. A bar at the top of the proposing session shows the whole prompt with **Start session**
+  and **Dismiss**. Approved, the session starts in a mode that asks before acting (as a start from
+  a phone: never one that skips permission prompts) and gets the prompt once it is ready.
+- **Send a message to another session**: the first message from one session to another shows in
+  the sending session with **Allow and send** and **Dismiss**. Once allowed, later messages from
+  that session to that one go through until Workhub quits. Each arrives as "Message from session
+  <name>", its text set apart as data from another agent, not as your instructions. Reviewer
+  sessions never send or receive messages.
+
+You also get a notification for each request; its click opens the session that asked. At most 3
+requests of a session wait at once, and proposals and messages are rate limited. Requests end when
+Workhub quits or the session that made them is closed.
+
+An agent can also raise a notification of its own (a title and one line), for example when a long
+task is done. It follows **Settings → Notifications and alerts** like a session's reply, and is
+rate limited. None of this is available from a paired phone.
 
 Next: [Monitor](monitor.md).

@@ -20,8 +20,10 @@ import type { CalendarTestResult, PlanCalendarStatus, PlanState, PlanView } from
 
 /** The least time between two real reads of a profile's calendars, however often the screen asks. */
 export const PLAN_MIN_GAP_MS = 30_000
-/** A read where every calendar failed may be retried this soon. */
+/** A read where a calendar failed may be retried this soon; each further failure in a row doubles the wait. */
 export const PLAN_RETRY_GAP_MS = 5_000
+/** The longest wait between retries of a failing calendar. */
+export const PLAN_RETRY_MAX_GAP_MS = 5 * 60_000
 /** The calendar id the demo serves under. */
 export const DEMO_CALENDAR_ID = 'demo-calendar'
 
@@ -40,6 +42,18 @@ interface Cached {
   at: number
   events: CalendarEvent[]
   calendars: PlanCalendarStatus[]
+  /** Reads in a row where a calendar failed; drives the retry back-off. */
+  failures: number
+}
+
+/**
+ * What reminders and the tray agenda may use: the events of a ready or demo read, and also the last
+ * good events kept while every calendar fails (the Plan screen still shows the error). Null without any.
+ */
+export function usableRead(r: CalendarRead | null): { events: CalendarEvent[]; settings: PlannerSettings } | null {
+  if (!r) return null
+  if (r.state === 'ready' || r.state === 'demo' || (r.state === 'error' && r.events.length > 0)) return { events: r.events, settings: r.settings }
+  return null
 }
 
 export interface CalendarServiceDeps {
@@ -112,13 +126,13 @@ export class CalendarService {
     ])
     let cached = this.cache.get(profile.id)
     if (!cached || cached.key !== key) {
-      cached = { key, at: 0, events: [], calendars: [] }
+      cached = { key, at: 0, events: [], calendars: [], failures: 0 }
       this.cache.set(profile.id, cached)
     }
     const age = this.now() - cached.at
-    const failed = cached.calendars.length > 0 && cached.calendars.every((c) => !c.ok)
-    const floor = failed ? PLAN_RETRY_GAP_MS : PLAN_MIN_GAP_MS
-    const due = cached.at === 0 || age >= settings.refreshMinutes * 60_000 || (force && age >= floor)
+    // A failed read is due again after a short, growing gap (not the whole refresh interval), forced or not.
+    const retryGap = cached.failures > 0 ? Math.min(PLAN_RETRY_GAP_MS * 2 ** (cached.failures - 1), PLAN_RETRY_MAX_GAP_MS) : 0
+    const due = cached.at === 0 || age >= settings.refreshMinutes * 60_000 || (cached.failures > 0 ? age >= retryGap : force && age >= PLAN_MIN_GAP_MS)
     if (due) {
       const now = this.now()
       const window = calendarWindow(now)
@@ -145,6 +159,7 @@ export class CalendarService {
         cached.events = mergeCalendars(results.map((r) => r.events))
         cached.calendars = results.map((r) => r.status)
       }
+      cached.failures = cached.calendars.some((c) => !c.ok) ? cached.failures + 1 : 0
       cached.at = now
     }
     const state: PlanState = this.deps.demo ? 'demo' : cached.calendars.every((c) => !c.ok) ? 'error' : 'ready'

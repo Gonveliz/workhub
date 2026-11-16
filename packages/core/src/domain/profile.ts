@@ -72,6 +72,8 @@ export interface Profile {
   health?: HealthSettings
   /** Tracked Slack threads quiet for this many minutes are shown archived (default 15; see `threadArchiveMinutes`). */
   slackArchiveMinutes?: number
+  /** Slack users (id or display name, case ignored) whose replies may wake this profile's sessions; empty or absent: anyone (see `mayWake`). */
+  slackWakeFrom?: string[]
   /** AI review before a pull request (see `aiReviewSettings` for the defaults). */
   aiReview?: AiReviewSettings
   /** Worktree per session (see `worktreeSettings` for the defaults). */
@@ -125,6 +127,11 @@ export interface FolderOptions {
   subfoldersAreProjects?: boolean
   /** New sessions in this folder use a worktree (true) or not (false); unset: the profile's setting. */
   worktrees?: boolean
+  /**
+   * A shell command the user typed that runs once in each new session worktree of a repository in
+   * this folder, after the `.worktreeinclude` copy (e.g. `npm ci`). Typed here, never read from the repository.
+   */
+  setupCommand?: string
 }
 
 /** Where the value of a profile's environment variable is kept (the secret store, never the config file). */
@@ -138,7 +145,8 @@ export function slugId(value: string, fallback: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/^[^a-z0-9]+/, '')
-    .replace(/-+$/, '')
-    .slice(0, 64)
-  return slug || fallback
+  // Trailing dashes go in a loop: `/-+$/` rescans every run of dashes not at the end (quadratic).
+  let end = slug.length
+  while (end > 0 && slug[end - 1] === '-') end--
+  return slug.slice(0, end).slice(0, 64) || fallback
 }

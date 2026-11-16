@@ -547,3 +547,89 @@ describe('config version 5 (chat watcher and automations)', () => {
     expect(saveAutomation(base, newAutomation('x')).ok).toBe(true)
   })
 })
+
+describe('interval schedule', () => {
+  const MIN = 60_000
+  const interval = (minutes: number) => ({ triggers: { chatChannelIds: [], prOwner: '', intervalMinutes: minutes } })
+  const intervalRuns = (e: AutomationEngine) => e.snapshot().runs.filter((r) => r.trigger === 'interval')
+
+  it('waits one full interval for a new automation, then runs', async () => {
+    const { world, engine } = setup(interval(30))
+    await engine.tick()
+    expect(world.saved?.intervals['a1']).toBe(T0)
+    world.time += 29 * MIN
+    await engine.tick()
+    expect(world.delivered).toHaveLength(0)
+    world.time += 1 * MIN
+    await engine.tick()
+    expect(world.delivered).toHaveLength(1)
+  })
+
+  it('keeps the count across a restart', async () => {
+    const first = setup(interval(30))
+    await first.engine.tick()
+    // The app restarts 20 minutes later with the persisted state.
+    const world = new FakeWorld()
+    world.defs = first.world.defs
+    world.time = T0 + 20 * MIN
+    const engine = new AutomationEngine(world, first.world.saved!)
+    await engine.tick()
+    expect(world.delivered).toHaveLength(0)
+    world.time += 10 * MIN
+    await engine.tick()
+    expect(world.delivered).toHaveLength(1)
+  })
+
+  it('runs once at the first tick after a restart when the interval came due while the app was off', async () => {
+    const { world, engine: first } = setup(interval(30))
+    await first.tick()
+    const world2 = new FakeWorld()
+    world2.defs = world.defs
+    world2.time = T0 + 5 * 30 * MIN
+    const engine = new AutomationEngine(world2, world.saved!)
+    await engine.tick()
+    expect(world2.delivered).toHaveLength(1)
+    world2.endTurns()
+    world2.time += 1_000
+    await engine.tick()
+    expect(intervalRuns(engine)).toHaveLength(1)
+  })
+
+  it('stays due outside the window and fires once when the window opens', async () => {
+    const { world, engine } = setup(interval(30))
+    await engine.tick()
+    // Due at 10:30, but the tick only happens at 20:00, after the window closed.
+    world.time = new Date(2026, 9, 27, 20, 0, 0).getTime()
+    await engine.tick()
+    world.time += 5 * MIN
+    await engine.tick()
+    expect(world.delivered).toHaveLength(0)
+    // Next morning, inside the window: one run, not one per missed interval.
+    world.time = new Date(2026, 9, 28, 9, 30, 0).getTime()
+    await engine.tick()
+    expect(world.delivered).toHaveLength(1)
+    world.endTurns()
+    world.time += 1_000
+    await engine.tick()
+    world.time += 1_000
+    await engine.tick()
+    expect(world.delivered).toHaveLength(1)
+  })
+
+  it('stays due while a run is pending and does not stack runs', async () => {
+    const { world, engine } = setup(interval(30))
+    await engine.tick()
+    world.time += 30 * MIN
+    world.usage = 100
+    await engine.tick()
+    expect(engine.runState('a1').pending).toBeDefined()
+    // The pending run waits (usage guard); the interval is not consumed and queues nothing more.
+    world.time += 30 * MIN
+    await engine.tick()
+    expect(engine.snapshot().runs.filter((r) => r.outcome === 'coalesced')).toHaveLength(0)
+    world.usage = null
+    world.time += MIN
+    await engine.tick()
+    expect(world.delivered).toHaveLength(1)
+  })
+})

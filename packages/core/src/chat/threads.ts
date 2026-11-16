@@ -172,12 +172,10 @@ export function ingestRecord(state: ChatWatcherState, record: HookRecord, ctx: I
   const index = state.threads.findIndex((t) => t.channelId === record.channelId && t.ts === root)
   if (index >= 0) {
     const thread = state.threads[index]!
-    // The message is the session's own either way, so it never counts as a reply.
-    let next: TrackedThread = {
-      ...thread,
-      sentTs: [...thread.sentTs, sentTs].slice(-SENT_CAP),
-      lastSeenReplyTs: isAfter(sentTs, thread.lastSeenReplyTs) ? sentTs : thread.lastSeenReplyTs
-    }
+    // The message is the session's own either way, so `sentTs` keeps it out of the replies. The read
+    // cursor stays put: moving it here would skip a reply that arrived before this message and was
+    // not read yet.
+    let next: TrackedThread = { ...thread, sentTs: [...thread.sentTs, sentTs].slice(-SENT_CAP) }
     if (!ignored) {
       if (!next.owner) {
         const agentKey = ctx.agentKeyFor?.(record.configDir)

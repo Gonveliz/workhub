@@ -181,6 +181,7 @@ describe('OpenCodeSessionHistory', () => {
       ['ses_other', 'ses_other', '/tmp/acme-api']
     ])
     expect(entries[0]).toMatchObject({ firstPrompt: 'Fix ABC-12: the form loses focus', lastModified: NOW - 1000, createdAt: NOW - 60_000 })
+    expect((await new OpenCodeSessionHistory({ dbPath }).list({ agentId: 'opencode', accountId: null }, { limit: 1 })).map((e) => e.agentSessionId)).toEqual(['ses_main'])
   })
 
   it('lists nothing without a database', async () => {

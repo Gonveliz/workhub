@@ -159,10 +159,18 @@ export class OpenSessions {
    * session whose folder or agent is gone is skipped.
    */
   restore(): Promise<void> {
-    this.restoring ??= this.run().finally(() => {
-      this.ready = true
-      this.changed()
-    })
+    // Ready only after a restore that finished: one that failed (the config could not be read)
+    // must not let the empty list replace the stored one. A later call tries again.
+    this.restoring ??= this.run().then(
+      () => {
+        this.ready = true
+        this.changed()
+      },
+      (err: unknown) => {
+        this.restoring = null
+        throw err
+      }
+    )
     return this.restoring
   }
 

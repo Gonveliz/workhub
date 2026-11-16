@@ -9,6 +9,13 @@
  * `WORKHUB_TOKEN` instead, and every request sends `Authorization: Bearer $WORKHUB_TOKEN`. The
  * `workhub-*` skills pick whichever the session has.
  *
+ * Reaching the endpoint does not say which session is calling: every session also gets its own
+ * token, `WORKHUB_SESSION_TOKEN`, sent as `X-Workhub-Token`, and a request acts as the session of
+ * its token only (`control-auth.ts`). Without one, only reads of the active profile's plan and
+ * automations are answered. The examples below leave the header out for brevity:
+ *
+ *   -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN"
+ *
  *   curl --unix-socket "$WORKHUB_SOCKET" -X POST "http://workhub/v1/sessions/$WORKHUB_SESSION/review" \
  *     -H 'content-type: application/json' -d '{"repos":[{"path":"/abs/repo","base":"origin/main"}]}'
  *
@@ -51,16 +58,29 @@
  *   curl --unix-socket "$WORKHUB_SOCKET" -X POST http://workhub/v1/analytics/query \
  *     -H 'content-type: application/json' -d '{"session":"'"$WORKHUB_SESSION"'","sql":"SELECT cwd, TOTAL(usd) FROM turns GROUP BY cwd"}'
  *   curl --unix-socket "$WORKHUB_SOCKET" "http://workhub/v1/analytics/report?session=$WORKHUB_SESSION&kind=spend_by_project"
+ *
+ * And it lets an agent see the other sessions of its profile and, with the user's approval, start
+ * or message one, and notify the user (`session-control.ts`; the `workhub-sessions` skill):
+ *
+ *   curl --unix-socket "$WORKHUB_SOCKET" "http://workhub/v1/sessions?session=$WORKHUB_SESSION"
+ *   curl --unix-socket "$WORKHUB_SOCKET" -X POST http://workhub/v1/sessions \
+ *     -H 'content-type: application/json' -d '{"agent":"claude","folder":"/abs/repo","prompt":"Write the tests"}'
+ *   curl --unix-socket "$WORKHUB_SOCKET" -X POST "http://workhub/v1/sessions/<id>/message" \
+ *     -H 'content-type: application/json' -d '{"text":"The API is merged"}'
+ *   curl --unix-socket "$WORKHUB_SOCKET" -X POST http://workhub/v1/notify \
+ *     -H 'content-type: application/json' -d '{"title":"Tests pass","body":"Ready for review"}'
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, statSync, unlinkSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, statSync, unlinkSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
 import type { AnalyticsControl } from './analytics-control'
+import { authorizeControl, bindBody, type ControlAuth, type ControlCaller } from './control-auth'
 import type { AutomationControl } from './automation-control'
 import type { PlanControl } from './plan-control'
+import type { SessionControl } from './session-control'
 
 const MAX_BODY = 256 * 1024
 const MAX_REPOS = 20
@@ -79,10 +99,12 @@ export interface ControlReply {
 export type ControlResult = { ok: true } | { ok: false; status: number; error: string }
 
 export interface ControlDeps {
+  /** Who a request is, from its session token (`control-auth.ts`); every route but health goes through it. */
+  auth: ControlAuth
   /** Opens the session's "Review changes" window on these repos (plus the ones it finds itself). */
-  openReview(sessionId: string, repos: ReviewRequestRepo[]): ControlResult
+  openReview(sessionId: string, repos: ReviewRequestRepo[]): ControlResult | Promise<ControlResult>
   /** Validates and stores a flow map (the Flow maps screen); errors name the fields. `file` is a display name (`<id>.json`): maps live in the database. */
-  saveFlowMap?(map: unknown): { ok: true; file: string; id: string } | { ok: false; errors: string[] }
+  saveFlowMap?(map: unknown, caller?: ControlCaller): { ok: true; file: string; id: string; note?: string } | { ok: false; errors: string[] }
   /** Adds the items of a body to a profile's inbox as pending (`parseInboxProposals` checks it). */
   addInboxItems?(body: unknown): Promise<{ ok: true; added: string[]; duplicates: string[] } | { ok: false; status: number; error: string }>
   /** Plan for agents: today's meetings, reading and updating the inbox, milestones, people. */
@@ -91,6 +113,8 @@ export interface ControlDeps {
   automations?: AutomationControl
   /** Read-only analytics over the usage database (schema, one SELECT, the Usage reports); reviewers too. */
   analytics?: AnalyticsControl
+  /** The other sessions of the caller's profile: list, propose one, message one, and notify the user (`session-control.ts`). */
+  sessions?: SessionControl
   log?: (message: string) => void
 }
 
@@ -140,7 +164,7 @@ export function privateSocketDir(env: NodeJS.ProcessEnv = process.env, tmp: stri
 }
 
 /** The variables of the endpoint; a session gets all of them, the unused ones empty. */
-export const CONTROL_ENV_KEYS = ['WORKHUB_SESSION', 'WORKHUB_SOCKET', 'WORKHUB_URL', 'WORKHUB_TOKEN'] as const
+export const CONTROL_ENV_KEYS = ['WORKHUB_SESSION', 'WORKHUB_SESSION_TOKEN', 'WORKHUB_SOCKET', 'WORKHUB_URL', 'WORKHUB_TOKEN'] as const
 
 /**
  * The environment of a session that must not reach any endpoint (a reviewer, or no endpoint is
@@ -158,11 +182,15 @@ export const usesLoopbackControl = (platform: NodeJS.Platform = process.platform
 /** A new token for the loopback endpoint (one per launch). */
 export const newControlToken = () => randomBytes(32).toString('hex')
 
-/** The environment a session gets to reach the endpoint; `NO_CONTROL_ENV` while none listens. */
-export function controlEnv(sessionId: string, endpoint: ControlEndpoint | null): Record<string, string> {
+/**
+ * The environment a session gets to reach the endpoint, with its own token (`mintToken`, called
+ * only when an endpoint listens); `NO_CONTROL_ENV` while none listens.
+ */
+export function controlEnv(sessionId: string, endpoint: ControlEndpoint | null, mintToken: () => string): Record<string, string> {
   if (!endpoint) return { ...NO_CONTROL_ENV }
-  if ('socket' in endpoint) return { ...NO_CONTROL_ENV, WORKHUB_SESSION: sessionId, WORKHUB_SOCKET: endpoint.socket }
-  return { ...NO_CONTROL_ENV, WORKHUB_SESSION: sessionId, WORKHUB_URL: endpoint.url, WORKHUB_TOKEN: endpoint.token }
+  const session = { WORKHUB_SESSION: sessionId, WORKHUB_SESSION_TOKEN: mintToken() }
+  if ('socket' in endpoint) return { ...NO_CONTROL_ENV, ...session, WORKHUB_SOCKET: endpoint.socket }
+  return { ...NO_CONTROL_ENV, ...session, WORKHUB_URL: endpoint.url, WORKHUB_TOKEN: endpoint.token }
 }
 
 /** True when the request carries `Authorization: Bearer <token>` (compared in constant time). */
@@ -191,6 +219,31 @@ export function parseReviewBody(body: unknown, isDir: (path: string) => boolean)
     out.push({ path, ...(typeof base === 'string' && base ? { base } : {}) })
   }
   return out
+}
+
+/**
+ * The first path of a review request that is not inside one of `roots` (the session's folder or
+ * worktree and the folders of its profile), compared by real path so a symlink or `..` cannot
+ * leave them; null when all are inside. A root that does not exist is skipped.
+ */
+export function reviewPathOutside(repos: readonly ReviewRequestRepo[], roots: readonly string[]): string | null {
+  const real = (p: string): string | null => {
+    try {
+      return realpathSync(p)
+    } catch {
+      return null
+    }
+  }
+  const allowed = roots.map(real).filter((r): r is string => r !== null)
+  for (const { path } of repos) {
+    const target = real(path)
+    const inside = target !== null && allowed.some((root) => {
+      const rel = relative(root, target)
+      return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+    })
+    if (!inside) return path
+  }
+  return null
 }
 
 const isDirectory = (path: string) => {
@@ -225,32 +278,41 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   return text ? JSON.parse(text) : undefined
 }
 
+/** The JSON body bound to the caller's session (`bindBody`), or the answer that refuses it. */
+async function readBody(req: IncomingMessage, caller: ControlCaller): Promise<{ ok: true; body: unknown } | { ok: false; status: number; error: string }> {
+  let body: unknown
+  try {
+    body = await readJson(req)
+  } catch (e) {
+    return { ok: false, status: 400, error: e instanceof Error ? e.message : 'bad body' }
+  }
+  return bindBody(body, caller)
+}
+
 /** Handles one request; exported for tests. */
 export async function handleControl(deps: ControlDeps, req: IncomingMessage, res: ServerResponse, isDir: (path: string) => boolean = isDirectory): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://workhub')
   if (req.method === 'GET' && url.pathname === '/v1/health') return send(res, 200, { ok: true })
+  const who = authorizeControl(deps.auth, req, url, deps.log)
+  if (!who.ok) return send(res, who.status, { ok: false, error: who.error })
+  const caller = who.caller
   if (url.pathname === '/v1/flow-maps') {
     if (req.method !== 'POST') return send(res, 405, { ok: false, error: 'use POST' })
     if (!deps.saveFlowMap) return send(res, 404, { ok: false, error: 'flow maps are not available' })
-    let body: unknown
-    try {
-      body = await readJson(req)
-    } catch (e) {
-      return send(res, 400, { ok: false, error: e instanceof Error ? e.message : 'bad body' })
-    }
-    const saved = deps.saveFlowMap(body)
+    // The map itself is the body: no session is bound into it (the caller was checked above).
+    const read = await readBody(req, null)
+    if (!read.ok) return send(res, read.status, { ok: false, error: read.error })
+    const body = read.body
+    const saved = deps.saveFlowMap(body, caller)
     return saved.ok ? send(res, 200, saved) : send(res, 400, { ok: false, error: saved.errors.join('; '), errors: saved.errors })
   }
   if (url.pathname === '/v1/inbox') {
     if (req.method === 'GET') return deps.plan ? reply(res, await deps.plan.inbox(url.searchParams)) : send(res, 404, { ok: false, error: 'the inbox is not available' })
     if (req.method !== 'POST') return send(res, 405, { ok: false, error: 'use GET or POST' })
     if (!deps.addInboxItems) return send(res, 404, { ok: false, error: 'the inbox is not available' })
-    let body: unknown
-    try {
-      body = await readJson(req)
-    } catch (e) {
-      return send(res, 400, { ok: false, error: e instanceof Error ? e.message : 'bad body' })
-    }
+    const read = await readBody(req, caller)
+    if (!read.ok) return send(res, read.status, { ok: false, error: read.error })
+    const body = read.body
     const added = await deps.addInboxItems(body)
     return added.ok ? send(res, 200, added) : send(res, added.status, { ok: false, error: added.error })
   }
@@ -258,12 +320,9 @@ export async function handleControl(deps: ControlDeps, req: IncomingMessage, res
   if (item) {
     if (req.method !== 'PATCH') return send(res, 405, { ok: false, error: 'use PATCH' })
     if (!deps.plan) return send(res, 404, { ok: false, error: 'the inbox is not available' })
-    let body: unknown
-    try {
-      body = await readJson(req)
-    } catch (e) {
-      return send(res, 400, { ok: false, error: e instanceof Error ? e.message : 'bad body' })
-    }
+    const read = await readBody(req, caller)
+    if (!read.ok) return send(res, read.status, { ok: false, error: read.error })
+    const body = read.body
     let id: string
     try {
       id = decodeURIComponent(item[1]!)
@@ -277,12 +336,9 @@ export async function handleControl(deps: ControlDeps, req: IncomingMessage, res
     if (!deps.plan) return send(res, 404, { ok: false, error: 'Plan is not available' })
     const method = req.method
     if (milestone ? method !== 'PATCH' && method !== 'DELETE' : method !== 'POST') return send(res, 405, { ok: false, error: milestone ? 'use PATCH or DELETE' : 'use GET or POST' })
-    let body: unknown
-    try {
-      body = await readJson(req)
-    } catch (e) {
-      return send(res, 400, { ok: false, error: e instanceof Error ? e.message : 'bad body' })
-    }
+    const read = await readBody(req, caller)
+    if (!read.ok) return send(res, read.status, { ok: false, error: read.error })
+    const body = read.body
     let id: string | null = null
     if (milestone) {
       try {
@@ -299,12 +355,9 @@ export async function handleControl(deps: ControlDeps, req: IncomingMessage, res
     if (!one && url.pathname !== '/v1/automations') return send(res, 404, { ok: false, error: 'unknown endpoint' })
     if (!one && req.method === 'GET') return reply(res, await deps.automations.list(url.searchParams))
     if (one ? req.method !== 'PATCH' : req.method !== 'POST') return send(res, 405, { ok: false, error: one ? 'use PATCH' : 'use GET or POST' })
-    let body: unknown
-    try {
-      body = await readJson(req)
-    } catch (e) {
-      return send(res, 400, { ok: false, error: e instanceof Error ? e.message : 'bad body' })
-    }
+    const read = await readBody(req, caller)
+    if (!read.ok) return send(res, read.status, { ok: false, error: read.error })
+    const body = read.body
     if (!one) return reply(res, await deps.automations.create(body, url.searchParams))
     let id: string
     try {
@@ -332,18 +385,34 @@ export async function handleControl(deps: ControlDeps, req: IncomingMessage, res
     if (!deps.analytics) return send(res, 404, { ok: false, error: 'analytics are not available' })
     if (url.pathname === '/v1/analytics/query') {
       if (req.method !== 'POST') return send(res, 405, { ok: false, error: 'use POST' })
-      let body: unknown
-      try {
-        body = await readJson(req)
-      } catch (e) {
-        return send(res, 400, { ok: false, error: e instanceof Error ? e.message : 'bad body' })
-      }
+      const read = await readBody(req, caller)
+      if (!read.ok) return send(res, read.status, { ok: false, error: read.error })
+      const body = read.body
       return reply(res, await deps.analytics.query(body, url.searchParams))
     }
     const route = url.pathname === '/v1/analytics/schema' ? 'schema' : url.pathname === '/v1/analytics/report' ? 'report' : null
     if (!route) return send(res, 404, { ok: false, error: 'unknown endpoint' })
     if (req.method !== 'GET') return send(res, 405, { ok: false, error: 'use GET' })
     return reply(res, await deps.analytics[route](url.searchParams))
+  }
+  const message = /^\/v1\/sessions\/([^/]{1,200})\/message$/.exec(url.pathname)
+  if (url.pathname === '/v1/sessions' || url.pathname === '/v1/notify' || message) {
+    if (!deps.sessions) return send(res, 404, { ok: false, error: 'sessions are not available' })
+    // Only a session, proven by its token, sees or reaches the others (authorizeControl refuses the rest).
+    if (!caller) return send(res, 401, { ok: false, error: 'this needs the session token: send X-Workhub-Token: $WORKHUB_SESSION_TOKEN' })
+    if (url.pathname === '/v1/sessions' && req.method === 'GET') return reply(res, await deps.sessions.list(caller.session))
+    if (req.method !== 'POST') return send(res, 405, { ok: false, error: url.pathname === '/v1/sessions' ? 'use GET or POST' : 'use POST' })
+    const sent = await readBody(req, caller)
+    if (!sent.ok) return send(res, sent.status, { ok: false, error: sent.error })
+    if (url.pathname === '/v1/notify') return reply(res, await deps.sessions.notify(caller.session, sent.body))
+    if (!message) return reply(res, await deps.sessions.propose(caller.session, sent.body))
+    let target: string
+    try {
+      target = decodeURIComponent(message[1]!)
+    } catch {
+      return send(res, 400, { ok: false, error: 'bad session id' })
+    }
+    return reply(res, await deps.sessions.message(caller.session, target, sent.body))
   }
   const read = Object.hasOwn(PLAN_READS, url.pathname) ? PLAN_READS[url.pathname] : undefined
   if (read) {
@@ -354,15 +423,11 @@ export async function handleControl(deps: ControlDeps, req: IncomingMessage, res
   const review = /^\/v1\/sessions\/([\w-]{1,100})\/review$/.exec(url.pathname)
   if (!review) return send(res, 404, { ok: false, error: 'unknown endpoint' })
   if (req.method !== 'POST') return send(res, 405, { ok: false, error: 'use POST' })
-  let body: unknown
-  try {
-    body = await readJson(req)
-  } catch (e) {
-    return send(res, 400, { ok: false, error: e instanceof Error ? e.message : 'bad body' })
-  }
-  const repos = parseReviewBody(body, isDir)
+  const sent = await readBody(req, caller)
+  if (!sent.ok) return send(res, sent.status, { ok: false, error: sent.error })
+  const repos = parseReviewBody(sent.body, isDir)
   if (typeof repos === 'string') return send(res, 400, { ok: false, error: repos })
-  const result = deps.openReview(review[1]!, repos)
+  const result = await deps.openReview(review[1]!, repos)
   if (!result.ok) return send(res, result.status, { ok: false, error: result.error })
   return send(res, 200, { ok: true })
 }

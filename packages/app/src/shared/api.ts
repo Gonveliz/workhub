@@ -1,6 +1,7 @@
 // Types of the preload bridge (window.hub), shared by main, preload and renderer.
 import type { AnalyticsApi } from './analytics-api'
-import type { ChromeProfile, GroupChoice, SessionWorktree, WorktreeStatus } from '@workhub/core'
+import type { ChatJournal } from './chat-journal'
+import type { BackgroundSpend, ChromeProfile, GroupChoice, SessionWorktree, WorktreeStatus } from '@workhub/core'
 import type { NotificationKind, TrayApi, TrayRoute } from './tray-api'
 import type { ProfileEnvApi, SetupApi, SystemNotificationsApi } from './setup-api'
 import type { AgentToolsApi } from './agent-tools-api'
@@ -43,6 +44,8 @@ import type { AiReviewApi } from './ai-review-api'
 import type { AutomationsApi, SlackApi } from './chat-api'
 import type { CodeHostApi } from './codehost-api'
 import type { ContinuityApi } from './continuity-api'
+import type { SessionRequestsApi } from './session-requests-api'
+import type { AgentChangesApi } from './agent-changes-api'
 import type { HealthApi } from './health-api'
 import type { FlowMapsApi } from './flow-maps-api'
 import type { PlanApi } from './plan-api'
@@ -52,6 +55,7 @@ import type { ListenApi } from './listen-api'
 import type { LinksApi } from './links-api'
 import type { PrEventsApi } from './pr-events-api'
 import type { TicketsApi } from './tickets-api'
+import type { QuitApi } from './quit-api'
 import type { UpdatesApi } from './updates-api'
 import type { MenuApi, SettingsWindowApi, WindowsApi } from './windows-api'
 import type { FilesApi, LocalReviewApi } from './local-review-api'
@@ -69,10 +73,16 @@ export interface ConfigSnapshot {
   dataDir: string
   /** Set when the config file could not be loaded; editing is disabled until it is fixed. */
   loadError?: string
+  /** With `loadError`: the problems the file has, one line each (empty when the error says it all). */
+  loadIssues?: string[]
+  /** The config file's path, so a load error can say which file to fix. */
+  configPath?: string
 }
 
 export interface ConfigApi {
   get(): Promise<ConfigSnapshot>
+  /** Reads the config file again (after the user fixed it); every window gets `config:changed`. */
+  reload(): Promise<ConfigSnapshot>
   saveConnection(connection: Connection, secret: SecretChange): Promise<Result<WorkhubConfig>>
   deleteConnection(id: string): Promise<Result<WorkhubConfig>>
   saveAccount(account: AgentAccount): Promise<Result<WorkhubConfig>>
@@ -168,6 +178,11 @@ export interface SessionView extends Session {
   consoleAsking?: boolean
   /** When the console started asking (epoch ms); absent while it does not. */
   consoleAskingSince?: number
+  /**
+   * Set while the session is working and its agent has sent nothing since this time (epoch ms),
+   * for longer than the stuck-session preference: the header offers Stop and Keep waiting.
+   */
+  stalledSince?: number
   /** Sent to a paired device in place of a session too large for one relay frame: only its id, label and state. */
   tooLarge?: boolean
 }
@@ -216,6 +231,8 @@ export interface HistoryItem extends HistoryEntry {
   agentName: string
   /** Whether Workhub can open the session again; other agents' sessions are listed only. */
   resumable: boolean
+  /** Whether it can also reopen in the terminal (the agent has a console view); true when absent. */
+  consoleResumable?: boolean
   /** The automation the session ran for, when it is one (History groups its runs). */
   automationId?: string
   automationName?: string
@@ -225,8 +242,13 @@ export interface HistoryResult {
   entries: HistoryItem[]
   /** Accounts that could not be listed, with the reason. */
   errors: { account: string; message: string }[]
-  /** The accounts listed completely (`agentId` NUL `accountId or ''`), so the search index drops only their missing sessions. */
+  /**
+   * The accounts whose listing holds every session they still have that the search index may hold
+   * (`agentId` NUL `accountId or ''`), so the index drops only their missing sessions.
+   */
   listed?: string[]
+  /** The accounts with more sessions than the listing went to (`listed`'s keys): History can list further back. */
+  truncated?: string[]
   /** Every account the listing tried, failed or not: the index drops the sessions of any other. */
   accounts?: string[]
 }
@@ -309,8 +331,21 @@ export interface UsageAlert {
 /** Marks the error of a prompt dropped before it was sent because its session was interrupted. */
 export const PROMPT_WITHDRAWN = 'workhub:prompt-withdrawn'
 
+/** The chat as Markdown plus the session's name (for the file name); the path is chosen in main's save dialog. */
+export interface ConversationExport {
+  name: string
+  markdown: string
+}
+
+export type ConversationExportResult = { ok: true; path: string } | { ok: false; canceled: true } | { ok: false; canceled: false; error: string }
+
 export interface SessionsApi {
   list(): Promise<SessionView[]>
+  /**
+   * The chat main keeps for a live session (bounded), so a window that loads later rebuilds it:
+   * live messages numbered at or below its `seq` are already in it. Desktop windows only.
+   */
+  journal(id: string): Promise<ChatJournal | null>
   /** The main window follows session events now: the sessions open at the last quit are reopened then. */
   ready(): void
   /** Returns at once with the session in `starting`; progress arrives through onChanged. */
@@ -328,8 +363,13 @@ export interface SessionsApi {
   prompt(id: string, text: string, images?: ImageInput[], token?: number): Promise<string>
   /** Takes back a prompt sent with `token` that still waits for its turn; false once it went out. */
   withdrawPrompt(id: string, token: number): Promise<boolean>
-  /** A prompt sent from this window with a token went out to the agent. */
-  onPromptStarted(cb: (id: string, token: number) => void): () => void
+  /** Answers the "no output" notice with Keep waiting: the silence counts again from now. */
+  keepWaiting(id: string): Promise<void>
+  /**
+   * A prompt sent from this window with a token went out to the agent. `seq`: the number main's
+   * chat journal gives it, so the broadcast of the same prompt is not shown again here.
+   */
+  onPromptStarted(cb: (id: string, token: number, seq?: number) => void): () => void
   /**
    * A prompt sent from this window with a token settled. It travels with the session's events, so
    * it arrives after the turn's last message; `prompt()`'s own answer can overtake them.
@@ -374,16 +414,21 @@ export interface SessionsApi {
   localChanges(id: string): Promise<LocalChanges | null>
   /** Names the session (empty or null: back to its agent's name); stored by the session's identity. */
   rename(id: string, name: string | null): Promise<void>
-  onEvent(cb: (e: AgentEvent) => void): () => void
+  /** Saves a conversation as a Markdown file the user picks in a save dialog (desktop windows only). */
+  exportConversation(conversation: ConversationExport): Promise<ConversationExportResult>
+  /** `seq`: the event's number in main's chat journal, when it belongs to the chat (see `journal`). */
+  onEvent(cb: (e: AgentEvent, seq?: number) => void): () => void
   onChanged(cb: (s: SessionView) => void): () => void
   /** A finished session left the list (an automation replaced it). */
   onRemoved(cb: (id: string) => void): () => void
   /** Earlier messages of a resumed session, to show before the new turns. */
-  onReplay(cb: (id: string, messages: HistoryMessage[]) => void): () => void
+  onReplay(cb: (id: string, messages: HistoryMessage[], seq?: number) => void): () => void
 }
 
 export interface HistoryApi {
   list(): Promise<HistoryResult>
+  /** Lists again, a page of sessions further back for every account that has more. */
+  listOlder(): Promise<HistoryResult>
   /** Full-text search of past sessions (titles, prompts, folders and conversations), with snippets. */
   search(query: string, options?: HistorySearchOptions): Promise<HistorySearchResult>
   /** How far the search index is. */
@@ -430,6 +475,8 @@ export interface FolderSpendResult {
   scanning: boolean
   /** False when the profile has no folders: there is nothing to attribute spend to. */
   hasFolders: boolean
+  /** The model runs Workhub started by itself over the same days (Slack reads, Listen summaries), every profile together. */
+  background?: BackgroundSpend
 }
 
 export interface UsageApi {
@@ -541,6 +588,7 @@ export interface HubApi {
   codeHost: CodeHostApi
   tickets: TicketsApi
   updates: UpdatesApi
+  quit: QuitApi
   health: HealthApi
   flowMaps: FlowMapsApi
   plan: PlanApi
@@ -553,6 +601,10 @@ export interface HubApi {
   automations: AutomationsApi
   aiReview: AiReviewApi
   continuity: ContinuityApi
+  /** What agents asked of other sessions, waiting for the user (never offered to paired devices). */
+  sessionRequests: SessionRequestsApi
+  /** What agents changed of automations, flow maps, milestones and inbox items, for Keep or Revert on Home (never offered to paired devices). */
+  agentChanges: AgentChangesApi
   localReview: LocalReviewApi
   files: FilesApi
   tray: TrayApi
@@ -574,6 +626,9 @@ export interface HubApi {
 }
 
 /** Where the app keeps its state (Settings → Advanced → Data). */
+/** What an export of diagnostics did: `canceled` when the person closed the folder picker. */
+export type DiagnosticsExportResult = { ok: true; folder: string; files: number } | { ok: false; canceled: boolean; error?: string }
+
 export interface StorageInfo {
   /** The database file (`workhub.db` in the data folder). */
   path: string
@@ -589,12 +644,54 @@ export interface StorageInfo {
 
 export type StorageBackupResult = { ok: true; path: string } | { ok: false; error: string }
 
+/** A group of tables in the database: usage detail (turns, sessions, links, tags), usage summaries (`turns_daily`), History's search index, events (pull request and ticket timelines, automation runs) and app state. */
+export type StorageGroupName = 'usageDetail' | 'usageSummaries' | 'historyIndex' | 'events' | 'state'
+
+/** What the data takes in the database (Settings → Advanced → Data). */
+export interface StorageUsage {
+  groups: { group: StorageGroupName; rows: number; bytes: number | null }[]
+  /** Space deleted rows left behind, which Compact now gives back; null when not known. */
+  freeBytes: number | null
+  /** The file and its write-ahead log. */
+  fileBytes: number
+  /** Usage detail, events and automation runs are kept this many months (then daily summaries). */
+  retentionMonths: number
+  /** When the maintenance last ran; null before its first run. */
+  lastRunAt: number | null
+}
+
+export type StorageCompactResult = { ok: true; beforeBytes: number; afterBytes: number } | { ok: false; error: string }
+
+/** A copy the database can be restored from: a backup, or the file an earlier restore set aside. */
+export interface StorageRestorePoint {
+  path: string
+  kind: 'automatic' | 'manual' | 'beforeRestore'
+  /** When the copy was last written (epoch ms). */
+  at: number
+  sizeBytes: number
+}
+
+/**
+ * A restore asked for: `ok` means the copy passed its checks and the app is restarting to swap it in.
+ * `reason` says why it was refused: not one of the listed copies, unreadable, damaged, or made by a
+ * newer Workhub.
+ */
+export type StorageRestoreResult = { ok: true } | { ok: false; reason: 'unknown' | 'unreadable' | 'damaged' | 'newerSchema' | 'failed'; error: string }
+
 export interface StorageApi {
   info(): Promise<StorageInfo>
   /** Copies the database now, to a new `workhub-YYYY-MM-DD-HHmm.db` (the daily copy is kept apart). */
   backup(): Promise<StorageBackupResult>
   /** Opens the backups folder in the file manager. */
   revealBackups(): void
+  /** Rows and approximate size per group of data, and the retention. */
+  usage(): Promise<StorageUsage>
+  /** Runs the retention now, then VACUUM: the file shrinks to what it holds. */
+  compact(): Promise<StorageCompactResult>
+  /** The backups and the copies earlier restores set aside, newest first. */
+  restorePoints(): Promise<StorageRestorePoint[]>
+  /** Checks the copy, then restarts the app and swaps it in (the current database kept as a copy). */
+  restore(path: string): Promise<StorageRestoreResult>
 }
 
 /**
@@ -610,4 +707,6 @@ export interface DiagnosticsApi {
   report(report: RendererReport): void
   /** Shows the log file in the file manager. */
   revealLogs(): void
+  /** Asks for a folder and writes the diagnostics there (Help → Export diagnostics…). */
+  exportDiagnostics(): Promise<DiagnosticsExportResult>
 }

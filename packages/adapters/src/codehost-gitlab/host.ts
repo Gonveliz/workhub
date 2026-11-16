@@ -1,11 +1,15 @@
 import {
+  classifyCodeHostFailure,
   CodeHostError,
+  createRefusal,
   gitlabProjectPath,
   gitlabRecognizer,
   type CodeHost,
   type CodeHostCapabilities,
   type CodeHostStatus,
   type DiffFile,
+  type MergeMethod,
+  type NewPullRequest,
   type PullRequest,
   type PullRequestDetail,
   type PullRequestQuery,
@@ -64,6 +68,16 @@ export class GitLabCodeHost implements CodeHost {
       throw new CodeHostError(text, /401|unauthori[sz]ed|not logged in|no token|authenticat/i.test(text) ? 'signedOut' : 'failed')
     }
     return result
+  }
+
+  /** A write whose failure text may say why (not mergeable, pipeline failing, no permission, already exists). */
+  private async write(args: string[], fallback: string): Promise<CliResult> {
+    try {
+      return await this.glab(args, fallback)
+    } catch (e) {
+      if (e instanceof CodeHostError && e.kind === 'failed') throw new CodeHostError(e.message, classifyCodeHostFailure(e.message) ?? 'failed')
+      throw e
+    }
   }
 
   private async pages(endpoint: string, fallback: string): Promise<unknown[]> {
@@ -174,6 +188,56 @@ export class GitLabCodeHost implements CodeHost {
         'Closed, but the branch could not be deleted'
       )
     }
+  }
+
+  /*
+   * Create and merge go through `glab api`, like every other call here: it honors `--hostname` for
+   * a self-managed GitLab, and `glab mr merge` would queue a merge "when the pipeline succeeds" by
+   * default instead of merging now.
+   */
+  async createPullRequest(input: NewPullRequest): Promise<PullRequestRef> {
+    const refusal = createRefusal(input)
+    if (refusal) throw new CodeHostError(`create refused: ${refusal}`, 'unsupported')
+    // A "Draft:" title prefix is how every GitLab version marks a draft.
+    const title = input.draft && !/^(draft|wip)\s*:/i.test(input.title) ? `Draft: ${input.title}` : input.title
+    const result = await this.write(
+      [
+        'api', '--method', 'POST', `projects/${gitlabProjectPath(input.repository)}/merge_requests`,
+        '--raw-field', `source_branch=${input.branch}`, '--raw-field', `target_branch=${input.base}`,
+        '--raw-field', `title=${title}`, '--raw-field', `description=${input.body}`
+      ],
+      'Could not create the merge request'
+    )
+    let url: unknown
+    try {
+      url = (JSON.parse(result.stdout) as { web_url?: unknown }).web_url
+    } catch {
+      url = undefined
+    }
+    const ref = typeof url === 'string' ? this.recognizer.parse(url) : null
+    if (!ref) throw new CodeHostError('GitLab created the merge request, but Workhub could not read its address')
+    return ref
+  }
+
+  /** GitLab merges with the project's own method (merge commit or fast-forward); squashing follows its squash option. */
+  async mergeMethods(ref: PullRequestRef): Promise<MergeMethod[]> {
+    const result = await this.glab(['api', `projects/${gitlabProjectPath(ref)}`], 'Could not read the project settings')
+    let squash: unknown
+    try {
+      squash = (JSON.parse(result.stdout) as { squash_option?: unknown }).squash_option
+    } catch {
+      throw new CodeHostError('GitLab returned an answer Workhub could not read')
+    }
+    if (squash === 'always') return ['squash']
+    if (squash === 'never') return ['merge']
+    return ['merge', 'squash']
+  }
+
+  async merge(ref: PullRequestRef, options: { method: MergeMethod; deleteBranch: boolean; branch: string }): Promise<void> {
+    if (options.method === 'rebase') throw new CodeHostError('GitLab merges with the project\'s own method; rebase is not offered', 'unsupported')
+    const args = ['api', '--method', 'PUT', `${this.mr(ref)}/merge`, '--field', `squash=${options.method === 'squash'}`]
+    if (options.deleteBranch) args.push('--field', 'should_remove_source_branch=true')
+    await this.write(args, 'Could not merge the merge request')
   }
 
   async replyToThread(ref: PullRequestRef, threadId: string, body: string): Promise<void> {

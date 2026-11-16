@@ -3,7 +3,7 @@
 Workhub Remote lets a phone (or any browser) see and drive the Workhub on your desktop: the
 sessions that are running, their chat, permission prompts (pinned above the message box until
 answered, like on the desktop; when the agent's own console is the one asking, the phone says so
-and the answer is given on the desktop), pull requests, automations and
+and the answer is given on the desktop), pull requests and
 alerts. The desktop keeps running everything; the phone is a second screen with a keyboard.
 
 Nothing of yours passes through a server in the clear. The desktop and the phone pair once, keep
@@ -22,14 +22,19 @@ phone (web app, later a native app)  ⇄  relay (your server, or one you trust) 
   you can compare them.
 - **Pairing.** The desktop shows a QR code with its identity, the relay's address and a one-time
   secret that expires in five minutes. The phone answers through the relay with a request proving it
-  saw the QR; you confirm the device name and fingerprint on the desktop and choose what it may do.
+  saw the QR, and then shows a 6-digit pairing code; you type that code on the desktop and choose
+  what the device may do. Anyone who saw the QR (a screen share, a photo) knows its secret, but not
+  the code your phone shows: their device gets another code, and a wrong code cancels the
+  request. If a second device answers the same QR, the desktop cancels it and tells you.
 - **Capabilities.** A device gets only what you tick: sessions (view, chat, answer permissions,
-  close, open a new one in a profile folder), pull requests, automations (run, stop, turn on or
-  off; a phone cannot create or edit one), health and alerts, Plan. Sessions and automations mean
-  the agents run code on this computer, so grant them to phones you hold; automations start
-  unticked. A device can never pick a folder outside the profile's, switch an agent to a mode that
-  skips permission prompts, open windows or dialogs on the desktop, read or change settings, or see
-  secrets. It gets a trimmed view of the configuration (profile names and agents, no connections or
+  close, open a new one in a profile folder, see what a session changed and answer its review loop), pull requests (read-only lists), automations (their notifications, and an Automations screen to run one, stop a run and turn one off), health and alerts, Plan. A device
+  can call only what the phone app itself uses: it cannot review, comment on or close a pull request, or create, edit, remove or turn on an automation, whatever it was granted.
+  Sessions mean the agents run code on this computer, so grant them to phones you hold; automations
+  start unticked. A device can never pick a folder outside the profile's, open windows or dialogs
+  on the desktop, read or change settings, or see secrets. It never starts a session in a mode that
+  skips permission prompts: when the account's or the agent's default mode is one, a session
+  started from the phone runs in the agent's safest mode that asks (Default for Claude Code), and
+  an agent with no such mode is refused until you start it on the desktop. It gets a trimmed view of the configuration (profile names and agents, no connections or
   environment). You can revoke a device at any time; a phone that unpairs tells the desktop, which
   drops it too.
 - **Reconnecting.** Both ends reconnect on their own after a restart or a lost connection, with the
@@ -52,8 +57,15 @@ phone (web app, later a native app)  ⇄  relay (your server, or one you trust) 
    network drop, backing off up to half a minute between attempts.
 3. **Pair a device.** *Show QR code* puts a code on screen for five minutes. Scan it with the phone
    (or copy the link and open it there). When the phone answers, Settings shows its name, platform
-   and fingerprint; compare the fingerprint with the one on the phone, tick what the device may do,
-   and *Accept*. The device connects within a second and from then on reconnects by itself.
+   and fingerprint, and the phone shows a 6-digit pairing code. Type the code in Settings, tick what
+   the device may do, and *Accept* (it stays disabled until six digits are typed). The device
+   connects within a second and from then on reconnects by itself.
+   - A wrong code cancels the request and the QR: show a new one and start again.
+   - If a second device answers the same QR, pairing is cancelled and Settings says so: someone
+     else may have seen the code or its link. Show a new QR only to your phone.
+   - A phone still running the app from before pairing codes cannot show one; Settings asks you
+     to reload the page on the phone, then open the link again. A phone that opens a QR from an
+     older Workhub says the computer needs an update.
 4. **Paired devices.** Each one shows whether it is connected, when it was last seen and its
    capabilities, which you can change at any time (the device reconnects with the new set).
    *Revoke* drops it: it has to pair again to come back.
@@ -71,9 +83,10 @@ The phone opens the relay's address in its browser: the relay serves the phone a
    which has no address bar, use *Copy link* on the desktop and paste it into the pairing field
    instead: a tapped link or a scanned QR opens the browser, not the installed app. The app shows
    the computer's name and fingerprint and this phone's fingerprint; give the phone a name and
-   tap *Pair*. Back on the
-   desktop, compare the fingerprints, tick what the phone may do and *Accept*. The phone connects
-   at once and never asks again, even after the desktop, the relay or the phone restart.
+   tap *Pair*. The phone then shows a 6-digit pairing code. Back on the desktop, type that code,
+   tick what the phone may do and *Accept*. Do not read the code out or share it: whoever types
+   it on the computer pairs this phone. The phone connects at once and never asks again, even
+   after the desktop, the relay or the phone restart.
 2. **Notifications.** Asked once after pairing. *Allow* subscribes the browser to Web Push; the
    desktop's notifications then reach the phone with the body sealed to its key, whether or not
    the app is open. On iPhone add the app to the Home Screen first (Share → Add to Home Screen):
@@ -95,7 +108,7 @@ The phone opens the relay's address in its browser: the relay serves the phone a
    file fetches it from the computer and shows it in the chat: an image, a Markdown document with its
    formatting, or any other text (a log, source code, JSON) as it is, in a box that scrolls until you
    tap **Expand**. Text longer than 256 KB, and anything that is not text or an image (a PDF, an
-   archive), only downloads; files above 8 MB stay on the desktop. An image outside the folder opens too when
+   archive), only downloads; files above about 290 KB (what fits one relay frame once encoded) stay on the computer and show "too large to open on the phone". An image outside the folder opens too when
    the session's agent read or wrote it, such as a screenshot you gave it; other files outside do not. Opening a session loads its latest messages;
    scrolling up loads earlier ones a page at a time (very long tool output and pasted images stay
    on the desktop). Under the chat, in this order: a row that says how many of the session's
@@ -109,6 +122,18 @@ The phone opens the relay's address in its browser: the relay serves the phone a
    box sends a message or stops the
    turn; what you send shows in the desktop's chat as your message too. *New* opens a session in one of the profile's folders, with the agent and an optional
    first message; the session appears on the desktop too.
+   The **Changes** icon at the top of a session shows what it changed: the same changes as the
+   desktop's [review before a pull request](review-before-pr.md), read only. Pick *Branch vs base* or
+   *Uncommitted only*; each repository the session touched lists its branch, and each changed file
+   its status and the lines added and removed, a page at a time (*Load more*). A tap on a file shows
+   its diff, again a page at a time; very long lines are cut (the computer shows them whole). A
+   binary or too-large file, and hidden files or key-like names (`.env`, `id_rsa`), show a notice
+   instead of their content. The phone can only open files from that list. When the session has a
+   review loop, its state shows at the top of Changes; while it waits for you, the chat shows it
+   too, with the decisions the desktop offers at that point: **Continue** or **Stop review** for a
+   paused *Review before PR*, and for a *Review with another agent* loop the findings to send to the
+   author (with an optional note) or **Stop loop**. Everything else (comments on lines, finding
+   states, starting a review) stays on the computer.
    The search icon at the top of Sessions (a *Search sessions* box) searches the computer's History (see
    [History](history.md#find-and-filter)), limited to sessions run in the folders of the profile
    the phone has picked, the same folders it may open a session in. Results come best match first
@@ -123,21 +148,31 @@ The phone opens the relay's address in its browser: the relay serves the phone a
    proposals too), the tasks you took on (done with a tap, or open one to edit it or add a note),
    and the milestones with their progress against time, pieces and notes. *+* adds a pending item.
    The calendars' addresses and the Plan settings stay on the desktop.
-6. **Several computers.** One phone can pair with more than one desktop (home and work, say):
+6. **Automations.** With the *Automations* capability, a tab lists the computer's automations: name,
+   state (off, idle, waiting, paused, failing, running), the last run with how it ended, and when it
+   runs next. *Run now* starts one that is on (it counts against the same budget of new agent runs per
+   minute as starting a session from the phone), *Stop* ends a run in progress, and the switch turns an automation off.
+   The phone never turns one on, and never runs one that is off: an agent can add or edit
+   automations (they are always saved off), so you review and turn them on at the computer, in
+   Automations. Prompts, folders and agents stay on the computer. The computer must be on a version
+   with this screen; an older one says so.
+   A session's chat also shows its permission mode (read-only) under the header: the mode the
+   session really runs in, tinted while tools run without asking.
+7. **Several computers.** One phone can pair with more than one desktop (home and work, say):
    Settings → *Pair another computer*. The phone talks to one at a time; a selector at the top of
    Sessions and the list in Settings switch between them, and a notification from another
    computer switches to it when tapped. Each desktop keeps its own cached state and its own
    capabilities. Revoking the phone on one desktop leaves the others paired.
-7. **Phone settings.** Language, theme and text size are the phone's own; the profile the lists
+8. **Phone settings.** Language, theme and text size are the phone's own; the profile the lists
    open with is remembered per phone.
-8. **Without network.** The phone keeps the last answer to each list and the latest messages of
+9. **Without network.** The phone keeps the last answer to each list and the latest messages of
    each open session, encrypted with its own key, and shows them with a banner under the header
    while the desktop is unreachable (after a second and a half, so a quick reconnect does not
    flash it). When the app goes to the
    background, notifications arrive as push at once; the connection itself stays for 30 seconds,
    so a quick look at another app or the Control Center does not reconnect. After that it closes,
    and back in front it reconnects.
-9. **Unpair.** Settings → *Unpair this phone* forgets the current desktop and its cached state. Revoking the
+10. **Unpair.** Settings → *Unpair this phone* forgets the current desktop and its cached state. Revoking the
    device on the desktop does the same from the other side.
 
 ## Self-hosting the relay
@@ -161,6 +196,30 @@ Put a reverse proxy with TLS in front (nginx, Caddy, Traefik) and forward WebSoc
 `wss://relay.example.com/ws`). An nginx `location /` block needs `proxy_http_version 1.1`,
 `Upgrade` and `Connection "upgrade"` headers, and a long `proxy_read_timeout`.
 
+With `TRUST_PROXY=1`, the proxy must set the address header itself, replacing whatever the client
+sent. The relay reads only that one header, and only its last entry:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8787;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_read_timeout 1h;
+}
+```
+
+```caddy
+relay.example.com {
+    # Caddy replaces X-Forwarded-For with the client's address unless you list trusted proxies.
+    reverse_proxy 127.0.0.1:8787
+}
+```
+
+Behind a CDN or another proxy in front of yours, `$remote_addr` is that proxy's address: configure
+the proxy to pass the real one, or every client shares one bucket.
+
 ### Configuration
 
 | Variable | Meaning |
@@ -169,7 +228,8 @@ Put a reverse proxy with TLS in front (nginx, Caddy, Traefik) and forward WebSoc
 | `DATA_DIR` | Where push subscriptions persist (`/data` in the image). |
 | `WEB_CLIENT_DIR` | Folder with the built web client to serve on `/`; unset serves none. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Enable Web Push. `node relay.cjs --vapid` prints a key pair; the subject is a `mailto:` or URL push services may contact. |
-| `TRUST_PROXY` | `1` behind a reverse proxy: the client address comes from `X-Real-IP`, or the last entry of `X-Forwarded-For` (the one the proxy appended). Off by default. |
+| `TRUST_PROXY` | `1` behind a reverse proxy: the client address comes from the last entry of one header (`X-Forwarded-For` unless `TRUST_PROXY_HEADER` says otherwise), the one the proxy appended. No other header is read. Off by default. |
+| `TRUST_PROXY_HEADER` | The header your proxy sets with the client address, for example `X-Real-IP` if the proxy sets only that. Default `x-forwarded-for`. |
 | `PUSH_ENDPOINT_HOSTS` | Extra push-service hosts, comma separated. The browsers' own services are built in; any other endpoint is refused, so the relay cannot be pointed at arbitrary addresses. |
 | `RELAY_VERSION` | Reported by `/healthz` (the image sets it to the commit). |
 
@@ -197,12 +257,17 @@ never bodies.
 - It does serve the phone app's code. A malicious relay operator could ship modified code that
   reads the keys stored on the phone, so only pair with a relay you trust. Self-hosting is the
   safest choice. When you confirm a pairing, check the relay host the phone shows.
+- The phone's key is kept in the browser's storage for the relay's address (the page reads it
+  from local storage and the service worker from IndexedDB), and it can be copied: any script
+  served from that address can read it. It is not yet held as a key the browser refuses to
+  export. Use a relay address that serves nothing but Workhub Remote.
 - Revoking a phone from the computer (Settings → Remote access) is the authoritative way to cut its
   access. Forgetting the computer on the phone also tells the computer to drop it, when the two are
   connected at that moment.
-- Set `TRUST_PROXY=1` only when the relay runs behind a reverse proxy that sets `X-Forwarded-For`.
-  The relay uses the rightmost address in that header; without such a proxy, use `TRUST_PROXY=0`,
-  or clients could spoof their address.
+- Set `TRUST_PROXY=1` only when the relay runs behind a reverse proxy that sets `X-Forwarded-For`
+  (or the header named in `TRUST_PROXY_HEADER`). The relay uses the rightmost address in that
+  header and ignores every other header; without such a proxy, use `TRUST_PROXY=0`, or clients
+  could spoof their address. Per-address limits count an IPv6 client by its /64, not its full address.
 
 ### From source
 

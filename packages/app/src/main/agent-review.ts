@@ -105,6 +105,8 @@ export class AgentReviewService {
   private readonly loops = new Map<string, LoopRun>()
   /** Session id -> the agent text of the turn the loop waits on. */
   private readonly replies = new Map<string, string>()
+  /** Author session id -> the last review brief it wrote: "Create pull request" starts its body from it. */
+  private readonly briefs = new Map<string, string>()
   private seq = 0
   private emitQueued = false
 
@@ -125,6 +127,11 @@ export class AgentReviewService {
 
   private view(sessionId: string): SessionView | undefined {
     return this.deps.sessions.list().find((v) => v.id === sessionId)
+  }
+
+  /** The last review brief a session's agent wrote, if any. */
+  briefOf(sessionId: string): string | null {
+    return this.briefs.get(sessionId) ?? null
   }
 
   snapshot(): ReviewLoopView[] {
@@ -211,6 +218,8 @@ export class AgentReviewService {
       const reply = await this.turn(run, config, author.id, authorKey, briefPrompt, 'authorClosed')
       const brief = extractReviewBrief(reply)
       if (!brief) throw new LoopEnd({ failure: 'noBrief' })
+      if (this.briefs.size > 200) this.briefs.clear()
+      this.briefs.set(author.id, brief)
 
       this.set(run, { phase: 'starting' })
       const reviewerId = await this.startReviewer(run, author, reviewer, settings)

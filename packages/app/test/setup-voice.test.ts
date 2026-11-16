@@ -62,7 +62,7 @@ describe('setup wording', () => {
     expect(itemDetail(t, tn, item({ code: 'signedInAs', params: { who: 'a@b.c', plan: 'Max' } }))).toBe('Signed in as a@b.c · Max plan')
     expect(itemDetail(t, tn, item({ code: 'signedInAs', params: { who: '', plan: '' } }))).toBe('Signed in')
     expect(itemDetail(t, tn, item({ code: 'profileFolders', params: { names: 'Acme', count: '1' } }))).toBe('Acme · 1 folder')
-    expect(fixLabel(t, { kind: 'settings', tab: 'trackers' })).toBe('Open Settings → Trackers')
+    expect(fixLabel(t, { kind: 'settings', tab: 'trackers' })).toBe('Open Settings → Connections')
     expect(fixLabel(t, { kind: 'command', command: 'gh auth login' })).toBe('Copy command')
     expect(fixLabel(t, { kind: 'link', url: 'https://x', title: 'downloadNode' })).toBe('Download Node.js')
   })

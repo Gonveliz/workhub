@@ -102,7 +102,7 @@ export const PLANNER_ERRORS = {
   moduleOff: 'Plan is off in this profile',
   unknown: 'The item no longer exists',
   notAllowed: 'This item does not offer that action',
-  noProject: 'Set the project for new issues in Settings → Plan → Inbox',
+  noProject: 'Set the project for new issues in Settings → Profiles → Screens → Plan → Inbox',
   noCreate: 'This tracker cannot create issues',
   noSearch: 'This tracker cannot search',
   tooMany: 'Too many milestones',
@@ -707,6 +707,33 @@ export class PlannerService {
         this.forgetTicket(profileId, ticket.key)
         await this.readTickets(profile, false)
       }
+      return { ok: true }
+    })
+  }
+
+  /** The milestone with this id in any profile (the journal of agents' changes looks objects up by id). */
+  findMilestone(id: string): { profileId: string; milestone: Milestone } | undefined {
+    for (const [profileId, p] of Object.entries(this.state.profiles)) {
+      const milestone = p.milestones.find((m) => m.id === id)
+      if (milestone) return { profileId, milestone }
+    }
+    return undefined
+  }
+
+  /** The inbox item with this id in any profile. */
+  findItem(id: string): { profileId: string; item: InboxItem } | undefined {
+    for (const [profileId, p] of Object.entries(this.state.profiles)) {
+      const item = p.inbox.find((i) => i.id === id)
+      if (item) return { profileId, item }
+    }
+    return undefined
+  }
+
+  /** The user puts an item back as it was (reverting an agent's change on Home): every field, stamped as the user's. */
+  restoreItem(profileId: string, item: InboxItem): Promise<PlannerResult> {
+    return this.serial(async () => {
+      if (!this.of(profileId).inbox.some((i) => i.id === item.id)) return { ok: false, error: PLANNER_ERRORS.unknown }
+      this.replace(profileId, this.stamp(item, 'user'))
       return { ok: true }
     })
   }

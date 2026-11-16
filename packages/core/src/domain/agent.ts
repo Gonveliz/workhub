@@ -38,6 +38,13 @@ export interface AgentCapabilities {
    * it in between tool rounds). Without it, a message sent during a turn waits for the turn's end.
    */
   midTurnInput?: boolean
+  /**
+   * A past session can be continued by its id, so History offers Resume and a session reopened at
+   * launch resumes. Native Claude and agents with a console resume anyway; an ACP agent does it
+   * through `session/load`, and falls back to a new conversation, with a notice, when the agent
+   * does not advertise `loadSession` at start.
+   */
+  resume?: boolean
 }
 
 export type AgentCapabilityName = keyof AgentCapabilities

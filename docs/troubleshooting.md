@@ -8,12 +8,38 @@ Workhub keeps an always-on log of the main process.
   written out first.
 - **Where it is**: `<dataDir>/logs/main.log`. The data folder is shown in **Settings → Advanced →
   Data**. In a development run it is `packages/app/.dev-data/`, or `WORKHUB_DATA_DIR` when set.
+- **Session failures**: a session that fails to start or ends on its own is logged with the last lines
+  the agent wrote to stderr (never your prompts). Those lines are redacted first: API keys such as
+  `sk-…`, bearer tokens, `key=` and `token=` values and long base64-like blobs become `[redacted]`.
 - **Rotation**: when `main.log` reaches 4 MB it is renamed to `main.1.log`, the previous `main.1.log`
   becomes `main.2.log`, and the oldest copy is dropped. Two rotated copies are kept, so the logs
   never take more than about 12 MB. The file is created with owner-only permissions.
 - **Format**: one line per entry: an ISO timestamp, a level (`DEBUG`, `INFO`, `WARN`, `ERROR`) and
   a message. Writing the log never throws: if it cannot be written, the line is dropped and the app
   goes on.
+
+### Background jobs
+
+The alert checks (health, tickets, flow maps, metric alerts), pull request events, calendar reminders,
+the Slack watcher and the history index catch their errors and try again on the next run. Each one
+now logs the **first** failure of a streak (`job <name> failed: <error>`, cut to 300 characters and
+redacted) and stays quiet while it keeps failing, then logs `job <name> recovered after <time>, <n>
+failed runs`. If notifications stopped, look for a `job ... failed` line without a `recovered` after it.
+
+### Export diagnostics
+
+**Help → Export Diagnostics…**, or **Settings → Advanced → Diagnostics and help → Export**, asks for a
+folder and writes a `workhub-diagnostics-<time>` subfolder in it:
+
+- `main.log` and its rotated copies, with credential-looking text masked again;
+- `versions.json`: the app, Electron, Node, Chromium and OS versions;
+- `jobs.json`: the table of background jobs (last run, last success, last error, failures in a row);
+- `database.json`: the database size and whether a backup exists (not its path);
+- `config.redacted.json`: your settings with every secret-like value, environment and header map and
+  every path replaced by `[redacted]` or `[path]`.
+
+It never includes `secrets.json`, the database, your sessions or your prompts. It is a plain folder
+you can read before attaching it to a report.
 
 ### What is logged
 
@@ -57,15 +83,33 @@ path and size. `config.json` and `secrets.json` stay separate files.
 - **A damaged database**: only when SQLite reports `workhub.db` as damaged does Workhub rename it to
   `workhub.db.corrupt-<timestamp>`, log it, show a notice in **Settings → Advanced** (Diagnostics and
   Data) with that path and the backups folder, and start with a fresh one. While a `.corrupt-*` file
-  is there no backup is pruned. Restore the newest copy from `backups/` (quit Workhub, copy
-  `backups/workhub-<date>.db` over `workhub.db`, delete `workhub.db-wal` and `workhub.db-shm`).
+  is there no backup is pruned. Restore the newest copy with **Restore…** (see below).
 - **The database cannot be opened** (locked by another process, disk full, no permission): Workhub
   shows an error and quits, and leaves the file as it is. Fix the cause and start again.
 - **Backups**: `backups/workhub-YYYY-MM-DD.db` about 30 seconds after start and once a day,
   `workhub-YYYY-MM-DD-HHmm.db` for **Back up now**; the newest 7 of each kind are kept. **Show backups
   folder** in Settings → Advanced → Data opens the folder.
-- **Flow maps** are no longer read from a `flow-maps/` folder: import them in **Settings → Flow maps**
+- **Restoring a backup**: Settings → Advanced → Data → **Restore from a backup** lists the copies
+  (date, size, automatic or manual) with **Restore…** on each. Workhub first checks the copy: it must
+  open, pass `PRAGMA integrity_check` and have a schema no newer than this version's; otherwise it is
+  refused and nothing changes. Then Workhub quits (stopping sessions, background jobs and the report
+  workers, and closing the database), moves `workhub.db` aside as
+  `workhub.db.before-restore-<timestamp>`, copies the backup into place and starts again. The file
+  set aside is listed too ("Before a restore"), so a restore can be undone. If the swap fails, the
+  original file is put back, an error says why and Workhub starts on it. `main.log` has a
+  `restore:` line for each step. Restoring by hand still works: quit Workhub, copy
+  `backups/workhub-<date>.db` over `workhub.db` and delete `workhub.db-wal` and `workhub.db-shm`.
+- **Flow maps** are no longer read from a `flow-maps/` folder: import them in **Settings → Profiles → (profile) → Screens → Flow maps**
   or post them with the `workhub-flow-map` skill.
+
+## A settings upgrade went wrong
+
+When a new version has to convert `config.json` to a newer format, it keeps the original next to it as
+`config.json.v<old>.bak` (for example `config.json.v7.bak`, readable by you only) before the first save
+after the upgrade. The data folder is the one **Settings → Advanced → Data** shows. Only the 3 newest
+copies are kept, and an existing copy of the same version is never overwritten. To go back, quit
+Workhub, copy the `.bak` file over `config.json` (keep the current one aside if you want it), and start
+the older version that wrote it; this version converts the file again on its next start.
 
 ## Health is unreachable or returns 401
 
@@ -91,8 +135,8 @@ New session marks an agent **not installed**, with how to install it, when its c
    through `npx`; its first session downloads the adapter.
 2. Make sure it is on the `PATH` of your **login shell**. Apps launched from the Finder or a desktop
    launcher inherit a bare `PATH`, so Workhub reads the one your login shell builds, once at
-   startup (Windows keeps its `PATH` as is). After installing a CLI or changing your shell profile,
-   restart Workhub.
+   startup and again after a Setup install (Windows keeps its `PATH` as is). Sessions, the Setup check,
+   `gh`, `glab` and `git` all use that same `PATH`. After changing your shell profile, restart Workhub.
 3. If the program lives elsewhere, set **Command** on the agent's account in **Settings → Agents**
    to a full path.
 4. Run **Help → Setup Check…** for a list of what is missing.
@@ -130,13 +174,16 @@ Agents talk to Workhub through its local control endpoint (Plan, flow maps, revi
 gets these environment variables:
 
 - `WORKHUB_SESSION`: the session id.
+- `WORKHUB_SESSION_TOKEN`: the session's own token; send `X-Workhub-Token: $WORKHUB_SESSION_TOKEN`.
+  Without it only reads of the active profile's plan and automations are answered; changes,
+  History and analytics answer `401`.
 - macOS and Linux: `WORKHUB_SOCKET`, the path of a Unix socket.
 - Windows: `WORKHUB_URL` and `WORKHUB_TOKEN`. The endpoint is a loopback HTTP port with a
-  per-launch token; send `Authorization: Bearer $WORKHUB_TOKEN`.
+  per-launch token; send `Authorization: Bearer $WORKHUB_TOKEN` too.
 
-If calls fail with "no such file", "connection refused" or a rejected token, the session probably
-started before Workhub restarted and holds old values. The socket path, the port and the token can
-change on each launch. Start a new session. Also check that the session runs inside Workhub: a
+If calls fail with "no such file", "connection refused" or a rejected token ("unknown or revoked
+session token"), the session probably started before Workhub restarted, or was removed, and holds
+old values. The socket path, the port and the tokens change on each launch. Start a new session. Also check that the session runs inside Workhub: a
 terminal opened outside it has none of these variables.
 
 ## Updates
@@ -188,5 +235,8 @@ Verify the download against its `.sha256` file if you want to be sure it is the 
   include now. Reads also wait when the account is over the usage guard or a ceiling.
 - **A secret cannot be saved**: Workhub refuses to store secrets when the operating system cannot
   encrypt them (on Linux that needs libsecret or kwallet).
-- **Settings cannot be edited**: the config file failed to load; the message names the problem, and
-  editing stays off until it is fixed.
+- **Settings cannot be edited**: the config file failed to load (invalid JSON, a value it does not
+  accept, or a file written by a newer version). The app still starts, with no profiles, accounts or
+  connections, and a banner at the top of the main window names the problem and the file's path.
+  Nothing is saved, so the file is never overwritten, and the sessions of the last run are kept for
+  later. Fix the file (or restore a copy), then press **Try again** in the banner.

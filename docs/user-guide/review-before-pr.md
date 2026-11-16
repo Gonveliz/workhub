@@ -54,6 +54,10 @@ shows a single item for the whole review. **Stop loop** ends the loop instead. *
 shows the same list in a window of its own, with every finding open and larger text; you can pick
 and send from either place.
 
+When the branch is pushed, the brief the author wrote also becomes the starting description of
+**Create pull request…** in the session monitor; see
+[Pull requests](pull-requests.md#create-a-pull-request-from-a-session).
+
 ### The base prompt
 
 The prompt in the dialog starts from a per-profile text. Change the default in **Settings →
@@ -108,6 +112,10 @@ reviewer asks you to decide scope or design, when a finding stays open after two
 when the dev agent disputes a finding. A review is also held when the reviewer's account is past
 its usage ceiling (**Run anyway** overrides it).
 
+**Ready for PR** is where the review ends. Push the branch yourself (Workhub never pushes it), then
+open the pull request with **Create pull request…** in the session monitor, and merge it later from
+the pull request window; see [Pull requests](pull-requests.md#create-a-pull-request-from-a-session).
+
 Settings are per profile, in **Settings → Profiles → (profile) → Screens → Review before the pull request**:
 
 | Setting | Meaning |
@@ -142,19 +150,21 @@ closes the review and tells the session so if you want. If the session is busy, 
 queued until it is idle. A reviewer session cannot receive comments.
 
 A tool the agent runs can open this window too. Every session (except reviewers) gets
-`WORKHUB_SESSION` (its id) and `WORKHUB_SOCKET` (a local socket only your user can reach; on Windows `WORKHUB_URL` and `WORKHUB_TOKEN`) in its
-environment:
+`WORKHUB_SESSION` (its id), `WORKHUB_SESSION_TOKEN` (its own token) and `WORKHUB_SOCKET` (a local socket only your user can reach; on Windows `WORKHUB_URL` and `WORKHUB_TOKEN`) in its
+environment. A session can open only its own review: the token must be the one of the session in the path.
 
 ```sh
 curl --unix-socket "$WORKHUB_SOCKET" -X POST "http://workhub/v1/sessions/$WORKHUB_SESSION/review" \
+  -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" \
   -H 'content-type: application/json' -d '{"repos":[{"path":"/abs/path/to/repo","base":"origin/main"}]}'
 ```
 
 On Windows the session has `WORKHUB_URL` and `WORKHUB_TOKEN` instead of `WORKHUB_SOCKET` (a loopback
 port with a token made at each launch): replace `--unix-socket "$WORKHUB_SOCKET" http://workhub` with
-`-H "Authorization: Bearer $WORKHUB_TOKEN" "$WORKHUB_URL"` in these examples.
+`-H "Authorization: Bearer $WORKHUB_TOKEN" "$WORKHUB_URL"` in these examples, and keep the
+`X-Workhub-Token` header.
 
 `repos` is optional: the listed repositories are added to the ones Workhub finds in the session's
-folder, and `base` picks what to compare with: a branch, or any commit (such as the last one you pushed). An open window reloads.
+folder, and `base` picks what to compare with: a branch, or any commit (such as the last one you pushed). An open window reloads. Every listed path must be inside the session's folder (or its worktree) or inside one of its profile's folders, compared by real path (a symlink that points outside does not count); any other path is refused with a 400 error.
 
 Next: [Pull requests](pull-requests.md).

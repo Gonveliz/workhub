@@ -8,8 +8,11 @@ export type Route =
   | { screen: 'session'; id: string }
   /** A sub-agent's conversation, of an open session. */
   | { screen: 'subagent'; sessionId: string; id: string }
+  /** What an open session changed, and its review loop. */
+  | { screen: 'changes'; sessionId: string }
   | { screen: 'pullRequests' }
   | { screen: 'alerts' }
+  | { screen: 'automations' }
   | { screen: 'plan'; tab: PlanTab }
   /** An inbox item (a task, bug or decision). */
   | { screen: 'planItem'; id: string }
@@ -47,6 +50,7 @@ export function parseRoute(hash: string): Route {
   if (h === 'new') return { screen: 'new' }
   if (h === 'prs' || h === 'pullRequests') return { screen: 'pullRequests' }
   if (h === 'alerts') return { screen: 'alerts' }
+  if (h === 'automations') return { screen: 'automations' }
   if (h === 'settings') return { screen: 'settings' }
   if (h === 'history') return { screen: 'history' }
   if (h === 'plan') return { screen: 'plan', tab: 'tasks' }
@@ -62,6 +66,11 @@ export function parseRoute(hash: string): Route {
   if (milestone) {
     const id = decodeId(milestone[1]!)
     return id === null ? { screen: 'home' } : { screen: 'milestone', id }
+  }
+  const changes = /^session\/([^/?#]+)\/changes$/.exec(h)
+  if (changes) {
+    const sessionId = decodeId(changes[1]!)
+    return sessionId === null ? { screen: 'home' } : { screen: 'changes', sessionId }
   }
   const subagent = /^session\/([^/?#]+)\/agent\/([^/?#]+)/.exec(h)
   if (subagent) {
@@ -87,10 +96,14 @@ export function routeHash(route: Route): string {
       return `#session/${encodeURIComponent(route.id)}`
     case 'subagent':
       return `#session/${encodeURIComponent(route.sessionId)}/agent/${encodeURIComponent(route.id)}`
+    case 'changes':
+      return `#session/${encodeURIComponent(route.sessionId)}/changes`
     case 'pullRequests':
       return '#prs'
     case 'alerts':
       return '#alerts'
+    case 'automations':
+      return '#automations'
     case 'plan':
       return `#plan/${route.tab}`
     case 'planItem':

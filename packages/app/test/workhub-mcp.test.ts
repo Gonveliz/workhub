@@ -14,7 +14,7 @@ afterEach(() => {
 
 /** Starts the MCP server as an agent would (stdio) and returns a JSON-RPC caller. */
 function mcp(env: Record<string, string>) {
-  const child = spawn(process.execPath, [SCRIPT], { env: { ...process.env, WORKHUB_SOCKET: '', WORKHUB_URL: '', WORKHUB_SESSION: '', ...env }, stdio: ['pipe', 'pipe', 'inherit'] })
+  const child = spawn(process.execPath, [SCRIPT], { env: { ...process.env, WORKHUB_SOCKET: '', WORKHUB_URL: '', WORKHUB_SESSION: '', WORKHUB_SESSION_TOKEN: '', ...env }, stdio: ['pipe', 'pipe', 'inherit'] })
   const pending = new Map<number, (v: Record<string, unknown>) => void>()
   createInterface({ input: child.stdout }).on('line', (line) => {
     const msg = JSON.parse(line) as { id: number }
@@ -37,6 +37,7 @@ describe.skipIf(process.platform === 'win32')('workhub MCP server', () => {
     const socket = controlSocketPath(dir)
     const seen: { what: string; params?: string; body?: unknown }[] = []
     const server = await startControlServer(socket, {
+      auth: { sessionOf: (t) => (t === 'tok-1' ? 'sess-1' : undefined), readOnly: () => false },
       openReview: (id, repos) => (seen.push({ what: `review ${id}`, body: repos }), { ok: true }),
       automations: {
         list: async (p) => (seen.push({ what: 'list', params: p.toString() }), { status: 200, body: { ok: true, automations: [] } }),
@@ -46,7 +47,7 @@ describe.skipIf(process.platform === 'win32')('workhub MCP server', () => {
         session: async (a, s) => (seen.push({ what: `session ${a} ${s}` }), { status: 200, body: { ok: true } })
       }
     })
-    const client = mcp({ WORKHUB_SOCKET: socket, WORKHUB_SESSION: 'sess-1', WORKHUB_CWD: '/w/acme' })
+    const client = mcp({ WORKHUB_SOCKET: socket, WORKHUB_SESSION: 'sess-1', WORKHUB_SESSION_TOKEN: 'tok-1', WORKHUB_CWD: '/w/acme' })
     try {
       const init = await client.rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } })
       expect(init['result']).toMatchObject({ protocolVersion: '2025-06-18', serverInfo: { name: 'workhub' }, capabilities: { tools: {} } })
@@ -84,6 +85,7 @@ describe.skipIf(process.platform === 'win32')('workhub MCP server', () => {
     const socket = controlSocketPath(dir)
     const seen: { what: string; params?: string; body?: unknown }[] = []
     const server = await startControlServer(socket, {
+      auth: { sessionOf: (t) => (t === 'tok-1' ? 'sess-1' : undefined), readOnly: () => false },
       openReview: () => ({ ok: true }),
       analytics: {
         schema: async (p) => (seen.push({ what: 'schema', params: p.toString() }), { status: 200, body: { ok: true, tables: [] } }),
@@ -91,7 +93,7 @@ describe.skipIf(process.platform === 'win32')('workhub MCP server', () => {
         report: async (p) => (seen.push({ what: 'report', params: p.toString() }), { status: 200, body: { ok: true, rows: [] } })
       }
     })
-    const client = mcp({ WORKHUB_SOCKET: socket, WORKHUB_SESSION: 'sess-1', WORKHUB_CWD: '/w/acme' })
+    const client = mcp({ WORKHUB_SOCKET: socket, WORKHUB_SESSION: 'sess-1', WORKHUB_SESSION_TOKEN: 'tok-1', WORKHUB_CWD: '/w/acme' })
     try {
       const list = (await client.rpc('tools/list'))['result'] as { tools: { name: string; description: string; inputSchema: { type: string; properties: Record<string, { enum?: string[] }>; required: string[] } }[] }
       const tool = (name: string) => list.tools.find((t) => t.name === name)!
@@ -112,6 +114,76 @@ describe.skipIf(process.platform === 'win32')('workhub MCP server', () => {
         { what: 'query', body: { sql: 'PRAGMA user_version', params: [1, null], limit: 10, session: 'sess-1', cwd: '/w/acme' } },
         { what: 'report', params: 'kind=weekly&since=2026-11-09&session=sess-1&cwd=%2Fw%2Facme' }
       ])
+    } finally {
+      client.close()
+      server?.close()
+    }
+  })
+
+  it('offers the session tools and maps them to the session routes', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wh-mcp-'))
+    dirs.push(dir)
+    const socket = controlSocketPath(dir)
+    const seen: { what: string; body?: unknown }[] = []
+    const ok = { status: 200, body: { ok: true } }
+    const server = await startControlServer(socket, {
+      auth: { sessionOf: (t) => (t === 'tok-1' ? 'sess-1' : undefined), readOnly: () => false },
+      openReview: () => ({ ok: true }),
+      sessions: {
+        list: async (caller) => (seen.push({ what: `list ${caller}` }), ok),
+        propose: async (caller, b) => (seen.push({ what: `propose ${caller}`, body: b }), { status: 202, body: { ok: true, pending: true } }),
+        message: async (caller, target, b) => (seen.push({ what: `message ${caller}>${target}`, body: b }), ok),
+        notify: async (caller, b) => (seen.push({ what: `notify ${caller}`, body: b }), ok)
+      }
+    })
+    const client = mcp({ WORKHUB_SOCKET: socket, WORKHUB_SESSION: 'sess-1', WORKHUB_SESSION_TOKEN: 'tok-1', WORKHUB_CWD: '/w/acme' })
+    try {
+      const list = (await client.rpc('tools/list'))['result'] as { tools: { name: string; description: string; inputSchema: { required: string[] } }[] }
+      const tool = (name: string) => list.tools.find((t) => t.name === name)!
+      expect(tool('session_propose').inputSchema.required).toEqual(['agent', 'folder', 'prompt'])
+      expect(tool('session_propose').description).toMatch(/does NOT start/)
+      expect(tool('session_message').inputSchema.required).toEqual(['id', 'text'])
+      expect(tool('notify_user').inputSchema.required).toEqual(['title'])
+      const call = async (name: string, args: unknown) => (await client.rpc('tools/call', { name, arguments: args }))['result'] as { isError: boolean }
+      expect((await call('sessions_list', {})).isError).toBe(false)
+      expect((await call('session_propose', { agent: 'claude', folder: '/w/acme/api', prompt: 'Write the tests' })).isError).toBe(false)
+      expect((await call('session_message', { id: 'sess-2', text: 'The API is merged' })).isError).toBe(false)
+      expect((await call('notify_user', { title: 'Done', body: 'Tests pass' })).isError).toBe(false)
+      expect(seen).toEqual([
+        { what: 'list sess-1' },
+        { what: 'propose sess-1', body: { agent: 'claude', folder: '/w/acme/api', prompt: 'Write the tests', session: 'sess-1', cwd: '/w/acme' } },
+        { what: 'message sess-1>sess-2', body: { text: 'The API is merged', session: 'sess-1', cwd: '/w/acme' } },
+        { what: 'notify sess-1', body: { title: 'Done', body: 'Tests pass', session: 'sess-1', cwd: '/w/acme' } }
+      ])
+    } finally {
+      client.close()
+      server?.close()
+    }
+  })
+
+  it('sends neither session nor folder without a session token (installed outside Workhub)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wh-mcp-'))
+    dirs.push(dir)
+    const socket = controlSocketPath(dir)
+    const seen: string[] = []
+    const server = await startControlServer(socket, {
+      auth: { sessionOf: () => undefined, readOnly: () => false },
+      openReview: () => ({ ok: true }),
+      automations: {
+        list: async (p) => (seen.push(`list ${p.toString()}`), { status: 200, body: { ok: true, automations: [] } }),
+        create: async () => (seen.push('create'), { status: 200, body: { ok: true } }),
+        update: async () => ({ status: 200, body: { ok: true } }),
+        history: async () => ({ status: 200, body: { ok: true } }),
+        session: async () => ({ status: 200, body: { ok: true } })
+      }
+    })
+    const client = mcp({ WORKHUB_SOCKET: socket, WORKHUB_CWD: '/w/acme' })
+    try {
+      const call = async (name: string, args: unknown) => (await client.rpc('tools/call', { name, arguments: args }))['result'] as { isError: boolean; content: { text: string }[] }
+      expect((await call('automations_list', {})).isError).toBe(false)
+      // A change needs a session token: the endpoint refuses it.
+      expect(await call('automation_save', { automation: { name: 'Triage' } })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('session token') }] })
+      expect(seen).toEqual(['list '])
     } finally {
       client.close()
       server?.close()

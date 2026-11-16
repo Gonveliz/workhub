@@ -27,33 +27,37 @@ When the `workhub` MCP tools are available (`plan_today`, `inbox_list`, `automat
 and folder themselves. The rules below apply either way.
 
 
-The session environment has `WORKHUB_SESSION` (this session's id) and the endpoint:
-`WORKHUB_SOCKET` (a Unix socket, macOS and Linux) or `WORKHUB_URL` and `WORKHUB_TOKEN` (a loopback
-port and its token, Windows). Pass the session on every call: the answer is about the profile this
-session runs in. Pass also your working folder (`"cwd"` in a body, `cwd` in `$S`): when the
-session is missing or has no profile, the profile that owns that folder is used instead of the
-active one. With none of them (or all empty) you are not in a Workhub session: say so and stop; do
-not look for the endpoint. An empty or malformed `session` answers `400`; a read-only (reviewer)
-session answers `403` to every change.
+The session environment has `WORKHUB_SESSION` (this session's id), `WORKHUB_SESSION_TOKEN` (its
+own token) and the endpoint: `WORKHUB_SOCKET` (a Unix socket, macOS and Linux) or `WORKHUB_URL`
+and `WORKHUB_TOKEN` (a loopback port and its token, Windows). Send the session token on every call
+(`X-Workhub-Token`, `W` does it): it proves which session is calling, and the answer is about the
+profile this session runs in. A call without it may only read the active profile; every change
+answers `401`. Pass the session and your working folder too (`"cwd"` in a body, `cwd` in `$S`):
+when the session has no profile, the profile that owns that folder is used instead of the active
+one. With none of them (or all empty) you are not in a Workhub session: say so and stop; do not
+look for the endpoint. Naming another session answers `403`; an empty or malformed `session`
+answers `400`; a read-only (reviewer) session answers `403` to every change. Never print, log or
+pass on `WORKHUB_SESSION_TOKEN`; send it only in that header.
 
 `W` works on both (bash, including Git Bash on Windows): it calls `http://workhub/...` over the
-socket, or rewrites it to `$WORKHUB_URL` with the token.
+socket, or rewrites it to `$WORKHUB_URL` with the launch token, and sends the session token.
 
 ```sh
 W() {
-  if [ -n "$WORKHUB_URL" ]; then # Windows: a loopback port and a token
+  local t=(-H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN") # this session's own token, on every call
+  if [ -n "$WORKHUB_URL" ]; then # Windows: a loopback port and the launch token on top
     local a=() x; for x in "$@"; do a+=("${x/http:\/\/workhub/$WORKHUB_URL}"); done
-    curl -s -H "Authorization: Bearer $WORKHUB_TOKEN" "${a[@]}"
-  else curl -s --unix-socket "$WORKHUB_SOCKET" "$@"; fi
+    curl -s -H "Authorization: Bearer $WORKHUB_TOKEN" "${t[@]}" "${a[@]}"
+  else curl -s --unix-socket "$WORKHUB_SOCKET" "${t[@]}" "$@"; fi
 }
 S="session=$WORKHUB_SESSION&cwd=$(printf %s "$PWD" | sed 's/%/%25/g; s/ /%20/g; s/&/%26/g; s/#/%23/g; s/+/%2B/g')"
 ```
 
-From PowerShell use `curl.exe -s -H "Authorization: Bearer $env:WORKHUB_TOKEN" "$env:WORKHUB_URL/v1/..."`.
+From PowerShell use `curl.exe -s -H "Authorization: Bearer $env:WORKHUB_TOKEN" -H "X-Workhub-Token: $env:WORKHUB_SESSION_TOKEN" "$env:WORKHUB_URL/v1/..."`.
 
 Every answer is JSON with `ok`. `ok: false` carries `error`: tell the user in one line. An answer
 with `enabled: false` or a `reason` means Plan is off in the profile or has no calendar: tell the
-user the reason and that it is turned on in **Settings → Plan**.
+user the reason and that it is turned on in **Settings → Profiles → (profile) → Screens → Plan**.
 
 ## Endpoints
 

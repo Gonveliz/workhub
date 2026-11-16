@@ -1,15 +1,22 @@
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import type { RemoteCapability, RemotePullRequestList, RemotePullRequestsPage } from '../../shared/remote-api'
-import { isUnattendedMode, type AgentEvent, type AutomationRun, type ConversationEntry, type EffectiveAgent, type Profile, type PullRequestItem, type SubagentConversation, type ToolResultView, type ToolView, type WorkhubConfig } from '@workhub/core'
+import { isUnattendedMode, type AgentEvent, type ConversationEntry, type EffectiveAgent, type Profile, type PullRequestItem, type SubagentConversation, type ToolResultView, type ToolView, type WorkhubConfig } from '@workhub/core'
 import type { ConfigSnapshot, HistorySearchResult, SessionView, StartSessionInput } from '../../shared/api'
 import type { CodeHostLists } from '../../shared/codehost-api'
-import type { AutomationsSnapshot, AutomationStatus } from '../../shared/chat-api'
 import { pageOf, PAGE_BYTES, PageRequestError, readPageRequest, type PageRequest } from './paging'
 import { remoteBackgroundTask, remoteSubagentSummary } from './activity'
 import type { HandlerTable } from './ipc-recorder'
 import { REMOTE_EVENTS, REMOTE_INVOKES, REMOTE_MESSAGES, remoteAllows } from './allowlist'
 import { remoteHistorySearch } from './history'
+import { readAutomationId, remoteAutomations } from './automations'
+import type { AutomationsSnapshot } from '../../shared/chat-api'
 import { historySearchOptions } from '../history'
+
+/** See `RemoteHubDeps.startMode`. `permissionModes`: the modes are permission presets, not personas. */
+export interface RemoteStartMode {
+  configured: string | undefined
+  modes(): Promise<{ modes: readonly { id: string }[]; permissionModes: boolean }>
+}
 
 /** A paired device while it is connected: who it is, what it was granted, and how events reach it. */
 export interface RemoteDevice {
@@ -23,6 +30,12 @@ export interface RemoteHubDeps {
   handlers: HandlerTable
   /** The folders the profile lists (hub:profileFolders), the only ones a device may open a session in. */
   profileFolders(profileId: string | null): Promise<string[]>
+  /**
+   * What a start without a mode would really run in: the account's or the agent's configured
+   * default (undefined when none), and, read only when that default is refused, the modes the
+   * agent offers. Null when the agent is unknown (the start then fails on its own).
+   */
+  startMode(input: StartSessionInput): Promise<RemoteStartMode | null>
   log?: { warn(line: string): void }
   /** The clock rate limits run on (tests pass their own). */
   now?: () => number
@@ -35,7 +48,6 @@ export const REMOTE_MAX_IN_FLIGHT = 32
 /** Per device: calls that start an agent on the desktop, on a budget of their own. */
 export const REMOTE_COSTLY_RATE = { calls: 10, windowMs: 60_000 }
 const COSTLY_CHANNELS: ReadonlySet<string> = new Set(['sessions:start', 'sessions:reopen', 'plan:brief', 'automations:runNow'])
-const MCP_ACTIONS: ReadonlySet<unknown> = new Set(['refresh', 'reconnect', 'enable', 'disable'])
 
 /**
  * Lists a device reads a page at a time (`{ limit, cursor }` → `{ items, nextCursor, total }`), by
@@ -45,8 +57,7 @@ const MCP_ACTIONS: ReadonlySet<unknown> = new Set(['refresh', 'reconnect', 'enab
 export const PAGED_SOURCES: Readonly<Record<string, string>> = {
   'remote:sessions': 'sessions:list',
   'remote:pullRequests': 'codeHost:lists',
-  'remote:automations': 'automations:get',
-  'remote:automationRuns': 'automations:get'
+  'remote:automations': 'automations:get'
 }
 
 /** What a device sees when a handler fails for a reason other than a refusal; the real error goes to the log. */
@@ -60,6 +71,35 @@ const FORBIDDEN_MODES: ReadonlySet<string> = new Set(['auto', 'bypasspermissions
 
 export function isRemoteForbiddenMode(id: string): boolean {
   return isUnattendedMode(id) || FORBIDDEN_MODES.has(id.toLowerCase())
+}
+
+/** Permission modes that ask before acting, safest-for-work first: the one a phone start falls back to. */
+const ATTENDED_MODES = ['default', 'ask', 'plan', 'read-only', 'readonly', 'read_only']
+
+/**
+ * The mode a device's start falls back to when the one it would run in is unattended: the agent's
+ * safest attended permission mode, or undefined when it has none (persona agents have no
+ * permission modes, so nothing stands in for an unattended persona).
+ */
+export function attendedFallbackMode(offered: { modes: readonly { id: string }[]; permissionModes: boolean }): string | undefined {
+  if (!offered.permissionModes) return undefined
+  for (const id of ATTENDED_MODES) {
+    const found = offered.modes.find((m) => m.id.toLowerCase() === id)
+    if (found && !isRemoteForbiddenMode(found.id)) return found.id
+  }
+  return undefined
+}
+
+/**
+ * A start with no mode as it may run when nobody watches it start (a phone, an agent's proposal):
+ * unchanged when its configured default asks for permissions, else in the agent's safest attended
+ * mode; null when the agent has none, so the start must be refused.
+ */
+export async function attendedStart(start: StartSessionInput, startMode: (input: StartSessionInput) => Promise<RemoteStartMode | null>): Promise<StartSessionInput | null> {
+  const resolved = await startMode(start)
+  if (!resolved?.configured || !isRemoteForbiddenMode(resolved.configured)) return start
+  const modeId = attendedFallbackMode(await resolved.modes())
+  return modeId ? { ...start, modeId } : null
 }
 
 /**
@@ -154,7 +194,7 @@ export class RemoteHub {
     limits.inFlight++
     try {
       const paged = source ? pagedCall(channel, args) : null
-      const checked = paged ? paged.sourceArgs : await this.validate(channel, args)
+      const checked = paged ? paged.sourceArgs : await this.validate(channel, args, entry)
       // Only a call that passed its checks spends an agent run.
       if (COSTLY_CHANNELS.has(channel) && !limits.costly.take(this.now())) throw this.limited(deviceId, channel, 'too many new agent runs')
       let result: unknown
@@ -185,13 +225,9 @@ export class RemoteHub {
     handler(this.event(entry) as IpcMainEvent, ...args)
   }
 
-  /** One-way messages carry plain tokens; `sessions:mcp` takes one of four actions (an unknown one would turn a server off). */
+  /** One-way messages carry plain tokens. */
   private validateMessage(channel: string, args: unknown[]): void {
-    if (channel === 'sessions:mcp') {
-      checkToken(args[0], 'the session id')
-      if (!MCP_ACTIONS.has(args[1] as string)) throw new RemoteRefused('that MCP action is not valid')
-      checkToken(args[2], 'the server name')
-    } else if (channel === 'sessions:permission') {
+    if (channel === 'sessions:permission') {
       checkToken(args[0], 'the session id')
       checkToken(args[1], 'the request id')
     }
@@ -255,7 +291,7 @@ export class RemoteHub {
     return { sender: sender as unknown as IpcMainEvent['sender'], senderFrame: null }
   }
 
-  private async validate(channel: string, args: unknown[]): Promise<unknown[]> {
+  private async validate(channel: string, args: unknown[], entry: { device: RemoteDevice; senderId: number }): Promise<unknown[]> {
     switch (channel) {
       case 'sessions:start':
         return [await this.checkedStart(args[0]), ...args.slice(1)]
@@ -264,15 +300,35 @@ export class RemoteHub {
         return [args[0], await this.checkedStart(args[1]), ...args.slice(2)]
       case 'history:search':
         return this.checkedHistorySearch(args[0], args[1])
-      case 'sessions:setModel':
-        checkToken(args[1], 'the model')
-        return args
-      case 'sessions:setAgentMode':
-        await this.checkModeChange(args[0], args[1])
-        return args
+      case 'automations:runNow':
+        return [await this.checkedRunnable(args[0], entry)]
+      case 'automations:stop':
+        return [checkedAutomationId(args[0])]
+      case 'automations:setEnabled':
+        // Only off: an agent may have added or edited the automation, and only the desktop turns it on.
+        if (args[1] !== false) throw new RemoteRefused('an automation is turned on at the desktop')
+        return [checkedAutomationId(args[0]), false]
       default:
         return args
     }
+  }
+
+  /**
+   * "Run now" starts an agent, and ignores the window and limits: only for an automation that is on.
+   * One that is off may be an agent's unreviewed edit, and the person turns those on at the desktop.
+   */
+  private async checkedRunnable(value: unknown, entry: { device: RemoteDevice; senderId: number }): Promise<string> {
+    const id = checkedAutomationId(value)
+    const read = this.deps.handlers.invoke('automations:get')
+    let snapshot: AutomationsSnapshot | undefined
+    try {
+      snapshot = read ? ((await read(this.event(entry) as IpcMainInvokeEvent)) as AutomationsSnapshot | undefined) : undefined
+    } catch (err) {
+      this.deps.log?.warn(`remote: automations:get failed: ${err instanceof Error ? err.message : String(err)}`)
+      throw new RemoteRefused(REMOTE_GENERIC_ERROR)
+    }
+    if (!snapshot?.automations?.some((s) => s.definition.id === id && s.definition.enabled === true)) throw new RemoteRefused('only an automation that is on can run from here')
+    return id
   }
 
   /** A session may only start in a folder the profile lists, never a path the device typed, and never in a mode that skips permissions. */
@@ -293,7 +349,18 @@ export class RemoteHub {
     const profileId = typeof start.profileId === 'string' ? start.profileId : null
     const allowed = await this.deps.profileFolders(profileId)
     if (!allowed.includes(start.cwd)) throw new RemoteRefused('the folder is not one of the profile folders')
-    return start
+    return !start.modeId && !start.readOnly ? this.withAttendedMode(start) : start
+  }
+
+  /**
+   * A start with no mode runs in the account's or the agent's default, which may be one that skips
+   * permissions. A device gets that default only when it asks for permission prompts; otherwise
+   * the agent's safest attended mode, or no session at all when it has none.
+   */
+  private async withAttendedMode(start: StartSessionInput): Promise<StartSessionInput> {
+    const attended = await attendedStart(start, this.deps.startMode)
+    if (!attended) throw new RemoteRefused('this agent starts without permission prompts and has no mode that asks; start the session on the desktop')
+    return attended
   }
 
   /**
@@ -306,17 +373,6 @@ export class RemoteHub {
     const profileId = typeof o['profileId'] === 'string' ? o['profileId'] : null
     const { cwdPrefix: _one, cwdPrefixes: _many, keys: _keys, accountIds: _accounts, ...rest } = historySearchOptions(raw)
     return [query.slice(0, 500), { ...rest, cwdPrefixes: await this.deps.profileFolders(profileId) }]
-  }
-
-  /** A device may switch a session's mode, but never to one that skips permissions, nor a read-only reviewer's at all. */
-  private async checkModeChange(sessionId: unknown, modeId: unknown): Promise<void> {
-    if (typeof modeId !== 'string' || !modeId) throw new RemoteRefused('a mode id is required')
-    checkToken(modeId, 'the mode')
-    if (isRemoteForbiddenMode(modeId)) throw new RemoteRefused('that mode is not available remotely')
-    const list = this.deps.handlers.invoke('sessions:list')
-    const views = list ? ((await list({} as IpcMainInvokeEvent)) as SessionView[] | undefined) : undefined
-    const view = Array.isArray(views) ? views.find((v) => v?.id === sessionId) : undefined
-    if (view?.readOnly) throw new RemoteRefused('a read-only session keeps its mode')
   }
 }
 
@@ -341,19 +397,7 @@ function pagedCall(channel: string, args: unknown[]): { sourceArgs: unknown[]; p
       }
       case 'remote:automations': {
         const request = readPageRequest(args[0])
-        return { sourceArgs: [], page: (r) => pageOf((r as AutomationsSnapshot | null)?.automations ?? [], request, (a: AutomationStatus) => a.definition.id) }
-      }
-      case 'remote:automationRuns': {
-        const request = readPageRequest(args[0])
-        const only = (args[0] as { automationId?: unknown } | undefined)?.automationId
-        if (only !== undefined && typeof only !== 'string') throw new RemoteRefused('the automation is not valid')
-        return {
-          sourceArgs: [],
-          page: (r) => {
-            const runs = (r as AutomationsSnapshot | null)?.runs ?? []
-            return pageOf(only === undefined ? runs : runs.filter((run) => run.automationId === only), request, (run: AutomationRun) => run.id)
-          }
-        }
+        return { sourceArgs: [], page: (r) => pageOf(remoteAutomations(r as AutomationsSnapshot), request, (a) => a.id) }
       }
       default:
         throw new RemoteRefused(`${channel} is not available remotely`)
@@ -362,6 +406,12 @@ function pagedCall(channel: string, args: unknown[]): { sourceArgs: unknown[]; p
     if (err instanceof PageRequestError) throw new RemoteRefused(err.message)
     throw err
   }
+}
+
+function checkedAutomationId(value: unknown): string {
+  const id = readAutomationId(value)
+  if (id === null) throw new RemoteRefused('the automation is not valid')
+  return id
 }
 
 /** A session that does not fit a page on its own: enough for the list to name it. */
@@ -394,6 +444,8 @@ function pullRequestsPage(lists: CodeHostLists, request: PageRequest, only?: Rem
 function redactEvent(channel: string, args: unknown[]): unknown[] {
   if (channel === 'session:changed' && args[0] && typeof args[0] === 'object') return [remoteSessionView(args[0] as SessionView), ...args.slice(1)]
   if (channel === 'session:event' && args[0] && typeof args[0] === 'object') return [remoteAgentEvent(args[0] as AgentEvent), ...args.slice(1)]
+  // The snapshot holds every prompt and folder and may not fit a frame: the device only learns it changed and reads its page again.
+  if (channel === 'automations:changed') return []
   return args
 }
 
@@ -502,6 +554,8 @@ function redactResult(channel: string, result: unknown): unknown {
   if (channel === 'config:effectiveAgents' && Array.isArray(result)) return (result as EffectiveAgent[]).map(remoteEffectiveAgent)
   if (channel === 'sessions:subagent' && result && typeof result === 'object') return remoteSubagent(result as SubagentConversation)
   if (channel === 'history:search' && result && typeof result === 'object') return remoteHistorySearch(result as HistorySearchResult)
+  // The answer carries the whole config (connections, agents): the device learns only whether it worked.
+  if (channel === 'automations:setEnabled') return { ok: (result as { ok?: unknown } | null)?.ok === true }
   return result
 }
 

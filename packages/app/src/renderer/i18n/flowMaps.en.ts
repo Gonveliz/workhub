@@ -1,10 +1,10 @@
-/** Flow maps: the ⌘7 screen, the map window and Settings → Flow maps. */
+/** Flow maps: the ⌘7 screen, the map window and Settings → Profiles → Screens → Flow maps. */
 export const flowMapsEn = {
   'nav.flowMaps': 'Flow maps',
   'module.flowMaps': 'Flow maps',
   'flowMaps.subtitle': 'One business flow across your services, drawn from a map file and measured from the environment\'s APM data.',
   'flowMaps.status.moduleOff.title': 'Flow maps is off for this profile',
-  'flowMaps.status.moduleOff.hint': 'Turn it on in Settings → Flow maps. The screen shows the stored maps, measured on the Health environments.',
+  'flowMaps.status.moduleOff.hint': 'Turn it on in Settings → Profiles → Screens → Flow maps. The screen shows the stored maps, measured on the Health environments.',
   'flowMaps.status.needsHealth.title': 'Flow maps need Health',
   'flowMaps.status.needsHealth.hint': 'The numbers come from the Health connection and its environments: set them up (and turn the Health module on) so the maps have data.',
   'flowMaps.openSettings': 'Open Settings',
@@ -13,7 +13,7 @@ export const flowMapsEn = {
   'flowMaps.count.one': '{count} map',
   'flowMaps.count.other': '{count} maps',
   'flowMaps.reload': 'Reload',
-  'flowMaps.empty': 'No flow map for this environment yet. Import a JSON file in Settings → Flow maps, or ask an agent to write one (skill workhub-flow-map).',
+  'flowMaps.empty': 'No flow map for this environment yet. Import a JSON file in Settings → Profiles → Screens → Flow maps, or ask an agent to write one (skill workhub-flow-map).',
   'flowMaps.invalid': 'Invalid file: {error}',
   'flowMaps.invalidShort': 'invalid file',
   'flowMaps.size': '{nodes} services · {edges} hops',
@@ -163,7 +163,7 @@ export const flowMapsEn = {
   'flowMaps.settings.noProfile': 'Create a profile first.',
   'flowMaps.settings.module': 'Flow maps screen',
   'flowMaps.settings.moduleHint': 'Shows the Flow maps screen (⌘7) for this profile. Maps read their numbers from the profile\'s Health connection.',
-  'flowMaps.settings.needsHealth': 'Health is off for this profile: the maps will be drawn but have no numbers. Turn Health on in Settings → Modules and screens.',
+  'flowMaps.settings.needsHealth': 'Health is off for this profile: the maps will be drawn but have no numbers. Turn Health on in Settings → Profiles → Screens.',
   'flowMaps.settings.add': 'Add maps',
   'flowMaps.settings.addHint': 'Maps are kept in Workhub\'s database. Import JSON files (one map each) or let an agent post one; a map with an id that exists replaces it.',
   'flowMaps.settings.import': 'Import JSON…',

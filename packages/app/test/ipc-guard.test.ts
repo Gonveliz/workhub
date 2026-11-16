@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { guardIpc, isTrustedRendererUrl, type IpcRegistrar } from '../src/main/ipc-guard'
+import { guardIpc, isTrustedRendererUrl, rendererDevServerUrl, type IpcRegistrar } from '../src/main/ipc-guard'
 import { permissionAllowed } from '../src/main/permissions'
 
 const packaged = { fileUrl: 'file:///Applications/Workhub%202.app/Contents/Resources/app.asar/out/renderer/index.html' }
@@ -76,5 +76,15 @@ describe('permissionAllowed', () => {
     for (const permission of ['media', 'geolocation', 'notifications', 'clipboard-read', 'openExternal', 'hid', 'serial', 'fileSystem']) {
       expect(permissionAllowed(permission, 'file:///app/index.html', trusted)).toBe(false)
     }
+  })
+})
+
+describe('rendererDevServerUrl', () => {
+  it('reads the dev server address only when the app is not packaged', () => {
+    const env = { ELECTRON_RENDERER_URL: 'http://localhost:5173' }
+    expect(rendererDevServerUrl(env, false)).toBe('http://localhost:5173')
+    expect(rendererDevServerUrl(env, true)).toBeUndefined()
+    expect(rendererDevServerUrl({}, false)).toBeUndefined()
+    expect(rendererDevServerUrl({ ELECTRON_RENDERER_URL: '' }, false)).toBeUndefined()
   })
 })

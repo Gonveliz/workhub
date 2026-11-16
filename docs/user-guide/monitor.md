@@ -29,7 +29,10 @@ reported by the agent**; a missing or unreadable transcript never breaks the ses
 | Slack | Threads that wake this session and messages about its tickets and pull requests. See [Slack](slack.md). |
 
 Pull requests and tickets from the monitor open in Workhub (**View in app**) or on the code host
-(**Open on the code host**).
+(**Open on the code host**). An open pull request whose CI failed shows **Fix CI**, and one whose
+reviewer asked for changes **Address review comments**: a click sends this session the failing
+checks or the review comments, quoted as data, with a request to fix them. See
+[Pull requests](pull-requests.md#the-pull-request-window).
 
 If a section says a tracker or the Slack watcher is not set up, its message links to the right
 Settings tab.
@@ -105,14 +108,14 @@ thin border and the system shadow.
   - the bell (**Notifications**): **Resume** while paused, **Pause for 1 hour** and **Pause until
     tomorrow** (each with the time it would end), **Mute until I resume**, **Quiet hours** (the
     active profile's hours, a click opens their settings) and **Adjust notifications…** (opens
-    **Settings → Notifications**). While paused the bell turns amber.
+    **Settings → Notifications and alerts**). While paused the bell turns amber.
   - **⋯** (**More**): **Check for updates** (when available) and **Quit**.
 
 Escape or **‹ Back** leaves the bell or **⋯** page and returns to the panel where you were. On the
 panel itself Escape, a click outside it or **✕** closes it; the arrow keys move between rows and
 buttons, scrolling the middle as needed.
 
-**Settings → Notifications → Menu bar panel** chooses the blocks: **Meetings** (and how many, 1 to
+**Settings → Notifications and alerts** (menu bar panel) chooses the blocks: **Meetings** (and how many, 1 to
 3), **Plan tasks**, **Pull requests**, **Health**, **Usage** and **Recent notifications**. All are
 on by default. Slack has no switch: it only appears when watching fails.
 

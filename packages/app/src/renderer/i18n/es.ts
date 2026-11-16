@@ -2,6 +2,7 @@ import { webEs } from './web.es'
 import { remoteEs } from './remote.es'
 import type { en } from './en'
 import { linksEs } from './links.es'
+import { prFeedbackEs } from './prFeedback.es'
 import { aiReviewEs } from './aiReview.es'
 import { sessionsUxEs } from './sessionsUx.es'
 import { sessionMonitorEs } from './sessionMonitor.es'
@@ -15,6 +16,7 @@ import { automationsEs } from './automations.es'
 import { prEs } from './pullRequests.es'
 import { ticketsEs } from './tickets.es'
 import { updatesEs } from './updates.es'
+import { quitGuardEs } from './quitGuard.es'
 import { setupEs } from './setup.es'
 import { usageEs } from './usage.es'
 import { continuityEs } from './continuity.es'
@@ -31,6 +33,11 @@ import { windowsEs } from './windows.es'
 import { slashCommandsEs } from './slashCommands.es'
 import { storageEs } from './storage.es'
 import { usageReportsEs } from './usageReports.es'
+import { keyboardEs } from './keyboard.es'
+import { chatToolsEs } from './chatTools.es'
+import { sessionRequestsEs } from './sessionRequests.es'
+import { webChangesEs } from './webChanges.es'
+import { agentChangesEs } from './agentChanges.es'
 import { localReviewEs } from './localReview.es'
 import { unsavedEs } from './unsaved.es'
 import { planEs } from './plan.es'
@@ -198,6 +205,9 @@ export const es: Record<keyof typeof en, string> = {
   'home.tokensByFolder': 'Gasto de tokens por carpeta',
   'home.tokensByFolderMeta': 'tokens · últimos {days} días',
   'home.tokensByFolderEmpty': 'Sin actividad de agentes en las carpetas de este perfil en los últimos {days} días',
+  'home.tokensBackground': 'Segundo plano de Workhub',
+  'home.tokensBackgroundValue': '{tokens} tokens · {usd}',
+  'home.tokensBackgroundHelp': 'Ejecuciones del modelo que Workhub inicia por su cuenta (lecturas de Slack, resúmenes para escuchar), de todos los perfiles. Uso y reportes las cuenta como "Segundo plano de Workhub".',
   'home.tokensByFolderLoading': 'Leyendo transcripciones…',
   'home.tokensByFolderNoFolders': 'Este perfil no tiene carpetas: agrégalas en Ajustes → Perfiles',
   'home.tokensByFolderRoot': '{name} (raíz)',
@@ -292,6 +302,11 @@ export const es: Record<keyof typeof en, string> = {
 
   'settings.saved': 'Guardado',
   'settings.loadError': 'No se pudo cargar el archivo de configuración; la edición está desactivada hasta que se corrija.',
+  'configLoad.title': 'Workhub no pudo leer su archivo de configuración',
+  'configLoad.body': 'Tus perfiles, cuentas y conexiones no se muestran y no se guarda nada hasta que el archivo cargue. Corregí el archivo (o restaurá una copia) y probá de nuevo.',
+  'configLoad.file': 'Archivo: {path}',
+  'configLoad.retry': 'Reintentar',
+  'configLoad.stillFailing': 'El archivo de configuración todavía no se pudo cargar',
   'settings.general': 'General',
   'settings.appearance': 'Apariencia',
   'settings.profiles': 'Perfiles',
@@ -399,7 +414,10 @@ export const es: Record<keyof typeof en, string> = {
   'chat.permissionWithdrawn': 'El agente retiró la solicitud',
   'chat.resumedHere.one': '{count} mensaje anterior · se retoma aquí',
   'chat.resumedHere.other': '{count} mensajes anteriores · se retoma aquí',
-  'chat.imageRejected': 'Se omitieron imágenes pegadas: solo PNG, JPEG, GIF o WebP de hasta 5 MB.',
+  'chat.truncated': 'No se muestran los mensajes anteriores',
+  'chat.showEarlier': 'Mostrar mensajes anteriores',
+  'chat.jumpToLatest': 'Ir al final',
+  'chat.imageRejected': 'Se omitieron imágenes pegadas: solo PNG, JPEG, GIF o WebP de hasta {size} MB cada una.',
   'chat.attached': 'Imágenes adjuntas',
   'chat.placeholderQueue': 'El agente está trabajando… un mensaje enviado ahora espera a que termine su turno',
   'chat.placeholderInject': 'El agente está trabajando… un mensaje enviado ahora se suma a su turno',
@@ -438,7 +456,7 @@ export const es: Record<keyof typeof en, string> = {
   'history.loading': 'Leyendo las sesiones…',
   'history.empty': 'Todavía no hay sesiones',
   'history.noMatch': 'Ninguna sesión coincide con la búsqueda o los filtros',
-  'history.emptyDescription': 'Las sesiones de Claude Code, Kiro, OpenCode y Codex aparecen aquí, agrupadas por carpeta. Solo se pueden retomar las de Claude Code.',
+  'history.emptyDescription': 'Las sesiones de Claude Code, Kiro, OpenCode y Codex aparecen aquí, agrupadas por carpeta. Las de Claude Code se retoman; las de Kiro, OpenCode y Codex, cuando el agente puede cargar una sesión guardada.',
   'history.noFolder': 'Sin carpeta',
   'history.untitled': 'Sesión sin título',
   'history.resume': 'Retomar',
@@ -446,6 +464,8 @@ export const es: Record<keyof typeof en, string> = {
   'history.accountFailed': '{account}: no se pudieron listar las sesiones ({message})',
   'history.showMore.one': 'Mostrar más ({count} sesión más)',
   'history.showMore.other': 'Mostrar más ({count} sesiones más)',
+  'history.truncated': 'Las sesiones anteriores solo aparecen si ya están indexadas para la búsqueda.',
+  'history.loadOlder': 'Listar sesiones anteriores',
   'history.indexing': 'Indexando… {done}/{total} · puede que falten resultados',
   'history.results': 'Resultados de la búsqueda',
   'history.resultsPending': 'Coincidencias en títulos, pedidos y carpetas; buscando en las conversaciones…',
@@ -458,6 +478,7 @@ export const es: Record<keyof typeof en, string> = {
   ...prEs,
   ...ticketsEs,
   ...updatesEs,
+  ...quitGuardEs,
   ...setupEs,
   ...healthEs,
   ...metricAlertsEs,
@@ -465,6 +486,7 @@ export const es: Record<keyof typeof en, string> = {
   ...healthPromptsEs,
   ...prEventsEs,
   ...linksEs,
+  ...prFeedbackEs,
   ...slackEs,
   ...automationsEs,
   ...usageEs,
@@ -498,5 +520,10 @@ export const es: Record<keyof typeof en, string> = {
   ...settingsConnectionsEs,
   ...remoteEs,
   ...webEs,
-  ...usageReportsEs
+  ...usageReportsEs,
+  ...keyboardEs,
+  ...chatToolsEs,
+  ...sessionRequestsEs,
+  ...webChangesEs,
+  ...agentChangesEs
 }

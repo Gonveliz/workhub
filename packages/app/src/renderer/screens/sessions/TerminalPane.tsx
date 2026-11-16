@@ -40,10 +40,10 @@ export function TerminalPane({ channel, visible, theme, label }: { channel: stri
   const host = useRef<HTMLDivElement>(null)
   const refit = useRef<() => void>(() => undefined)
   const term = useRef<Terminal | null>(null)
-  const { terminalTheme: themeName, themeApp, terminalFontFamily, terminalFontSize } = usePrefs()
+  const { terminalTheme: themeName, themeApp, terminalFontFamily, terminalFontSize, terminalScrollback } = usePrefs()
 
   useEffect(() => {
-    const t = new Terminal({ ...terminalFont(), cursorBlink: true })
+    const t = new Terminal({ ...terminalFont(), scrollback: readPrefs().terminalScrollback, cursorBlink: true })
     const f = new FitAddon()
     t.loadAddon(f)
     t.open(host.current!)
@@ -110,6 +110,10 @@ export function TerminalPane({ channel, visible, theme, label }: { channel: stri
     Object.assign(t.options, terminalFont())
     refit.current()
   }, [terminalFontFamily, terminalFontSize])
+
+  useEffect(() => {
+    if (term.current) term.current.options.scrollback = terminalScrollback
+  }, [terminalScrollback])
 
   useEffect(() => {
     if (!visible) return

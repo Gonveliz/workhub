@@ -105,8 +105,9 @@ describe('migration 2', () => {
     v1.raw.prepare("INSERT INTO kv_state (key, value, updated_at) VALUES ('k', '{}', 1)").run()
     v1.close()
     const db = openDb(dir)
-    expect(db.schemaVersion()).toBe(2)
+    expect(db.schemaVersion()).toBe(MIGRATIONS.at(-1)!.version)
     expect(count(db, 'kv_state')).toBe(1)
+    expect(count(db, 'turns_daily')).toBe(0)
   })
 
   it('describes every analytics table and column, with types, and lists what may be read', () => {
@@ -400,6 +401,11 @@ describe('spendSeries', () => {
     expect(turns('C:\\w')).toBe(1)
     expect(turns('C:\\w\\ac')).toBe(0)
     expect(turns('c:\\w\\acme')).toBe(0)
+    // Trailing separators are trimmed in linear time, however many there are.
+    const started = performance.now()
+    expect(turns(`C:\\w\\acme${'\\/'.repeat(50_000)}`)).toBe(1)
+    expect(turns(`C:\\w\\acme${'\\'.repeat(100_000)}x`)).toBe(0)
+    expect(performance.now() - started).toBeLessThan(500)
   })
 })
 

@@ -246,7 +246,15 @@ export class WorkhubDb {
     rmSync(tmp, { force: true })
     try {
       writeFileSync(tmp, '', { mode: 0o600 })
-      await sqliteBackup(this.raw, tmp)
+      // On Node 26 the native backup's promise resolves but its continuation only runs when
+      // another timer or I/O callback wakes the event loop (up to seconds when none is due), so
+      // keep a short timer alive until it settles.
+      const wake = setInterval(() => {}, 10)
+      try {
+        await sqliteBackup(this.raw, tmp)
+      } finally {
+        clearInterval(wake)
+      }
       ownerOnly(tmp)
       renameSync(tmp, toPath)
     } catch (err) {

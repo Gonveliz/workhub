@@ -1,7 +1,7 @@
 import type { IpcMainInvokeEvent } from 'electron'
 import { describe, expect, it } from 'vitest'
 import { SessionRecords, type WorkhubDb } from '@workhub/adapters/sqlite-store'
-import { MAX_RANGE_MS, parseFilters, parseSessionsQuery, parseSpendQuery, registerAnalyticsIpc } from '../src/main/analytics-ipc'
+import { MAX_RANGE_MS, parseFilters, parseSessionsQuery, parseSpendQuery, registerAnalyticsIpc, type AnalyticsIpcDeps } from '../src/main/analytics-ipc'
 import { REMOTE_INVOKES } from '../src/main/remote'
 import { openTestDb } from './test-db'
 
@@ -18,7 +18,7 @@ function seed(db: WorkhubDb): void {
   new SessionRecords(db, () => T0).addLinks('s1', [{ kind: 'ticket', ref: 'ABC-123', source: 'user' }])
 }
 
-function setup(extra: { scan?: () => Promise<void>; refreshCapMs?: number } = {}) {
+function setup(extra: Partial<Pick<AnalyticsIpcDeps, 'scan' | 'refreshCapMs' | 'exportCsv'>> = {}) {
   const db = openTestDb()
   seed(db)
   const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>()
@@ -32,9 +32,17 @@ const period = { since: T0 - DAY, until: T0 + 7 * DAY }
 describe('analytics IPC', () => {
   it('registers every report channel, none of them offered to paired devices', () => {
     const { handlers } = setup()
-    const channels = ['analytics:tags', 'analytics:setTags', 'analytics:spend', 'analytics:totals', 'analytics:sessions', 'analytics:weekly', 'analytics:filters', 'analytics:refresh']
+    const channels = ['analytics:tags', 'analytics:setTags', 'analytics:spend', 'analytics:totals', 'analytics:sessions', 'analytics:weekly', 'analytics:filters', 'analytics:exportCsv', 'analytics:refresh']
     expect([...handlers.keys()].sort()).toEqual([...channels].sort())
     for (const c of channels) expect(REMOTE_INVOKES[c], c).toBeUndefined()
+  })
+
+  it('hands the CSV export table to its exporter unchanged, and refuses without one', async () => {
+    const seen: unknown[] = []
+    const { invoke } = setup({ exportCsv: async (table) => (seen.push(table), { ok: false as const, canceled: true }) })
+    await expect(invoke('analytics:exportCsv', { rows: [] })).resolves.toEqual({ ok: false, canceled: true })
+    expect(seen).toEqual([{ rows: [] }])
+    expect(() => setup().invoke('analytics:exportCsv', {})).toThrow('not available')
   })
 
   it('refresh runs the transcript scan and waits for it, at most the cap; a failed scan still resolves', async () => {

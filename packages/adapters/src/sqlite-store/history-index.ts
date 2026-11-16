@@ -310,6 +310,27 @@ export class SqliteHistoryIndex {
     })
   }
 
+  /**
+   * The indexed sessions of one account, as the listing gave them when they were indexed (their
+   * stamp then matches, so the indexer does not read them again). History lists the ones a listing
+   * cut at its limit left out.
+   */
+  entries(agentId: string, accountId: string | null): HistoryEntry[] {
+    if (!this.db.isOpen) return []
+    const rows = this.db.raw
+      .prepare('SELECT agent_session_id, cwd, branch, title, first_prompt, started_at, source_mtime, source_size FROM history_index WHERE agent = ? AND account_id = ?')
+      .all(agentId, accountId ?? '') as { agent_session_id: string; cwd: string | null; branch: string | null; title: string | null; first_prompt: string | null; started_at: number | null; source_mtime: number; source_size: number }[]
+    return rows.map((r) => {
+      const e: HistoryEntry = { agentId, accountId, agentSessionId: r.agent_session_id, title: r.title || r.agent_session_id, lastModified: Number(r.source_mtime) }
+      if (r.first_prompt) e.firstPrompt = r.first_prompt
+      if (r.cwd) e.cwd = r.cwd
+      if (r.branch) e.gitBranch = r.branch
+      if (r.started_at !== null) e.createdAt = Number(r.started_at)
+      if (Number(r.source_size) >= 0) e.sizeBytes = Number(r.source_size)
+      return e
+    })
+  }
+
   /** Sessions in the index. */
   count(): number {
     const row = this.db.raw.prepare('SELECT COUNT(*) AS n FROM history_index').get() as { n: number }
@@ -340,7 +361,7 @@ export class SqliteHistoryIndex {
       args.push(JSON.stringify(scope.keys))
     }
     if (scope.cwdPrefixes) {
-      const folders = scope.cwdPrefixes.map((f) => f.replace(/[\\/]+$/, '')).filter(Boolean)
+      const folders = scope.cwdPrefixes.map(trimSeparators).filter(Boolean)
       if (!folders.length) return []
       where.push(`(${folders.map(() => '(h.cwd = ? OR substr(h.cwd, 1, ?) = ?)').join(' OR ')})`)
       for (const f of folders) args.push(f, f.length + 1, `${f}/`)
@@ -408,4 +429,14 @@ export class SqliteHistoryIndex {
     })
     return { hits, total: keys.length, ...(offset + limit < keys.length ? { nextCursor: String(offset + limit) } : {}) }
   }
+}
+
+/**
+ * A folder without its trailing separators. A loop rather than `/[\\/]+$/`, which rescans every run
+ * of separators that is not at the end (quadratic on a crafted folder).
+ */
+function trimSeparators(path: string): string {
+  let end = path.length
+  while (end > 0 && (path[end - 1] === '/' || path[end - 1] === '\\')) end--
+  return path.slice(0, end)
 }

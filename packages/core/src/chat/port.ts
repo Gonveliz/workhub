@@ -1,4 +1,5 @@
-import type { ChatDigest, HookRecord, TrackedThread, WatchedChannel } from './types'
+import type { RunUsage } from '../usage/background'
+import type { ChatDigest, ChatReadMode, HookRecord, TrackedThread, WatchedChannel } from './types'
 
 /** One read of the watched channels and followed threads. */
 export interface ChatReadRequest {
@@ -15,9 +16,15 @@ export interface ChatReadRequest {
 
 export type ChatReadFailure = 'failed' | 'noConnector' | 'invalidAnswer' | 'rateLimited'
 
-export type ChatReadResult =
-  | { ok: true; digest: ChatDigest; costUsd?: number; deniedTools: string[] }
-  | { ok: false; failure: ChatReadFailure; error: string; resetsAt?: number; costUsd?: number; deniedTools: string[] }
+/** What every read reports, whatever its outcome: what it cost and how it read Slack, when known. */
+interface ChatReadCost {
+  costUsd?: number
+  usage?: RunUsage
+  readMode?: ChatReadMode
+  deniedTools: string[]
+}
+
+export type ChatReadResult = ({ ok: true; digest: ChatDigest } & ChatReadCost) | ({ ok: false; failure: ChatReadFailure; error: string; resetsAt?: number } & ChatReadCost)
 
 /**
  * Chat threads watched for requests (PLAN section 4). Read-only by contract: an adapter never

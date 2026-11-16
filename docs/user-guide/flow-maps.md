@@ -28,16 +28,26 @@ Three ways to add one:
 
   ```sh
   curl --unix-socket "$WORKHUB_SOCKET" -X POST http://workhub/v1/flow-maps \
+    -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" \
     -H 'content-type: application/json' --data-binary @checkout.json
   ```
 
+  `WORKHUB_SESSION_TOKEN` is the session's own token; a post without it is refused.
+
 On Windows the session has `WORKHUB_URL` and `WORKHUB_TOKEN` instead of `WORKHUB_SOCKET` (a loopback
 port with a token made at each launch): replace `--unix-socket "$WORKHUB_SOCKET" http://workhub` with
-`-H "Authorization: Bearer $WORKHUB_TOKEN" "$WORKHUB_URL"` in these examples.
+`-H "Authorization: Bearer $WORKHUB_TOKEN" "$WORKHUB_URL"` in these examples, and keep the
+`X-Workhub-Token` header.
 
   The answer is `{"ok":true,"id":…,"file":…}` or `{"ok":false,"errors":[…]}` naming the fields.
   A posted map replaces the stored one with the same `id`; when the posted file has no `alerts`,
   the stored map's `alerts` are kept, so an agent that redraws a map does not drop its limits.
+  New limits a posted map brings wait for you: the map is saved with the limits it had, the answer
+  carries a `note` saying so, and the change is listed under **Changes by agents** on Home with the
+  limits before and after. **Keep** puts the new limits in effect; **Revert** keeps the old ones and
+  puts back the rest of the map as it was (a map the agent added is deleted). When the old limits no
+  longer fit the redrawn map (a part they name is gone), the new limits apply at once and the entry
+  says they are already in effect. Revert refuses when the map changed again since.
 
 ## Turning it on
 
@@ -120,10 +130,10 @@ The map picked opens next to the rail with:
   | Slow calls | more than a share of the calls take longer than a duration; with no share, a single slow call is enough | more than 40% take over 5 s |
  While the module is on, Workhub reads every
   map that has limits every five minutes over the last hour and notifies the parts above them,
-  once an hour per part (Settings → Notifications → Flow maps turns these off; a map's own
-  **Notify** switch in Settings → Alerts turns off only that map). A part with fewer calls in the
-  window than the map's minimum (default 20) is never over a limit. **Settings → Alerts → Flow
-  maps · limits** edits the limits of every map without opening its file: see below.
+  once an hour per part (Settings → Notifications and alerts, flow maps, turns these off; a map's own
+  **Notify** switch in Settings → Profiles → (profile) → Screens → Flow maps turns off only that map). A part with fewer calls in the
+  window than the map's minimum (default 20) is never over a limit. **Settings → Profiles → (profile) → Screens → Flow
+  maps → Flow maps · limits** edits the limits of every map without opening its file: see below.
 - **Legend.** The same explanation, in the app.
 
 Without Health (the module off, or not set up yet) the maps are still listed and drawn, without
@@ -132,7 +142,7 @@ to turn Health on. Without the Flow maps module the screen only says how to turn
 
 ### Editing the limits in Settings
 
-**Settings → Alerts → Flow maps · limits** lists every valid stored map under its `group`,
+**Settings → Profiles → (profile) → Screens → Flow maps → Flow maps · limits** lists every valid stored map under its `group`,
 with the environment that measures it. Per map: a row for every part (p95 in ms, failure share in
 %, **Slow above (ms)** and **Slow calls (%)**, and the map's **Notify** switch), one row per part
 with limits of its own (pick a measured part and **Add part limit**; a blank field inherits the

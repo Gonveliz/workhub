@@ -1,0 +1,59 @@
+version: 2
+
+updates:
+  # The root covers every workspace package (one lockfile).
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+      npm-major:
+        update-types: [major]
+    ignore:
+      # These five are pinned in scripts/bridge-deps/ as well, and scripts/stage-bridge.mjs refuses to
+      # package when the two disagree. A bump needs both files and `node scripts/stage-bridge.mjs
+      # --update-lock`, so it is done by hand and not by a bot that can only edit the root lockfile.
+      - dependency-name: "@anthropic-ai/claude-agent-sdk"
+      - dependency-name: "@anthropic-ai/sdk"
+      - dependency-name: "@modelcontextprotocol/sdk"
+      - dependency-name: "@agentclientprotocol/claude-agent-acp"
+      - dependency-name: zod
+
+  # ESLint toolchain, installed apart from the workspace (see tools/lint/package.json).
+  - package-ecosystem: npm
+    directory: /tools/lint
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      lint-minor-patch:
+        update-types: [minor, patch]
+      lint-major:
+        update-types: [major]
+    ignore:
+      # typescript-eslint supports TypeScript up to 6.0 and ignores 7 (no JavaScript API yet).
+      - dependency-name: typescript
+        update-types: [version-update:semver-major, version-update:semver-minor]
+
+  # scripts/bridge-deps/ is deliberately not listed: its exact pins must move together with the
+  # workspace's, which only a person running scripts/stage-bridge.mjs --update-lock can do.
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
+      actions-major:
+        update-types: [major]

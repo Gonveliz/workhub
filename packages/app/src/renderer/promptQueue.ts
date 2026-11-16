@@ -5,6 +5,7 @@ import { imageInputFromDataUrl } from './lib/images'
 import { PromptQueues, type QueuedPrompt, type SubmitOutcome } from './lib/prompt-queue'
 import { pushItem, pushTurnEnd, pushUser } from './store'
 import { SettleWaits } from './lib/settle-waits'
+import { clearStoredDraft } from './lib/drafts'
 
 const listeners = new Set<() => void>()
 
@@ -17,14 +18,14 @@ function recover(sessionId: string, prompts: RecoveredPrompt[]): void {
 }
 
 /** Prompts handed to main that wait to hear they went out, by session and token. */
-const goingOut = new Map<string, () => void>()
+const goingOut = new Map<string, (journalSeq?: number) => void>()
 /** Prompts whose answer came back, waiting for the turn's last events (see `SettleWaits`). */
 const settles = new SettleWaits()
 let followingStarts = false
 function followStarts(): void {
   if (followingStarts) return
   followingStarts = true
-  window.hub.sessions.onPromptStarted((id, token) => goingOut.get(`${id}:${token}`)?.())
+  window.hub.sessions.onPromptStarted((id, token, seq) => goingOut.get(`${id}:${token}`)?.(seq))
   window.hub.sessions.onPromptSettled((id, token) => settles.notify(`${id}:${token}`))
 }
 
@@ -40,12 +41,13 @@ async function deliver(sessionId: string, prompt: QueuedPrompt, started: () => v
   followStarts()
   const key = `${sessionId}:${prompt.id}`
   let shown = false
-  const show = () => {
+  // `journalSeq`: the prompt's number in main's chat journal, which main broadcasts to every window right after.
+  const show = (journalSeq?: number) => {
     if (shown) return
     shown = true
     goingOut.delete(key)
     started()
-    pushUser(sessionId, prompt.text, prompt.images)
+    pushUser(sessionId, prompt.text, prompt.images, journalSeq)
   }
   goingOut.set(key, show)
   const inputs = prompt.images.map(imageInputFromDataUrl).filter((i): i is ImageInput => i !== null)
@@ -80,12 +82,15 @@ const queues = new PromptQueues(
 )
 
 let started = false
-/** Follows session states so waiting messages go out when their session turns ready. */
+/** Follows session states so waiting messages go out when their session turns ready. Every window with a composer starts it; a second start does nothing. */
 export function startPromptQueue(): void {
   if (started) return
   started = true
   window.hub.sessions.onChanged((view) => queues.stateChanged(view.id, view.state))
-  window.hub.sessions.onRemoved((id) => queues.drop(id))
+  window.hub.sessions.onRemoved((id) => {
+    queues.drop(id)
+    clearStoredDraft(id)
+  })
 }
 
 /** Sends, injects into the running turn, or queues a message, by the session's state. */

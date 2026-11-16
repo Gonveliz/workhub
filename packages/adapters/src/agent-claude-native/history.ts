@@ -4,13 +4,16 @@
  * `CLAUDE_CONFIG_DIR`, the same way `claude` itself picks the account.
  */
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, type Dirent } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { promptTitle, stripPromptWrappers, type HistoryEntry, type HistoryMessage, type ImageInput, type SessionHistorySource } from '@workhub/core'
+import { promptTitle, stripPromptWrappers, type HistoryEntry, type HistoryListOptions, type HistoryMessage, type HistoryMessagesOptions, type ImageInput, type SessionHistorySource } from '@workhub/core'
 import { claudeToolResult, claudeToolView } from '../shared/claude-tool-view'
 import { describeTool } from '../shared/claude-tools'
+import { ClaudeTranscriptCache, parseTranscriptText, transcriptChain, type TranscriptState } from './transcript'
+
+export { ClaudeTranscriptCache } from './transcript'
 
 type Obj = Record<string, unknown>
 const obj = (v: unknown): Obj | undefined => (v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Obj) : undefined)
@@ -23,8 +26,10 @@ const HISTORY_TITLE_MAX = 200
 export interface ClaudeHistoryOptions {
   bridgeDir: string
   nodeCommand?: string
-  /** Most sessions listed per account (Workhub 1: 400). */
+  /** Most sessions listed per account when the caller does not say (Workhub 1: 400). */
   limit?: number
+  /** Reads a transcript's conversation (the app: in its transcript worker); in this process by default. */
+  transcripts?: ClaudeTranscriptReader
 }
 
 /** `SDKSessionInfo` list -> history entries of one account. */
@@ -153,66 +158,95 @@ export function toHistoryMessages(raw: unknown): HistoryMessage[] {
   return out
 }
 
-/** The fields of a transcript line the replay needs. */
-interface Line extends Obj {
-  uuid: string
+/** The transcript file of a session under `<config dir>/projects/<project>/`; null when there is none. */
+export async function transcriptPath(agentSessionId: string, configDir?: string): Promise<string | null> {
+  const projects = join(configDir || process.env['CLAUDE_CONFIG_DIR'] || join(homedir(), '.claude'), 'projects')
+  const dir = (await readdir(projects).catch(() => [] as string[])).find((d) => existsSync(join(projects, d, `${agentSessionId}.jsonl`)))
+  return dir ? join(projects, dir, `${agentSessionId}.jsonl`) : null
+}
+
+/** The replayed conversation of a parsed transcript, at most its `last` messages; null when it has no main-thread message. */
+export function chainMessages(state: TranscriptState, last?: number): HistoryMessage[] | null {
+  const chain = transcriptChain(state)
+  if (!chain) return null
+  const messages = toHistoryMessages(chain)
+  return last !== undefined && last > 0 && messages.length > last ? messages.slice(-last) : messages
+}
+
+/** One step of reading a transcript: `messages` once the parse reached the end of the file (null: nothing to replay). */
+export interface TranscriptRead {
+  done: boolean
+  offset: number
+  size: number
+  messages?: HistoryMessage[] | null
+}
+
+/** Parses about `chunkBytes` more of a transcript through `cache`; the messages come with the step that reaches its end. */
+export function readTranscriptStep(cache: ClaudeTranscriptCache, path: string, options: { chunkBytes?: number; last?: number } = {}): TranscriptRead {
+  try {
+    const step = cache.advance(path, options.chunkBytes)
+    return step.done ? { done: true, offset: step.offset, size: step.size, messages: chainMessages(step.state, options.last) } : { done: false, offset: step.offset, size: step.size }
+  } catch (err) {
+    cache.drop(path)
+    throw err
+  }
+}
+
+/** Reads a transcript's replayed conversation (null: nothing to replay); the app answers in its transcript worker. */
+export type ClaudeTranscriptReader = (path: string, options: { last?: number }) => Promise<HistoryMessage[] | null>
+
+/** The reader without a worker (tests): the same parse, chunk after chunk, in this process. */
+export function inProcessTranscriptReader(cache = new ClaudeTranscriptCache()): ClaudeTranscriptReader {
+  return async (path, options) => {
+    for (;;) {
+      const step = readTranscriptStep(cache, path, options)
+      if (step.done) return step.messages ?? null
+    }
+  }
 }
 
 /**
- * The conversation of a session read from its transcript. The SDK only returns the chain since the
- * last compaction, so this takes the newest main-thread message, walks `parentUuid` back and crosses
- * each `compact_boundary` through its `logicalParentUuid`. The file is read once; null when it is
- * not under `<config dir>/projects` or cannot be read.
+ * The conversation of a session read from its transcript (see `transcriptChain`), the whole file at
+ * once; null when it is not under `<config dir>/projects` or cannot be read.
  */
 export async function transcriptMessages(agentSessionId: string, configDir?: string): Promise<HistoryMessage[] | null> {
   try {
-    const projects = join(configDir || process.env['CLAUDE_CONFIG_DIR'] || join(homedir(), '.claude'), 'projects')
-    const dir = (await readdir(projects)).find((d) => existsSync(join(projects, d, `${agentSessionId}.jsonl`)))
-    if (!dir) return null
-    const text = await readFile(join(projects, dir, `${agentSessionId}.jsonl`), 'utf8')
-    const byId = new Map<string, Line>()
-    let tip: Line | undefined
-    let tipAt = -Infinity
-    for (const row of text.split('\n')) {
-      if (!row.includes('"uuid"')) continue
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(row)
-      } catch {
-        continue
-      }
-      const line = obj(parsed)
-      const uuid = str(line?.['uuid'])
-      if (!line || !uuid) continue
-      byId.set(uuid, { ...line, uuid })
-      if ((line['type'] !== 'user' && line['type'] !== 'assistant') || line['isSidechain'] === true || line['isMeta'] === true) continue
-      const at = Date.parse(str(line['timestamp']) ?? '')
-      if (!Number.isNaN(at) && at >= tipAt) {
-        tip = byId.get(uuid)
-        tipAt = at
-      }
-    }
-    if (!tip) return null
-    const chain: Line[] = []
-    const seen = new Set<string>()
-    for (let cur: Line | undefined = tip; cur && !seen.has(cur.uuid); ) {
-      seen.add(cur.uuid)
-      if (cur['type'] === 'user' || cur['type'] === 'assistant') chain.push(cur)
-      const parent: string | undefined = str(cur['parentUuid']) ?? (cur['subtype'] === 'compact_boundary' ? str(cur['logicalParentUuid']) : undefined)
-      cur = parent ? byId.get(parent) : undefined
-    }
-    return toHistoryMessages(chain.reverse().filter((l) => l['isSidechain'] !== true && l['isMeta'] !== true))
+    const path = await transcriptPath(agentSessionId, configDir)
+    if (!path) return null
+    return chainMessages(parseTranscriptText(await readFile(path, 'utf8')))
   } catch {
     return null
   }
 }
 
 export class ClaudeSessionHistory implements SessionHistorySource {
-  constructor(private readonly options: ClaudeHistoryOptions) {}
+  private readonly transcripts: ClaudeTranscriptReader
 
-  async list(account: { agentId: string; accountId: string | null; configDir?: string }): Promise<HistoryEntry[]> {
-    const raw = await this.run(['all', String(this.options.limit ?? 400)], account.configDir)
+  constructor(private readonly options: ClaudeHistoryOptions) {
+    this.transcripts = options.transcripts ?? inProcessTranscriptReader()
+  }
+
+  async list(account: { agentId: string; accountId: string | null; configDir?: string }, options?: HistoryListOptions): Promise<HistoryEntry[]> {
+    const raw = await this.run(['all', String(options?.limit ?? this.options.limit ?? 400)], account.configDir)
     return toHistoryEntries(raw, account.agentId, account.accountId)
+  }
+
+  /** The transcripts under `<config dir>/projects/<project>/<id>.jsonl`, by name only; none when the folder does not exist. */
+  async sessionIds(account: { configDir?: string }): Promise<ReadonlySet<string>> {
+    const projects = join(account.configDir || process.env['CLAUDE_CONFIG_DIR'] || join(homedir(), '.claude'), 'projects')
+    const ids = new Set<string>()
+    let dirs: Dirent[]
+    try {
+      dirs = await readdir(projects, { withFileTypes: true })
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return ids
+      throw err
+    }
+    for (const d of dirs) {
+      if (!d.isDirectory()) continue
+      for (const name of await readdir(join(projects, d.name))) if (name.endsWith('.jsonl')) ids.add(name.slice(0, -'.jsonl'.length))
+    }
+    return ids
   }
 
   /**
@@ -220,12 +254,14 @@ export class ClaudeSessionHistory implements SessionHistorySource {
    * transcript sits under another project folder (the folder was renamed or reached through a
    * symlink) is looked up in every project.
    */
-  async messages(agentSessionId: string, cwd: string, configDir?: string): Promise<HistoryMessage[]> {
-    const stored = await transcriptMessages(agentSessionId, configDir)
+  async messages(agentSessionId: string, cwd: string, configDir?: string, options: HistoryMessagesOptions = {}): Promise<HistoryMessage[]> {
+    const path = await transcriptPath(agentSessionId, configDir)
+    // A transcript that cannot be read (or a worker that failed) falls back to the SDK's reading.
+    const stored = path ? await this.transcripts(path, { ...(options.last ? { last: options.last } : {}) }).catch(() => null) : null
     if (stored?.length) return stored
     const raw = await this.run(['messages', agentSessionId, cwd], configDir)
-    if (Array.isArray(raw) && raw.length > 0) return toHistoryMessages(raw)
-    return toHistoryMessages(await this.run(['messages', agentSessionId], configDir))
+    const messages = Array.isArray(raw) && raw.length > 0 ? toHistoryMessages(raw) : toHistoryMessages(await this.run(['messages', agentSessionId], configDir))
+    return options.last && messages.length > options.last ? messages.slice(-options.last) : messages
   }
 
   /** Sets the session's title the way `/rename` does (a custom-title entry in its transcript), so `claude --resume` shows it too. */

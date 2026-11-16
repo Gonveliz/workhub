@@ -29,12 +29,16 @@ export interface TicketTarget {
  * - `ticketSession`: start a session with a prompt about the ticket drafted in the composer, not sent;
  *   `agent: 'claude'` asks for a Claude session ("Talk with Claude"), else the preferred agent.
  * - `resume`: open a past session again.
+ * - `pullRequestPrompt`: send a prompt about the PR ("Fix CI", "Address review comments") to the
+ *   live session linked to it. With none, the main window offers to start one in the PR's
+ *   repository folder; `start` is set once the user agreed, and the prompt goes to the new session.
  */
 export type SessionIntent =
   | { kind: 'pullRequestSession'; profileId: string | null; pr: PullRequestTarget }
   | { kind: 'reviewPullRequest'; profileId: string | null; pr: PullRequestTarget }
   | { kind: 'ticketSession'; profileId: string | null; ticket: TicketTarget; agent?: 'claude' }
   | { kind: 'resume'; profileId: string | null; entry: HistoryItem; mode: 'app' | 'console' }
+  | { kind: 'pullRequestPrompt'; profileId: string | null; pr: PullRequestTarget; prompt: string; start?: boolean }
 
 export interface LinksApi {
   /** Brings the main window forward and asks it to carry out the intent. */

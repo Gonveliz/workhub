@@ -1,7 +1,7 @@
 # Tickets
 
 The **Tickets** screen (⌘/Ctrl+3) shows the tickets assigned to you, grouped by sprint (**Active
-sprint**, then **Backlog · no sprint**). Jira Cloud and Linear are supported.
+sprint**, then **Backlog · no sprint**). Jira Cloud, Linear and GitHub Issues are supported.
 
 ## Set up
 
@@ -10,12 +10,25 @@ sprint**, then **Backlog · no sprint**). Jira Cloud and Linear are supported.
    - **Jira**: the **Jira site** (for example `your-team.atlassian.net`), your **Account email** and
      an **API token** (create one at id.atlassian.com → Security → API tokens).
    - **Linear**: an **API key** (Linear → Settings → Security & access).
+   - **GitHub Issues**: no token. Workhub reads through the GitHub CLI (`gh`) and your `gh auth
+     login`. Fill **Repositories** (comma separated, like `acme/app, acme/api`); left empty, the
+     GitHub repositories behind the profile's folders are used.
 3. Optional: **Project keys** (comma separated, like `ABC, WEB`) so ticket links in titles and
    branches are matched exactly, and **Statuses to hide**.
 4. **Test connection** shows who you are connected as. **Save tracker**.
 5. Turn on **Use in the active profile**. Each profile uses one tracker.
 
 The token is stored encrypted by the operating system, never in the settings file.
+
+### GitHub Issues
+
+The screen lists the open issues assigned to you in the repositories in scope (up to 500, most
+recently updated first). Keys look like `acme/app#123`; a bare `#123` means the repository when
+only one is in scope. Issues have no sprints. **Move to…** offers **Close as completed**, **Close as
+not planned** and, on a closed issue, **Reopen**; open issues count as to do and closed ones as
+done. Plan milestones can count issues with a GitHub search such as `milestone:"v1.0"` (limited to
+the repositories in scope unless it has its own `repo:`, `org:` or `user:`), and approved inbox
+items are created as issues in an `owner/repo`. Descriptions and comments show as Markdown.
 
 ## Using it
 
@@ -32,7 +45,7 @@ The token is stored encrypted by the operating system, never in the settings fil
 
 ## Notifications
 
-With **Tickets** on under **Settings → General → Other notifications**, Workhub notifies about status
+With **Tickets** on under **Settings → Notifications and alerts**, Workhub notifies about status
 changes and about tickets assigned to you or taken away. Only the active profile is read: when you
 switch to a profile not read for over a day, its tickets are recorded without notifying. More than
 five changes in one read arrive as one summary, and a very long list (100 tickets or more) never

@@ -6,6 +6,9 @@
 # It downloads the installer, checks it against its .sha256, installs it silently and opens the app.
 # A file downloaded by PowerShell carries no "downloaded from the internet" mark, so SmartScreen
 # does not stop the unsigned installer.
+#
+# The install stops when the checksum cannot be fetched or does not match. Only if you accept that
+# risk, set $env:WORKHUB_SKIP_CHECKSUM = '1' before running it to install without checking.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue' # the progress bar makes Invoke-WebRequest many times slower
 
@@ -23,13 +26,15 @@ Write-Host 'Downloading the latest Workhub 2...'
 try { Invoke-WebRequest -Uri $url -OutFile $file -Headers $headers -UseBasicParsing }
 catch { throw "Could not download $url (no published release yet?). See https://github.com/$repo/releases" }
 
-$sumFile = "$file.sha256"
-$hasSum = $true
-try { Invoke-WebRequest -Uri "$url.sha256" -OutFile $sumFile -Headers $headers -UseBasicParsing } catch { $hasSum = $false }
-if ($hasSum) {
+if ($env:WORKHUB_SKIP_CHECKSUM -eq '1') {
+  Write-Warning 'WORKHUB_SKIP_CHECKSUM=1: installing without checking the download.'
+} else {
+  $sumFile = "$file.sha256"
+  try { Invoke-WebRequest -Uri "$url.sha256" -OutFile $sumFile -Headers $headers -UseBasicParsing }
+  catch { Remove-Item $file -Force -ErrorAction SilentlyContinue; throw "Could not fetch the checksum $url.sha256; nothing was installed (set `$env:WORKHUB_SKIP_CHECKSUM = '1' to install without checking)." }
   $want = ((Get-Content -Raw $sumFile).Trim() -split '\s+')[0].ToUpperInvariant()
   $got = (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToUpperInvariant()
-  if ($got -ne $want) { Remove-Item $file -Force; throw "The download does not match its checksum; nothing was installed. Try again." }
+  if (-not $want -or $got -ne $want) { Remove-Item $file -Force; throw "The download does not match its checksum; nothing was installed. Try again." }
   Write-Host 'Checksum OK.'
 }
 

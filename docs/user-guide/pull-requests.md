@@ -64,17 +64,46 @@ Actions on the toolbar:
   folder.
 - **Ask Claude to review** starts a Claude session with a review prompt in the composer; nothing is
   sent until you press **Send**.
+- **Fix CI** (when CI failed) and **Address review comments** (when there are unresolved review
+  threads or a reviewer asked for changes) send a prompt to the session linked to the pull request:
+  the failing checks with their links, or the review comments with their file and line, quoted as
+  data written on the code host, and a request to fix or address them on the pull request's branch
+  without pushing until you agree. With no linked session, Workhub asks before it starts one in the
+  profile folder that holds the pull request's repository (preferably one already on its branch)
+  and sends the prompt there. Nothing is sent without your click. The same buttons show on the
+  pull request rows of a session's monitor, where they send to that session (there, **Address
+  review comments** shows when a reviewer asked for changes).
 - **Close PR…** closes it without merging, with an optional closing comment and an optional **Delete
   the branch**. Long-lived branches are never deleted: the list is **Protected branches** in
-  **Settings → General → Pull requests**, and `release…` branches are always kept. A closed pull
+  **Settings → Connections → Code**, and `release…` branches are always kept. A closed pull
   request can be reopened on the code host.
+- **Merge…** merges it now. It is enabled only while the pull request is open, not a draft, and
+  the code host reports it as mergeable. The dialog offers the methods the repository allows
+  (**Merge commit**, **Squash and merge**, **Rebase and merge** on GitHub; on GitLab the project's
+  own method, with squashing as its squash option allows) and **Delete the branch**, locked for
+  protected branches as above. The confirmation names the method and whether the branch is
+  deleted. When the code host refuses (conflicts, failing or unfinished required checks, no
+  permission), the dialog says which. After a merge, sessions working in a worktree on the
+  pull request's branch are offered to close with their worktree removed; nothing happens until
+  you click, and a worktree with uncommitted or unpushed work is kept.
 - **Copy link**.
+
+## Create a pull request from a session
+
+When a session's branch is pushed, has commits beyond the base and has no open pull request, the
+session monitor shows **New pull request** with **Create pull request…**. The form starts with the
+first commit's subject as the title, the review brief as the description when **Review before PR**
+produced one, and the remote's default branch as the base; **Open as a draft** is off. Nothing is
+sent until you press **Create pull request**; the new pull request then opens in its own window.
+
+Workhub never pushes a branch. If the remote does not have the branch, or lacks some of its
+commits, the monitor says so and shows the push command with **Copy**.
 
 ## Notifications
 
 Workhub checks your pull requests every three minutes and shows an OS notification when one changes
 or when someone asks for your review. **Refresh every**, in the code host connection (**Settings →
-Connections → Code**), changes how often: from 1 to 60 minutes. The lists on screen follow it too. **Settings → General → Pull request notifications** has a
+Connections → Code**), changes how often: from 1 to 60 minutes. The lists on screen follow it too. **Settings → Notifications and alerts** (Pull requests) has a
 switch per kind: **Review requested**, **Approved**, **Changes requested**, **New comments**, **CI
 failed**, **CI passing again**, **Merge conflicts**, **New commits**, **Merged**, **Closed**.
 Clicking a notification opens the pull request.

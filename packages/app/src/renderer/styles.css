@@ -321,6 +321,9 @@
   *::before,
   *::after {
     animation-duration: 1ms !important;
+    /* Spinners and pulsing dots would otherwise cycle a thousand times a second; they stay
+       still, and the state is also written next to them. */
+    animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
   }
 }
@@ -345,4 +348,14 @@
   &::-webkit-scrollbar {
     display: none;
   }
+}
+
+/* Find in conversation (ChatFind): every match, and the one the bar is on. */
+::highlight(chat-find) {
+  background-color: color-mix(in srgb, var(--color-warning) 35%, transparent);
+  color: inherit;
+}
+::highlight(chat-find-current) {
+  background-color: var(--color-warning);
+  color: #000;
 }

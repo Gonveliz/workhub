@@ -5,6 +5,7 @@ import {
   CircleDashed,
   CircleX,
   ExternalLink,
+  GitMerge,
   GitPullRequestClosed,
   Link,
   MessageSquare,
@@ -18,6 +19,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import {
   closeRefusal,
   historyForPullRequest,
+  mergeRefusal,
   prName,
   reviewerStates,
   reviewRefusal,
@@ -43,9 +45,11 @@ import { keyProviders } from '../../lib/tickets'
 import { usePastSessions } from '../../lib/usePastSessions'
 import { refreshPullRequests } from '../../pullRequestsStore'
 import { ClosePullRequestDialog } from './ClosePullRequestDialog'
+import { MergePullRequestDialog } from './MergePullRequestDialog'
 import { DiffView, ThreadBox } from './DiffView'
 import { PrActionsToolbar, type PrToolbarAction } from './PrActionsToolbar'
 import { PrStateBadges } from './PrBadges'
+import { prFeedbackToolbarActions } from './PrFeedbackActions'
 import { PrSlackTab } from './PrSlackTab'
 import { ReviewDialog } from './ReviewDialog'
 import { TicketChip } from './TicketChip'
@@ -283,6 +287,7 @@ export function PullRequestDetail({ profileId, url, seed, onOpenWindow, standalo
   const [tab, setTab] = useState<string>(initialTab ?? 'conversation')
   const [action, setAction] = useState<ReviewAction | null>(null)
   const [closing, setClosing] = useState(false)
+  const [merging, setMerging] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -378,6 +383,7 @@ export function PullRequestDetail({ profileId, url, seed, onOpenWindow, standalo
   const scroll = 'h-full overflow-y-auto px-5 py-4'
   // Asking for an AI review or a session folds into "More" first, then commenting, then requesting changes; closing always lives there.
   const toolbarActions: PrToolbarAction[] = [
+    ...(open ? prFeedbackToolbarActions(detail, target, profileId, t, locale) : []),
     { key: 'session', side: 'start', fold: 2, variant: 'secondary', icon: <SquareTerminal className="size-3.5" aria-hidden />, label: t('links.pr.openSession'), title: t('links.pr.openSessionHint'), onSelect: () => window.hub.links.request({ kind: 'pullRequestSession', profileId, pr: target }) },
     { key: 'aiReview', side: 'start', fold: 1, variant: 'secondary', icon: <Sparkles className="size-3.5" aria-hidden />, label: t('links.pr.review'), title: t('links.pr.reviewHint'), onSelect: () => window.hub.links.request({ kind: 'reviewPullRequest', profileId, pr: target }) },
     ...(capabilities && open
@@ -391,6 +397,10 @@ export function PullRequestDetail({ profileId, url, seed, onOpenWindow, standalo
       : []),
     ...(result?.ok && closeRefusal(head, isMine) === null
       ? [{ key: 'close', side: 'end', fold: 'menu', variant: 'danger', icon: <GitPullRequestClosed className="size-3.5" aria-hidden />, label: t('pr.close.open'), title: t('pr.close.openHint'), onSelect: () => setClosing(true) } satisfies PrToolbarAction]
+      : []),
+    // Enabled only when the host reports the PR mergeable; the host still checks the rest.
+    ...(detail && open
+      ? [{ key: 'merge', side: 'end', fold: 5, variant: 'primary', icon: <GitMerge className="size-3.5" aria-hidden />, label: t('pr.merge.open'), title: t(mergeRefusal(detail) ? 'pr.merge.disabledHint' : 'pr.merge.openHint'), disabled: mergeRefusal(detail) !== null, onSelect: () => setMerging(true) } satisfies PrToolbarAction]
       : [])
   ]
 
@@ -585,6 +595,7 @@ export function PullRequestDetail({ profileId, url, seed, onOpenWindow, standalo
       )}
       <ReviewDialog action={action} subject={`${prName(head, head.provider)} ${head.title}`} onClose={() => setAction(null)} onSubmit={submit} />
       <ClosePullRequestDialog profileId={profileId} pr={closing ? head : null} onClose={() => setClosing(false)} onClosed={() => void afterWrite()} />
+      {merging && <MergePullRequestDialog profileId={profileId} pr={head} onClose={() => setMerging(false)} onMerged={() => void afterWrite()} />}
     </div>
   )
 }

@@ -1,7 +1,7 @@
-import { ChartColumn, CircleAlert } from 'lucide-react'
+import { ChartColumn, CircleAlert, Download } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Profile } from '@workhub/core'
-import type { ReportFilterValues, ReportFilters, ReportSession, SpendPoint, SpendTotals, WeeklyReport } from '@shared/analytics-api'
+import { BACKGROUND_AGENT, type Profile } from '@workhub/core'
+import type { ReportFilterValues, ReportFilters, ReportSession, SpendPoint, SpendTotals, UsageCsvExport, UsageCsvResult, WeeklyReport } from '@shared/analytics-api'
 import { Button, Spinner } from '../components/atoms'
 import { Card, CardBody, CardHeader, EmptyState, HelpTip, RefreshButton, StatTile } from '../components/molecules'
 import { ShareBars, type ShareRow } from '../components/molecules/ShareBars'
@@ -9,6 +9,7 @@ import { ChartLegend, seriesColor, StackedBarChart, type ChartSeries } from '../
 import { useConfig } from '../configStore'
 import { useI18n } from '../i18n/I18nProvider'
 import type { MessageKey } from '../i18n/translate'
+import { cn } from '../lib/cn'
 import { errorText } from '../lib/errorText'
 import { folderName, formatTokens } from '../lib/home'
 import {
@@ -16,6 +17,7 @@ import {
   bucketStarts,
   chartSeries,
   largestSeries,
+  csvTable,
   customAdjusted,
   formatActive,
   formatMetric,
@@ -65,13 +67,15 @@ const FILTER_OF: Record<GroupBy, keyof ReportFilters> = { project: 'project', ag
 
 function useNames(): Names {
   const snap = useConfig()
+  const { t } = useI18n()
   return useMemo(
     () => ({
       accounts: new Map((snap?.config.accounts ?? []).map((a) => [a.id, a.name])),
-      agents: new Map((snap?.agents ?? []).map((a) => [a.id, a.name])),
+      // The model runs Workhub starts by itself (Slack reads, Listen summaries) are an "agent" of their own.
+      agents: new Map([[BACKGROUND_AGENT, t('reports.workhubBackground')], ...(snap?.agents ?? []).map((a): [string, string] => [a.id, a.name])]),
       profiles: new Map((snap?.config.profiles ?? []).map((p) => [p.id, p.name]))
     }),
-    [snap]
+    [snap, t]
   )
 }
 
@@ -254,6 +258,7 @@ export function UsageReportsScreen({ profileId: activeProfileId = null, profiles
       names={names}
       effective={customAdjusted(state, now)}
       onRefresh={scanAndRefresh}
+      onExportCsv={(table) => window.hub.analytics.exportCsv(table)}
       onSessionsPage={sessionsPageTo}
       sessionsLoading={sessionsLoading}
       onOpenSession={(s) => onShowInHistory(s.id)}
@@ -290,6 +295,8 @@ export interface UsageReportsViewProps {
   error?: string
   names: Names
   onRefresh: () => Promise<unknown>
+  /** Saves the totals table as CSV (main asks where). Without it the screen has no Export CSV button. */
+  onExportCsv?: (table: UsageCsvExport) => Promise<UsageCsvResult>
   /** Previous (-1) or next (1) page of sessions. */
   onSessionsPage: (delta: 1 | -1) => void
   /** A page of sessions is loading. */
@@ -304,7 +311,7 @@ export interface UsageReportsViewProps {
 }
 
 /** The screen without its data loading: what the tests render. */
-export function UsageReportsView({ state, onChange, range, data, values, loading, error, names, onRefresh, onSessionsPage, sessionsLoading = false, onOpenSession, onTagsChanged, effective, weekly }: UsageReportsViewProps) {
+export function UsageReportsView({ state, onChange, range, data, values, loading, error, names, onRefresh, onExportCsv, onSessionsPage, sessionsLoading = false, onOpenSession, onTagsChanged, effective, weekly }: UsageReportsViewProps) {
   const { t, tn, locale, formatDate, formatNumber } = useI18n()
   // The totals table's sort and page: back to the first page with a new sort, grouping or filters.
   const [table, setTable] = useState<TableView>(INITIAL_TABLE)
@@ -367,6 +374,21 @@ export function UsageReportsView({ state, onChange, range, data, values, loading
     }
   })
   const rows = useMemo(() => sortTotals(totals, sort, label), [totals, sort, groupBy, names])
+  // Export CSV: the table as sorted on screen; main shows the save dialog and says what it wrote.
+  const [exported, setExported] = useState<{ ok: boolean; text: string } | null>(null)
+  useEffect(() => setExported(null), [state.groupBy, filterKey, range.since, range.until])
+  const exportCsv = async () => {
+    if (!onExportCsv) return
+    const headers = [t('reports.col.group'), t('reports.col.tokensIn'), t('reports.col.tokensOut'), t('reports.col.cache'), t('reports.csv.cost'), t('reports.col.sessions'), t('reports.csv.activeSeconds')]
+    const l = (g: string | null) => ({ text: label(g), title: g === null ? undefined : fullLabel(g) })
+    try {
+      const r = await onExportCsv(csvTable(rows, groupBy, range, headers, l))
+      if (r.ok) setExported({ ok: true, text: t('reports.csv.saved', { path: r.path }) })
+      else if (!r.canceled) setExported({ ok: false, text: t('reports.csv.failed', { error: r.error ?? '' }) })
+    } catch (e) {
+      setExported({ ok: false, text: t('reports.csv.failed', { error: errorText(e) }) })
+    }
+  }
   const filtered = Object.keys(state.filters).length > 0
   const empty = data !== null && overall === null
 
@@ -476,8 +498,22 @@ export function UsageReportsView({ state, onChange, range, data, values, loading
             </div>
 
             <Card aria-label={t('reports.table.title', { group: groupName })}>
-              <CardHeader title={t('reports.table.title', { group: groupName })} />
+              <CardHeader
+                title={t('reports.table.title', { group: groupName })}
+                actions={
+                  onExportCsv && (
+                    <Button size="sm" variant="ghost" icon={<Download className="size-3.5" aria-hidden />} onClick={() => void exportCsv()} disabled={rows.length === 0} data-testid="report-export-csv">
+                      {t('reports.csv.export')}
+                    </Button>
+                  )
+                }
+              />
               <CardBody>
+                {exported && (
+                  <p role={exported.ok ? 'status' : 'alert'} className={cn('pb-2 text-xs', exported.ok ? 'text-subtle' : 'text-danger')} data-testid="report-export-status">
+                    {exported.text}
+                  </p>
+                )}
                 <ReportTable
                   rows={rows}
                   overall={overall}

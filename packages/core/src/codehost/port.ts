@@ -2,6 +2,8 @@ import type {
   CodeHostCapabilities,
   CodeHostStatus,
   DiffFile,
+  MergeMethod,
+  NewPullRequest,
   PullRequest,
   PullRequestDetail,
   PullRequestRef,
@@ -42,4 +44,10 @@ export interface CodeHost {
   replyToThread(ref: PullRequestRef, threadId: string, body: string): Promise<void>
   /** Closes the PR without merging, posting `comment` first when given and deleting its head branch when asked. */
   close(ref: PullRequestRef, options: { comment: string; deleteBranch: boolean; branch: string }): Promise<void>
+  /** Opens a PR for a branch already on the host; never pushes. Returns the new PR. */
+  createPullRequest(input: NewPullRequest): Promise<PullRequestRef>
+  /** The merge methods the PR's repository allows, in the host's order of preference. */
+  mergeMethods(ref: PullRequestRef): Promise<MergeMethod[]>
+  /** Merges the PR now (never queues an auto-merge), deleting its head branch when asked. */
+  merge(ref: PullRequestRef, options: { method: MergeMethod; deleteBranch: boolean; branch: string }): Promise<void>
 }

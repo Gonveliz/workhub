@@ -3,7 +3,8 @@
  * is compared with its own previous 7 business days; the strongest finding per series is kept.
  */
 import { addDays, daysBetween, isBusinessDay, lastBusinessDay, localDay } from './days'
-import { ALERT_RULE_KINDS, ALERT_SEVERITIES, type AlertRuleKind, type AlertRulesConfig, type AlertSeverity, type AlertThresholds, type DailyPoint, type MetricDefinition, type MetricDetection, type MetricSeries, type MetricSeriesStore } from './types'
+import { coverageFromSeries, coveredDays } from './series'
+import { ALERT_RULE_KINDS, ALERT_SEVERITIES, type AlertRuleKind, type AlertRulesConfig, type AlertSeverity, type AlertThresholds, type DailyPoint, type MetricCoverage, type MetricDefinition, type MetricDetection, type MetricSeries, type MetricSeriesStore } from './types'
 
 /** Business days behind the baseline. */
 export const BASELINE_DAYS = 7
@@ -62,26 +63,37 @@ const stdDev = (xs: readonly number[]) => {
 }
 const round = (n: number) => Math.round(n * 10) / 10
 
-/** The business-day values of a series up to `until`; a series whose missing days are zeros is filled from its first day. */
-function businessValues(series: MetricSeries, absentIsZero: boolean, until: string, businessDays: readonly number[]): DailyPoint[] {
+/**
+ * The business-day values of a series up to `until`; a series whose missing days are zeros is
+ * filled from its first day, but only on days its source was read (`covered`; every day when not
+ * given): a day nobody read is unknown, so it is skipped rather than counted as zero.
+ */
+function businessValues(series: MetricSeries, absentIsZero: boolean, until: string, businessDays: readonly number[], covered?: ReadonlySet<string>): DailyPoint[] {
   const isBusiness = (d: string) => businessDays.length === 0 || isBusinessDay(d, businessDays)
   if (!absentIsZero) return series.points.filter((p) => p.day <= until && isBusiness(p.day))
   const first = series.points[0]?.day
   if (!first || first > until) return []
   const byDay = new Map(series.points.map((p) => [p.day, p]))
   const out: DailyPoint[] = []
-  for (let d = first; d <= until; d = addDays(d, 1)) if (isBusiness(d)) out.push(byDay.get(d) ?? { day: d, value: 0 })
+  for (let d = first; d <= until; d = addDays(d, 1)) {
+    if (!isBusiness(d)) continue
+    const point = byDay.get(d) ?? (!covered || covered.has(d) ? { day: d, value: 0 } : undefined)
+    if (point) out.push(point)
+  }
   return out
 }
 
-/** The last `HISTORY_DAYS` calendar days, oldest first. */
-export function seriesHistory(series: MetricSeries, absentIsZero: boolean, today: string): { day: string; value: number }[] {
+/** The last `HISTORY_DAYS` calendar days, oldest first; days the source was not read are left out. */
+export function seriesHistory(series: MetricSeries, absentIsZero: boolean, today: string, covered?: ReadonlySet<string>): { day: string; value: number }[] {
   const from = addDays(today, -(HISTORY_DAYS - 1))
   if (!absentIsZero) return series.points.filter((p) => p.day >= from && p.day <= today).map((p) => ({ day: p.day, value: p.value }))
   const first = series.points[0]?.day ?? today
   const byDay = new Map(series.points.map((p) => [p.day, p.value]))
   const out: { day: string; value: number }[] = []
-  for (let d = from > first ? from : first; d <= today; d = addDays(d, 1)) out.push({ day: d, value: byDay.get(d) ?? 0 })
+  for (let d = from > first ? from : first; d <= today; d = addDays(d, 1)) {
+    const value = byDay.get(d) ?? (!covered || covered.has(d) ? 0 : undefined)
+    if (value !== undefined) out.push({ day: d, value })
+  }
   return out
 }
 
@@ -123,9 +135,10 @@ function rateFindings(cur: DailyPoint, prev: DailyPoint[], t: AlertThresholds, u
 
 /**
  * The strongest finding for one series at `now`, or null. `sourceSince` is the first day the
- * source has any history (new subjects are only announced once the source is warmed up).
+ * source has any history (new subjects are only announced once the source is warmed up);
+ * `covered` the days its source was read for it (every day when not given).
  */
-export function detectSeries(series: MetricSeries, definition: MetricDefinition | undefined, config: AlertRulesConfig, now: number, sourceSince?: string): MetricDetection | null {
+export function detectSeries(series: MetricSeries, definition: MetricDefinition | undefined, config: AlertRulesConfig, now: number, sourceSince?: string, covered?: ReadonlySet<string>): MetricDetection | null {
   const { thresholds: t, critical, muted } = rulesForMetric(config, series.metric, definition)
   if (muted) return null
   const today = localDay(now)
@@ -134,7 +147,7 @@ export function detectSeries(series: MetricSeries, definition: MetricDefinition 
   const up = (definition?.direction ?? 'upIsBad') === 'upIsBad'
   const kind = definition?.kind ?? 'count'
   const evalDay = lastBusinessDay(today, businessDays)
-  const values = businessValues(series, absentIsZero, evalDay, businessDays)
+  const values = businessValues(series, absentIsZero, evalDay, businessDays, covered)
   const findings: Finding[] = []
 
   const cur = values.at(-1)
@@ -173,14 +186,18 @@ export function detectSeries(series: MetricSeries, definition: MetricDefinition 
     baseline: best.baseline,
     ...(best.changePct !== undefined ? { changePct: best.changePct } : {}),
     ...(best.changePoints !== undefined ? { changePoints: best.changePoints } : {}),
-    history: seriesHistory(series, absentIsZero, today),
+    history: seriesHistory(series, absentIsZero, today, covered),
     ...(definition?.label ? { label: definition.label } : {}),
     ...(link ? { link } : {})
   }
 }
 
-/** Runs the rules over every series of a store. Definitions are matched by metric id; an unknown metric is an upIsBad count. */
-export function detectMetricAlerts(store: MetricSeriesStore, definitions: readonly MetricDefinition[], config: AlertRulesConfig, now: number): MetricDetection[] {
+/**
+ * Runs the rules over every series of a store. Definitions are matched by metric id; an unknown
+ * metric is an upIsBad count. `coverage` says which days each source was read; without it, a day
+ * on which a source has any point counts as read.
+ */
+export function detectMetricAlerts(store: MetricSeriesStore, definitions: readonly MetricDefinition[], config: AlertRulesConfig, now: number, coverage: MetricCoverage = coverageFromSeries(store)): MetricDetection[] {
   const byId = new Map(definitions.map((d) => [d.id, d]))
   const since = new Map<string, string>()
   for (const s of Object.values(store)) {
@@ -189,7 +206,7 @@ export function detectMetricAlerts(store: MetricSeriesStore, definitions: readon
   }
   const out: MetricDetection[] = []
   for (const s of Object.values(store)) {
-    const d = detectSeries(s, byId.get(s.metric), config, now, since.get(s.source))
+    const d = detectSeries(s, byId.get(s.metric), config, now, since.get(s.source), coveredDays(coverage, s))
     if (d) out.push(d)
   }
   return out

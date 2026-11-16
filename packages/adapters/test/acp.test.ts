@@ -83,6 +83,20 @@ describe('AcpMonitor edge cases', () => {
     expect(m.endTurn('cancelled')?.toolCalls?.map((t) => t.status)).toEqual(['cancelled', 'completed'])
     expect(m.endTurn('cancelled')).toBeNull()
   })
+  it('keeps the newest 40 tool calls and still reports the status of the kept ones', () => {
+    const m = new AcpMonitor()
+    let last
+    for (let i = 1; i <= 45; i++) last = m.applyUpdate({ sessionUpdate: 'tool_call', toolCallId: `t${i}`, title: `Tool ${i}`, status: 'in_progress' })
+    expect(last?.toolCalls).toHaveLength(40)
+    expect(last?.toolCalls?.[0]?.id).toBe('t6')
+    expect(last?.toolCalls?.at(-1)?.id).toBe('t45')
+    const done = m.applyUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't45', status: 'completed' })
+    expect(done?.toolCalls).toHaveLength(40)
+    expect(done?.toolCalls?.at(-1)).toMatchObject({ id: 't45', title: 'Tool 45', status: 'completed' })
+    // A turn that ends badly cancels only what is still kept.
+    expect(m.endTurn('cancelled')?.toolCalls?.filter((t) => t.status === 'cancelled')).toHaveLength(39)
+  })
+
   it('sums credits and tokens over turns', () => {
     const m = new AcpMonitor()
     m.applyExtension('_kiro.dev/metadata', { meteringUsage: [{ value: 1, unit: 'credit' }] })
@@ -233,6 +247,53 @@ describe('AcpRuntime against a fake ACP agent', () => {
       const other = await rt.start({ sessionId: 's-m2', agent: fakeAgent, account: null, cwd: process.cwd(), env: {}, model: 'nope' })
       expect(other.modelIgnored).toBe(true)
       expect(events).not.toContainEqual({ sessionId: 's-m2', type: 'stderr', line: 'set_model:nope' })
+    })
+  })
+
+  describe('resuming a stored session', () => {
+    const resume = { agent: fakeAgent, account: null, cwd: process.cwd(), agentSessionId: 'stored-session-7', resume: true }
+    const chat = (events: AgentEvent[], id: string) => events.filter((e) => e.sessionId === id && (e.type === 'message' || e.type === 'tool'))
+
+    it('loads it through session/load when the agent advertises loadSession, without replaying it as chat', async () => {
+      await withRuntime(async (rt, events) => {
+        const started = await rt.start({ ...resume, sessionId: 's-load', env: { FAKE_ACP_LOAD: 'ok' } })
+        expect(started).toMatchObject({ agentSessionId: 'stored-session-7', currentModeId: 'bypassPermissions', currentModelId: 'acme-model-1' })
+        expect(started.resumeFailed).toBeUndefined()
+        await vi.waitFor(() => expect(events).toContainEqual({ sessionId: 's-load', type: 'stderr', line: 'load:stored-session-7' }))
+        // The stored conversation the agent sent again is not chat; what it reports about the session is kept.
+        expect(chat(events, 's-load')).toEqual([])
+        expect(events.filter((e) => e.sessionId === 's-load' && e.type === 'monitor').some((e) => e.type === 'monitor' && e.snapshot.toolCalls)).toBe(false)
+        expect(events).toContainEqual(expect.objectContaining({ sessionId: 's-load', type: 'commands' }))
+        // The next turn is live again, on the loaded session.
+        await rt.prompt('s-load', 'hello')
+        expect(chat(events, 's-load')).toContainEqual({ sessionId: 's-load', type: 'message', role: 'agent', text: 'echo: hello' })
+      })
+    })
+
+    it('starts a new conversation and says so when the agent has no loadSession', async () => {
+      await withRuntime(async (rt, events) => {
+        const started = await rt.start({ ...resume, sessionId: 's-noload', env: {} })
+        expect(started).toMatchObject({ agentSessionId: 'fake-session-1', resumeFailed: 'unsupported' })
+        expect(events).not.toContainEqual(expect.objectContaining({ type: 'stderr', line: expect.stringMatching(/^load:/) }))
+      })
+    })
+
+    it('falls back to a new conversation when the load fails', async () => {
+      await withRuntime(async (rt, events) => {
+        const started = await rt.start({ ...resume, sessionId: 's-loadfail', env: { FAKE_ACP_LOAD: 'fail' } })
+        expect(started).toMatchObject({ agentSessionId: 'fake-session-1', resumeFailed: 'failed' })
+        await vi.waitFor(() => expect(events).toContainEqual({ sessionId: 's-loadfail', type: 'stderr', line: 'load:stored-session-7' }))
+        expect(events.filter((e) => e.type === 'state').at(-1)).toMatchObject({ state: 'ready' })
+      })
+    })
+
+    it('never loads a session that is not resumed', async () => {
+      await withRuntime(async (rt, events) => {
+        const started = await rt.start({ ...resume, resume: false, sessionId: 's-fresh', env: { FAKE_ACP_LOAD: 'ok' } })
+        expect(started.agentSessionId).toBe('fake-session-1')
+        expect(started.resumeFailed).toBeUndefined()
+        expect(events).not.toContainEqual(expect.objectContaining({ type: 'stderr', line: expect.stringMatching(/^load:/) }))
+      })
     })
   })
 

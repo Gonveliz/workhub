@@ -29,7 +29,7 @@ const pr = (n: number, over: Partial<PullRequest> = {}): PullRequest => ({
 })
 const item = (p: PullRequest): PullRequestItem => ({ pr: p, status: 'waitingReview', stale: false, ticketKeys: [] })
 
-function setup(opts: { demo?: boolean; profiles?: WorkhubConfig['profiles'] } = {}) {
+function setup(opts: { demo?: boolean; profiles?: WorkhubConfig['profiles']; onEvents?: (b: PrEventBatch) => void } = {}) {
   let lists: CodeHostLists = { state: 'ready', mine: [], toReview: [] }
   const states: Record<string, PullRequest> = {}
   const saved: PrEventState[] = []
@@ -48,6 +48,7 @@ function setup(opts: { demo?: boolean; profiles?: WorkhubConfig['profiles'] } = 
     store,
     config: async () => config,
     emit: (b) => batches.push(b),
+    ...(opts.onEvents ? { onEvents: opts.onEvents } : {}),
     now: () => 9000,
     demo: opts.demo ? { advance: () => ++step } : undefined
   })
@@ -85,6 +86,24 @@ describe('PrEventService', () => {
     expect(t.batches).toEqual([])
     t.service.rendererReady()
     expect(t.batches).toHaveLength(1)
+    t.service.rendererReady()
+    expect(t.batches).toHaveLength(1)
+  })
+
+  it('hands each batch to the automations at once, before the renderer listens, and a failing hand-off keeps the notification', async () => {
+    const automations: PrEventBatch[] = []
+    const t = setup({
+      onEvents: (b) => {
+        automations.push(b)
+        throw new Error('automation broke')
+      }
+    })
+    t.set({ mine: [item(pr(1))] })
+    await t.service.sync()
+    t.set({ mine: [item(pr(1, { ci: 'failure' }))] })
+    await t.service.sync()
+    expect(automations).toMatchObject([{ profileId: 'work', events: [{ kind: 'ciFailed' }] }])
+    expect(t.batches).toEqual([])
     t.service.rendererReady()
     expect(t.batches).toHaveLength(1)
   })

@@ -6,6 +6,8 @@
 //
 // FAKE_ACP_SILENT=1 makes it read its input and never answer.
 // FAKE_ACP_CRASH=1 makes it write why to stderr and exit with code 1 before answering.
+// FAKE_ACP_LOAD advertises `loadSession`: `ok` loads any session id, sending its stored
+// conversation again as updates first; `fail` refuses every load. Unset: no `loadSession`.
 //
 // FAKE_ACP_STYLE picks how session/new advertises models and modes:
 // - unset: ACP `modes` (permission modes) and `models` (session/set_mode, session/set_model).
@@ -60,7 +62,8 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     return
   }
   if (msg.method === 'initialize') {
-    send({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: {}, authMethods: [], agentInfo: { name: 'fake', title: 'Fake Agent', version: '0.0.0' } } })
+    const agentCapabilities = process.env.FAKE_ACP_LOAD ? { loadSession: true } : {}
+    send({ id: msg.id, result: { protocolVersion: 1, agentCapabilities, authMethods: [], agentInfo: { name: 'fake', title: 'Fake Agent', version: '0.0.0' } } })
   } else if (msg.method === 'session/new') {
     // The MCP servers it was handed, for the tests to check.
     if (msg.params.mcpServers?.length) process.stderr.write(`mcp:${JSON.stringify(msg.params.mcpServers)}\n`)
@@ -69,6 +72,18 @@ createInterface({ input: process.stdin }).on('line', (line) => {
         ? { sessionId, configOptions: configOptions() }
         : { sessionId, modes: { currentModeId: currentMode, availableModes: modes }, models: { currentModelId: currentModel, availableModels: models } }
     send({ id: msg.id, result })
+  } else if (msg.method === 'session/load') {
+    process.stderr.write(`load:${msg.params.sessionId}\n`)
+    if (process.env.FAKE_ACP_LOAD !== 'ok') {
+      send({ id: msg.id, error: { code: -32002, message: 'session not found' } })
+      return
+    }
+    const update = (u) => send({ method: 'session/update', params: { sessionId: msg.params.sessionId, update: u } })
+    update({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'earlier question' } })
+    update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'earlier answer' } })
+    update({ sessionUpdate: 'tool_call', toolCallId: 'old-t', title: 'Earlier tool', kind: 'read', status: 'completed' })
+    update({ sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'review', description: 'Review the changes' }] })
+    send({ id: msg.id, result: { modes: { currentModeId: currentMode, availableModes: modes }, models: { currentModelId: currentModel, availableModels: models } } })
   } else if (msg.method === 'session/set_mode') {
     process.stderr.write(`set_mode:${msg.params.modeId}\n`)
     if (!modes.some((m) => m.id === msg.params.modeId)) send({ id: msg.id, error: { code: -32602, message: 'unknown mode' } })

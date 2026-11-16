@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { emptyConfig, type ListenSummaryResult, type WorkhubConfig } from '@workhub/core'
 import type { ListenSummaryRequest } from '@workhub/adapters/listen-summary'
+import type { BackgroundRunReport } from '../src/main/background-usage'
 import { listenConfigDir, registerListenIpc } from '../src/main/listen-ipc'
 import { listenPhase, toggleListen } from '../src/renderer/lib/listen'
 import { isLongMessage, LONG_MESSAGE_CHARS, LONG_MESSAGE_LINES } from '../src/renderer/lib/longMessage'
@@ -19,13 +20,13 @@ const config: WorkhubConfig = {
   options: { ...emptyConfig().options, listenModel: 'claude-haiku-4-5' } as WorkhubConfig['options']
 }
 
-function setup(summarize: (r: ListenSummaryRequest) => Promise<ListenSummaryResult>, sessions: Record<string, { agentId: string; accountId: string | null }> = { s1: { agentId: 'claude', accountId: 'work' } }, log: (message: string) => void = () => undefined) {
+function setup(summarize: (r: ListenSummaryRequest) => Promise<ListenSummaryResult>, sessions: Record<string, { agentId: string; accountId: string | null }> = { s1: { agentId: 'claude', accountId: 'work' } }, log: (message: string) => void = () => undefined, record: (run: BackgroundRunReport) => void = () => undefined) {
   const handlers = new Map<string, Handler>()
   const listeners = new Map<string, (event: unknown, ...args: unknown[]) => void>()
   const fake = vi.fn(summarize)
   registerListenIpc(
     { handle: (c, h) => handlers.set(c, h as Handler), on: (c, l) => listeners.set(c, l as (event: unknown, ...args: unknown[]) => void) },
-    { summarize: fake, config: async () => config, session: (id) => sessions[id] ?? null, home: '/h', env: {}, log }
+    { summarize: fake, config: async () => config, session: (id) => sessions[id] ?? null, home: '/h', env: {}, log, background: { record }, now: () => 1_000 }
   )
   const invoke = (...a: unknown[]) => handlers.get('listen:summarize')!({} as IpcMainInvokeEvent, ...a) as Promise<ListenSummaryResult>
   const cancel = (id: unknown) => listeners.get('listen:cancel')!({}, id)
@@ -57,6 +58,16 @@ describe('listen:summarize', () => {
     await setup(async () => ({ ok: false, failure: 'cancelled', error: 'Cancelled.' }), undefined, log).invoke('r1', 's1', 'x')
     await setup(async () => ({ ok: true, summary: 'ok' }), undefined, log).invoke('r1', 's1', 'x')
     expect(log).not.toHaveBeenCalled()
+  })
+
+  it('records each summary that reported usage as a Workhub background run', async () => {
+    const record = vi.fn()
+    const usage = { inputTokens: 900, outputTokens: 60, cacheWriteTokens: 0, cacheReadTokens: 0 }
+    await setup(async () => ({ ok: true, summary: 'ok', costUsd: 0.0003, usage }), undefined, undefined, record).invoke('r1', 's1', 'x')
+    expect(record).toHaveBeenCalledWith({ kind: 'listenSummary', accountId: 'work', at: 1_000, durationMs: 0, usage, costUsd: 0.0003, model: 'claude-haiku-4-5' })
+    record.mockClear()
+    await setup(async () => ({ ok: false, failure: 'cancelled', error: 'Cancelled.' }), undefined, undefined, record).invoke('r1', 's1', 'x')
+    expect(record).not.toHaveBeenCalled()
   })
 
   it('refuses a malformed request', async () => {

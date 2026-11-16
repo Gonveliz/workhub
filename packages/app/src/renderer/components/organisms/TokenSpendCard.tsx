@@ -6,6 +6,7 @@ import { ApiSpendList } from '../molecules/ApiSpendList'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { MessageKey } from '../../i18n/translate'
 import { formatTokens } from '../../lib/home'
+import { formatUsd } from '../../lib/usageReports'
 
 const AGENT_NAME: Record<string, MessageKey> = { claude: 'agentUsage.agent.claude', codex: 'agentUsage.agent.codex', kiro: 'agentUsage.agent.kiro' }
 const ROWS = 7
@@ -64,6 +65,13 @@ export function TokenSpendCard({ spend, apiSpend = [], onOpenSettings }: { spend
             )
           })}
         </ul>
+      )}
+      {spend?.background && (
+        // Workhub's own model runs (Slack reads, Listen summaries) belong to no folder.
+        <p className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-2 text-sm" title={t('home.tokensBackgroundHelp')} data-testid="token-spend-background">
+          <span className="truncate text-muted">{t('home.tokensBackground')}</span>
+          <span className="text-xs tabular-nums text-muted">{t('home.tokensBackgroundValue', { tokens: formatTokens(spend.background.tokens, locale), usd: formatUsd(spend.background.usd, locale) })}</span>
+        </p>
       )}
       <ApiSpendList spend={apiSpend} className="mt-3 border-t border-border pt-2" />
     </HomeCard>

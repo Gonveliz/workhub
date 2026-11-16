@@ -24,6 +24,7 @@ Workspace packages ship TypeScript source and the app bundles them; there is no 
 ```sh
 npm ci               # install; downloads Electron and prepares node-pty
 npm run typecheck    # tsc on every package
+npm run lint         # ESLint, bug-catching rules only (its dependencies live in tools/lint)
 npx vitest run       # all tests (npm test does the same)
 npm run build        # electron-vite build of the app
 npm run build:web -w @workhub/app   # phone app (Workhub Remote) into packages/relay/web-client
@@ -53,12 +54,15 @@ npm run demo         # dev build with synthetic data in .demo-data/ (add -- --re
 
 - Local control endpoint: `packages/app/src/main/control-server.ts`; Plan routes in
   `packages/app/src/main/plan-control.ts`. Unix socket on macOS and Linux (`WORKHUB_SOCKET`),
-  loopback HTTP with a token on Windows. Every session also gets `WORKHUB_SESSION`.
+  loopback HTTP with a token on Windows. Every session also gets `WORKHUB_SESSION` and its own
+  `WORKHUB_SESSION_TOKEN` (sent as `X-Workhub-Token`; `control-auth.ts` binds a request to it).
 - Agent skills that teach agents those endpoints: `skills/workhub-plan`,
   `skills/workhub-flow-map`, `skills/workhub-automations` (automations and history,
   `packages/app/src/main/automation-control.ts`) and `skills/workhub-analytics` (read-only usage
   data, `packages/app/src/main/analytics-control.ts`; the SQL checks are in
-  `packages/adapters/src/sqlite-store/read-query.ts`, queries run in the `analytics-worker.ts` utility process). Keep a skill in step with the endpoint it describes.
+  `packages/adapters/src/sqlite-store/read-query.ts`, queries run in the `analytics-worker.ts` utility process) and
+  `skills/workhub-sessions` (other sessions of the profile, proposals and messages the user approves,
+  notifications, `packages/app/src/main/session-control.ts`). Keep a skill in step with the endpoint it describes.
 - Settings screen: `packages/app/src/renderer/screens/SettingsScreen.tsx`, shown in its own window
   (`screens/SettingsWindow.tsx`, `main/settings-window.ts`).
 - Product name, app id and release repository: `scripts/brand.mjs` only.

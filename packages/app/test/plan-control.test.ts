@@ -66,7 +66,8 @@ describe('resolveControlProfile', () => {
   const deps = { sessionProfile: (id: string) => ({ s1: 'work', s3: null })[id as 's1'], profiles: async () => ({ ids: ['work', 'home'], active: 'home' }) }
   it("takes the session's profile, else the named one, else the active one", async () => {
     expect(await resolveControlProfile(deps, { session: 's1', profile: 'home' })).toEqual({ ok: true, profileId: 'work', session: 's1' })
-    expect(await resolveControlProfile(deps, { session: 's3', profile: 'work' })).toEqual({ ok: true, profileId: 'work', session: 's3' })
+    // A session never acts on a profile it names: one without a profile gets the active one.
+    expect(await resolveControlProfile(deps, { session: 's3', profile: 'work' })).toEqual({ ok: true, profileId: 'home', session: 's3' })
     expect(await resolveControlProfile(deps, { profile: 'work' })).toEqual({ ok: true, profileId: 'work', session: null })
     expect(await resolveControlProfile(deps, {})).toEqual({ ok: true, profileId: 'home', session: null })
     expect(await resolveControlProfile(deps, { session: 'zz' })).toEqual({ ok: false, status: 404, error: 'unknown session' })
@@ -90,7 +91,7 @@ describe('resolveControlProfile', () => {
     expect(await resolveControlProfile(deps, { session: null })).toEqual({ ok: true, profileId: 'home', session: null })
   })
 
-  it('lets a read-only session read but not write; a request without a session may write', async () => {
+  it('lets a read-only session read but not write; a request without a session is left to the endpoint (control-auth)', async () => {
     const guarded = { ...deps, sessionReadOnly: (id: string) => id === 's1' }
     expect(await resolveControlProfile(guarded, { session: 's1' })).toEqual({ ok: true, profileId: 'work', session: 's1' })
     expect(await resolveControlProfile(guarded, { session: 's1' }, { write: true })).toEqual({ ok: false, status: 403, error: 'a read-only session cannot change the plan' })
@@ -391,10 +392,10 @@ describe('Plan endpoints over the control socket', () => {
     const socket = controlSocketPath(dir)
     const { planner, control } = setup(undefined, view({ events: [event('today', at(6, 15))] }))
     await planner.propose('work', [{ kind: 'task', title: 'Write the docs', detail: '' }], { type: 'agent' })
-    const server = await startControlServer(socket, { openReview: () => ({ ok: true }), plan: control })
+    const server = await startControlServer(socket, { auth: { sessionOf: (t) => (t === 't-s1' ? 's1' : undefined), readOnly: () => false }, openReview: () => ({ ok: true }), plan: control })
     const call = (method: string, path: string, body?: unknown) =>
       new Promise<{ status: number; json: Record<string, unknown> }>((resolve, reject) => {
-        const req = request({ socketPath: socket, method, path, headers: { 'content-type': 'application/json' } }, (res) => {
+        const req = request({ socketPath: socket, method, path, headers: { 'content-type': 'application/json', 'x-workhub-token': 't-s1' } }, (res) => {
           let text = ''
           res.on('data', (c) => (text += c))
           res.on('end', () => resolve({ status: res.statusCode ?? 0, json: JSON.parse(text) }))
@@ -426,11 +427,11 @@ describe('Plan endpoints over the control socket', () => {
     const dir = mkdtempSync(join(tmpdir(), 'wh-plan-'))
     dirs.push(dir)
     const socket = controlSocketPath(dir)
-    const server = await startControlServer(socket, { openReview: () => ({ ok: true }) })
+    const server = await startControlServer(socket, { auth: { sessionOf: (t) => (t === 't-s1' ? 's1' : undefined), readOnly: () => false }, openReview: () => ({ ok: true }) })
     try {
       const status = (path: string, method = 'GET') =>
         new Promise<number>((resolve, reject) => {
-          const req = request({ socketPath: socket, method, path }, (res) => {
+          const req = request({ socketPath: socket, method, path, headers: { 'x-workhub-token': 't-s1' } }, (res) => {
             res.resume()
             res.on('end', () => resolve(res.statusCode ?? 0))
           })

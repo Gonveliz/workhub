@@ -1,13 +1,20 @@
 import { accountEnvRef, isValidEnvName, type AgentAccount, type AgentDefinition } from '../domain/agent'
 import { connectionSecretRef, type Connection } from '../domain/connection'
 import type { Profile } from '../domain/profile'
-import { appOptions, type AppOptions, type WorkhubConfig } from '../config/schema'
+import { appOptions, emptyConfig, type AppOptions, type WorkhubConfig } from '../config/schema'
+import { ConfigParseError } from '../config/migrations'
 import { EMPTY_SESSION_GROUPS, replaceSessionIdentity, type GroupMember, type SessionGroups } from '../domain/session-groups'
 import type { ConfigStore, SecretStore } from '../ports'
 import { fail, knownAgents, ok, validateConfig, type Result, type ValidationIssue } from './validation'
 import type { AutomationDefinition } from '../automations/types'
 import type { ChatWatcherSettings } from '../chat/types'
 import { deleteAutomation, saveAutomation, setChatWatcher } from './chat-automation-config'
+
+/** Why the stored config could not be loaded: the error, and the shape problems it lists. */
+export interface ConfigLoadFailure {
+  message: string
+  issues: string[]
+}
 
 const key = (i: ValidationIssue) => `${i.path}\u0000${i.message}`
 
@@ -224,9 +231,14 @@ export async function secretForConnectionTest(
  * Writes run one at a time, in call order: each reads the config inside its turn, so two writes
  * issued together (an automation moving a session while the user saves Settings) both land
  * instead of the later one overwriting the earlier one with a stale copy.
+ *
+ * A load that fails (a corrupt file, a newer version after a downgrade) leaves the service serving
+ * an empty config and refusing every write until a later `load()` succeeds: readers keep working
+ * and the file on disk is never overwritten with the stand-in.
  */
 export class ConfigurationService {
   private cache: WorkhubConfig | null = null
+  private failure: ConfigLoadFailure | null = null
   private queue: Promise<unknown> = Promise.resolve()
 
   constructor(
@@ -234,13 +246,23 @@ export class ConfigurationService {
     private readonly secrets: SecretStore
   ) {}
 
-  /** Reads the store again; queued behind pending writes so it never caches a copy they replace. */
+  /**
+   * Reads the store again; queued behind pending writes so it never caches a copy they replace.
+   * Throws when the store cannot be read; the service then serves the empty stand-in (see `loadFailure`).
+   */
   async load(): Promise<WorkhubConfig> {
     return this.serial(() => this.read())
   }
 
+  /** Never throws: after a failed load it is the empty stand-in config. */
   async current(): Promise<WorkhubConfig> {
-    return this.cache ?? this.read()
+    if (this.cache) return this.cache
+    return this.read().catch(() => this.cache ?? emptyConfig())
+  }
+
+  /** Set while the last load failed; writes are refused until a load succeeds. */
+  loadFailure(): ConfigLoadFailure | null {
+    return this.failure
   }
 
   async issues(): Promise<ValidationIssue[]> {
@@ -264,6 +286,8 @@ export class ConfigurationService {
       else if (secret.action === 'clear') delete next.secretRef
       else if (previous?.secretRef && !next.secretRef) next.secretRef = previous.secretRef
 
+      const refused = this.refused()
+      if (refused) return refused
       if (secret.action === 'set' && !secret.value) {
         return fail([{ path: `connections.${connection.id}.secretRef`, message: 'the secret is empty' }])
       }
@@ -309,6 +333,7 @@ export class ConfigurationService {
    */
   async migrateAccountEnv(): Promise<number> {
     return this.serial(async () => {
+      if (this.failure) return 0
       const before = await this.current()
       const plan = migrateAccountEnv(before)
       if (!plan) return 0
@@ -378,8 +403,22 @@ export class ConfigurationService {
   }
 
   private async read(): Promise<WorkhubConfig> {
-    this.cache = await this.store.load()
-    return this.cache
+    try {
+      this.cache = await this.store.load()
+      this.failure = null
+      return this.cache
+    } catch (err) {
+      this.cache = emptyConfig()
+      this.failure = {
+        message: err instanceof Error ? err.message : String(err),
+        issues: err instanceof ConfigParseError ? [...err.issues] : []
+      }
+      throw err
+    }
+  }
+
+  private refused(): Result<WorkhubConfig> | null {
+    return this.failure ? fail([{ path: 'config', message: `config file not loaded: ${this.failure.message}` }]) : null
   }
 
   /** Runs `task` after every task queued before it; a failed task does not stop the ones after it. */
@@ -396,6 +435,9 @@ export class ConfigurationService {
 
   private async persist(result: Result<WorkhubConfig>): Promise<Result<WorkhubConfig>> {
     if (!result.ok) return result
+    // The stand-in config never replaces the file it stands in for.
+    const refused = this.refused()
+    if (refused) return refused
     await this.store.save(result.value)
     this.cache = result.value
     return result

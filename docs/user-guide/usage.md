@@ -38,6 +38,22 @@ Past a ceiling:
 Nothing is installed in the agents: the ceiling lives only in Workhub, and it lets everything
 through while the usage is unknown.
 
+### Dollar ceilings for agents billed by API key
+
+An agent billed by API key has no plan window, so its card in **Settings → Agents** has **Dollar
+ceilings (billed by API key)**: **Per day (USD)** (since local midnight) and **Per 7 days (USD)**
+(the last 7 local days, as **API spend** adds them). Empty means no limit. They are set per agent
+(Codex, OpenCode, Claude on an API key, an ACP agent that reports a cost), not per account, because
+the spend is kept per agent. They work like the percentage ceilings: the warning starts a few
+points below the ceiling (the same margin), past it a prompt you send needs **Send anyway** (or
+**Clear ceiling**) and automatic work waits until the day turns over or the ceiling is raised or
+cleared, **Run now** runs once, and the sessions' notice says the dollars spent against the ceiling.
+When both a plan window and a dollar ceiling apply to an agent, the stricter one decides.
+
+Tokens of a model with no known price are in no dollar total. Workhub never counts them as zero
+silently: next to the ceilings, and in the notice, it says how many tokens are not included, so
+read the spend as at least that much.
+
 Usage alerts notify once per threshold and window, until the window resets. Their switch and
 thresholds (comma separated, for example `80, 95`) are in
 [Settings → Notifications and alerts](settings.md#notifications-and-alerts).
@@ -56,7 +72,18 @@ Codex and Kiro in the profile's folders over the last 7 days: the bar and main n
 weighs on your plan. Cache reads, which are re-reads of context and would dwarf everything else but
 cost much less, appear apart on each row as "+ cache". The session monitor splits the same way:
 **Spent (fresh)** and **Cache reads** are separate boxes, and the detail rows keep **Context re-read
-from cache**.
+from cache**. Below the folders, **Workhub background** shows the tokens and cost of Workhub's own
+model runs over the same days, every profile together (see below).
+
+### Workhub background
+
+Some model runs are started by Workhub itself, outside any session: each read of the
+[Slack watcher](slack.md#what-watching-costs) and each summary of the chat's **Listen** button.
+They leave no transcript, so Workhub records each one as it ends: one row with its tokens, model and
+cost (as Claude reported it). In **Usage and reports** they are the agent **Workhub background**,
+one session per kind (Slack watcher reads, Listen summaries) and Claude account, with no folder or
+profile; a profile filter leaves them out. On Home they are a line of their own under **Token
+spend by folder**.
 
 ## Usage and reports
 
@@ -97,6 +124,16 @@ with a **Total** row, ten groups per page. Click a column header to sort by it (
 pull request or tag, a session linked to several of them counts in each, so the rows can add up
 to more than the total.
 
+**Export CSV** (top right of the table) saves the table as it is on screen, with the filters, the
+grouping, the period and the sort in force, every group (not only the page shown). Workhub asks
+where to save it; the suggested name carries the grouping and the dates
+(`workhub-usage-by-project-2026-10-01_2026-10-27.csv`). Columns: group (in full, a folder path
+or a pull request URL), input, output and cache tokens, cost in USD, sessions and agent time in
+seconds, with numbers as plain digits (no thousands separators or units). The file is UTF-8 with
+a byte-order mark, so spreadsheets read accents correctly, and fields with commas, quotes or line
+breaks are quoted (RFC 4180). The Total row is not included. A group name that starts with
+`=`, `+`, `-` or `@` gets a leading apostrophe so a spreadsheet does not run it as a formula.
+
 **Sessions.** The sessions the totals count: those with agent work in the period that matches the
 filters, most recent first, with that period's numbers, ten per page (the pager below reads
 "11–20 of 57" and moves with **Previous page** and **Next page**; changing the filters or the period
@@ -123,7 +160,7 @@ line on what agent time and list prices mean.
 
 What these numbers are not: cost is at list prices, not what a plan subscription bills; agent time
 is the agent working, not your own time at the keyboard; only Claude, Codex and Kiro transcripts
-on this computer are read, so other agents and other computers do not appear. Links to tickets
+on this computer are read (plus Workhub's own background runs), so other agents and other computers do not appear. Links to tickets
 and pull requests exist only for sessions Workhub ran (it records what their monitor found).
 Usage and reports is not offered to a paired phone.
 
@@ -147,6 +184,24 @@ worktrees their monitor relates them to, the tags you give them, every automatio
 pull request and ticket changes Workhub notices. All of it stays in `workhub.db` in the
 [data folder](../architecture.md#data-folder); transcripts are read in place and nothing is sent
 anywhere.
+
+### How long it is kept
+
+The per-message detail, the pull request and ticket changes and the automation runs are kept for
+12 months. Once a day (a few minutes after start, then every 24 hours) messages older than that are
+summed per day, session, model and folder and the detail is deleted; older pull request and ticket
+changes and automation runs are deleted. Sessions, their links and tags stay, so the charts,
+totals and the sessions table over a period that reaches back past 12 months add up to what they
+did before, per day (a summary counts on its day, not at the hour of each message). Older weekly
+summaries no longer list the pull requests opened, merged or reviewed and the ticket moves of
+those weeks. A transcript older than 12 months that Workhub never read before (an account added
+later) is not counted.
+
+**Settings → Advanced → Data** shows, under **What the data takes**, the rows and approximate size
+of the usage detail, the usage summaries, History's search index, the events and automation runs,
+and the app's state, the free space in the file and when the cleanup last ran. **Compact now** runs
+the cleanup at once and then rewrites the file so it shrinks to what it holds (on a large database
+this takes a while; the Usage screen's reports wait for it).
 
 ## Ask your agent about your usage
 

@@ -91,6 +91,20 @@ describe('SqliteHistoryIndex', () => {
     expect((db.raw.prepare("SELECT value FROM history_meta WHERE key = 'version'").get() as { value: string }).value).toBe(String(HISTORY_INDEX_VERSION))
   })
 
+  it("gives back an account's sessions as they were listed, with a stamp that still matches", () => {
+    const { index } = openIndex()
+    const full = entry('e1', { accountId: 'work', firstPrompt: 'fix it', gitBranch: 'main', createdAt: T - 5 })
+    index.upsert([
+      { entry: full, content: 'x' },
+      { entry: entry('e2', { accountId: 'work', sizeBytes: undefined, cwd: undefined }), content: 'y' },
+      { entry: entry('e3'), content: 'z' }
+    ])
+    const got = index.entries('claude', 'work').sort((a, b) => a.agentSessionId.localeCompare(b.agentSessionId))
+    expect(got).toEqual([full, { agentId: 'claude', accountId: 'work', agentSessionId: 'e2', title: 'Session e2', lastModified: T }])
+    expect(got.map(historyStamp)).toEqual([...index.stamps()].filter(([k]) => k !== 'claude:e3').map(([, s]) => s.stamp))
+    expect(index.entries('claude', null).map((e) => e.agentSessionId)).toEqual(['e3'])
+  })
+
   it('finds conversation text with a marked snippet, best match first; never tool payloads', () => {
     const { index } = openIndex()
     index.upsert([
@@ -177,6 +191,12 @@ describe('SqliteHistoryIndex', () => {
     expect(ids(index.match('common', { cwdPrefixes: ['/w/acme/web/'] })).sort()).toEqual(['p1', 'p3'])
     expect(index.match('common', { cwdPrefixes: ['/w/acme/we'] })).toEqual([])
     expect(index.match('common', { cwdPrefixes: [] })).toEqual([])
+    // Trailing separators are trimmed in linear time, however many there are.
+    const started = performance.now()
+    expect(ids(index.match('common', { cwdPrefixes: [`/w/acme/web${'/'.repeat(100_000)}`] })).sort()).toEqual(['p1', 'p3'])
+    expect(index.match('common', { cwdPrefixes: [`/w/acme/web${'/'.repeat(100_000)}x`] })).toEqual([])
+    expect(index.match('common', { cwdPrefixes: ['/'.repeat(100_000)] })).toEqual([])
+    expect(performance.now() - started).toBeLessThan(500)
     expect(ids(index.match('common', { keys: ['claude:p2', 'claude:none'] }))).toEqual(['p2'])
     expect(index.match('common', { since: T + 3 })).toHaveLength(2)
     expect(index.match('common', { until: T + 1 })).toHaveLength(2)

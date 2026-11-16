@@ -1,12 +1,16 @@
 import {
   applyAlertAction,
+  coverageFromSeries,
+  coverageOfSamples,
   demoMetricSamples,
   detectMetricAlerts,
   DEMO_METRIC_SOURCE,
   DEMO_METRICS,
   HEALTH_METRIC_SOURCE,
   HEALTH_METRICS,
+  healthMetricCoverage,
   healthMetricSamples,
+  mergeCoverage,
   mergeSamples,
   productMetricSamples,
   PRODUCT_METRICS,
@@ -17,12 +21,16 @@ import {
   type AlertRulesConfig,
   type MetricAlert,
   type MetricAlertAction,
+  type MetricCollection,
+  type MetricCoverage,
+  type MetricCoverageScope,
   type MetricSample,
   type MetricSeriesStore,
   type MetricSource
 } from '@workhub/core'
 import type { HealthView } from '../shared/health-api'
 import type { MetricAlertsView } from '../shared/metric-alerts-api'
+import { jobReports } from './job-reporter'
 
 /** Samples are collected this often: the series are daily, so more often only refreshes today's value. */
 export const METRIC_ALERT_INTERVAL_MS = 5 * 60_000
@@ -31,6 +39,8 @@ export const METRIC_ALERT_FIRST_DELAY_MS = 30_000
 
 export interface ProfileMetricState {
   series: MetricSeriesStore
+  /** The days each source was actually read; absent in a state saved before it was recorded. */
+  coverage?: MetricCoverage
   alerts: MetricAlert[]
   /** Epoch ms of the last evaluation. */
   updatedAt?: number
@@ -72,14 +82,23 @@ export interface MetricAlertServiceDeps {
 
 const EMPTY_PROFILE: ProfileMetricState = { series: {}, alerts: [] }
 
+function cleanCoverage(raw: unknown): MetricCoverage | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const out: MetricCoverage = {}
+  for (const [key, days] of Object.entries(raw)) if (Array.isArray(days)) out[key] = days.filter((d): d is string => typeof d === 'string')
+  return out
+}
+
 /** A stored state read defensively: a hand-edited or older file never stops the engine. */
 function cleanState(raw: MetricAlertsState): MetricAlertsState {
   const profiles: Record<string, ProfileMetricState> = {}
   const source = raw && typeof raw.profiles === 'object' && raw.profiles !== null ? raw.profiles : {}
   for (const [id, p] of Object.entries(source)) {
     if (!p || typeof p !== 'object') continue
+    const coverage = cleanCoverage(p.coverage)
     profiles[id] = {
       series: p.series && typeof p.series === 'object' && !Array.isArray(p.series) ? p.series : {},
+      ...(coverage ? { coverage } : {}),
       alerts: Array.isArray(p.alerts) ? p.alerts.filter((a) => a && typeof a.key === 'string') : [],
       ...(typeof p.updatedAt === 'number' ? { updatedAt: p.updatedAt } : {})
     }
@@ -98,6 +117,9 @@ export class MetricAlertService {
   private timer: ReturnType<typeof setInterval> | null = null
   private first: ReturnType<typeof setTimeout> | null = null
   private queue: Promise<unknown> = Promise.resolve()
+  private readonly job = jobReports.job('metric alerts')
+  /** The first error a source threw in the current evaluation: it is swallowed so the other sources count, but reported. */
+  private sourceError: { error: unknown } | undefined
   private readonly now: () => number
 
   constructor(private readonly deps: MetricAlertServiceDeps) {
@@ -134,10 +156,15 @@ export class MetricAlertService {
   /** Evaluates every profile with Health on. */
   tick(): Promise<void> {
     return this.serial(async () => {
+      this.sourceError = undefined
       try {
         for (const profile of await this.deps.profiles()) await this.evaluate(profile)
-      } catch {
+        const swallowed = this.sourceError as { error: unknown } | undefined
+        if (swallowed) this.job.failed(swallowed.error)
+        else this.job.ok()
+      } catch (err) {
         // The next tick tries again.
+        this.job.failed(err)
       }
     })
   }
@@ -178,18 +205,25 @@ export class MetricAlertService {
     const now = this.now()
     const sources = this.deps.sources(profile.id)
     const samples: MetricSample[] = []
+    const covered: MetricCoverageScope[] = []
     for (const source of sources) {
       try {
-        samples.push(...(await source.collect(profile.id, now)))
-      } catch {
+        const got = await source.collect(profile.id, now)
+        const collection: MetricCollection = Array.isArray(got) ? { samples: got } : got
+        samples.push(...collection.samples)
+        covered.push(...(collection.covered ?? coverageOfSamples(collection.samples)))
+      } catch (err) {
         // A failing source keeps its stored history; the others still count.
+        this.sourceError ??= { error: err }
       }
     }
     const before = this.state.profiles[profile.id] ?? EMPTY_PROFILE
     const series = mergeSamples(before.series, samples, now)
-    const detections = detectMetricAlerts(series, sources.flatMap((s) => s.definitions()), profile.rules, now)
+    // A state saved before coverage was recorded: the days with a point stand for the days read.
+    const coverage = mergeCoverage(before.coverage ?? coverageFromSeries(before.series), covered, now)
+    const detections = detectMetricAlerts(series, sources.flatMap((s) => s.definitions()), profile.rules, now, coverage)
     const { alerts, opened, escalated } = reconcileAlerts(before.alerts, detections, now, profile.rules.businessDays)
-    this.state.profiles[profile.id] = { series, alerts, updatedAt: now }
+    this.state.profiles[profile.id] = { series, coverage, alerts, updatedAt: now }
     this.deps.store.save(this.state)
     const announce = sortAlerts([...opened, ...escalated].filter((a) => a.status !== 'snoozed' && severityAtLeast(a.severity, profile.rules.notifyMinSeverity)))
     if (announce.length > 0 && !this.deps.demo) {
@@ -213,13 +247,11 @@ export class HealthMetricSource implements MetricSource {
     return HEALTH_METRICS
   }
 
-  async collect(profileId: string, now: number): Promise<MetricSample[]> {
+  async collect(profileId: string, now: number): Promise<MetricCollection> {
     const view = await this.read(profileId)
-    if (view.state !== 'ready' && view.state !== 'demo') return []
-    return healthMetricSamples(
-      view.environments.map((e) => ({ name: e.name, snapshot: e.snapshot, errorUrls: e.errorUrls, serviceUrls: e.serviceUrls })),
-      now
-    )
+    if (view.state !== 'ready' && view.state !== 'demo') return { samples: [], covered: [] }
+    const environments = view.environments.map((e) => ({ name: e.name, snapshot: e.snapshot, errorUrls: e.errorUrls, serviceUrls: e.serviceUrls }))
+    return { samples: healthMetricSamples(environments, now), covered: healthMetricCoverage(environments, now) }
   }
 }
 

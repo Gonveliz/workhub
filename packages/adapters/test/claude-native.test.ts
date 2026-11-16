@@ -468,6 +468,27 @@ describe('Claude session history', () => {
     expect(await history.messages('sess-1', '/tmp/acme-web')).toEqual([{ kind: 'user', text: 'hello from sess-1 in /tmp/acme-web' }])
   })
 
+  it('lists at most the limit the caller asks for', async () => {
+    const entries = await new ClaudeSessionHistory({ bridgeDir: fakeBridge }).list({ agentId: 'claude', accountId: null, configDir: '/tmp/acme-work' }, { limit: 1 })
+    expect(entries.map((e) => e.agentSessionId)).toEqual(['sess-1'])
+  })
+
+  it('names every transcript on disk without reading it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wh-ids-'))
+    try {
+      const history = new ClaudeSessionHistory({ bridgeDir: fakeBridge })
+      expect(await history.sessionIds({ configDir: dir })).toEqual(new Set())
+      mkdirSync(join(dir, 'projects', '-w-acme-api', 'sess-a', 'subagents'), { recursive: true })
+      mkdirSync(join(dir, 'projects', '-w-acme-web'), { recursive: true })
+      writeFileSync(join(dir, 'projects', '-w-acme-api', 'sess-a.jsonl'), '')
+      writeFileSync(join(dir, 'projects', '-w-acme-web', 'sess-b.jsonl'), '')
+      writeFileSync(join(dir, 'projects', '-w-acme-web', 'notes.txt'), '')
+      expect(await history.sessionIds({ configDir: dir })).toEqual(new Set(['sess-a', 'sess-b']))
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('renames a session the way /rename does, through sessions.mjs', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'wh-rename-'))
     const log = join(dir, 'rename.json')
@@ -672,5 +693,42 @@ describe('Claude executable on Windows', () => {
   it('leaves the SDK its bundled Claude Code when nothing launchable is found', () => {
     expect(pickWindowsClaude(['C:\\nvm4w\\nodejs\\claude'], () => false, home)).toBeUndefined()
     expect(pickWindowsClaude([], () => false, home)).toBeUndefined()
+  })
+
+  it('puts the last stderr lines in the error of a bridge that exits on its own', async () => {
+    const rt = new ClaudeNativeRuntime({ bridgeDir: fakeBridge, stopTimeoutMs: 300 })
+    const events: AgentEvent[] = []
+    rt.subscribe((e) => events.push(e))
+    try {
+      await rt.start({ sessionId: 'die', agent: claude, account: null, cwd: fixtures, env: {} })
+      await rt.prompt('die', 'die').catch(() => {})
+      await waitFor(events, (e) => e.type === 'exit')
+      const states = events.flatMap((e) => (e.type === 'state' ? [e] : []))
+      expect(states.at(-1)).toMatchObject({ state: 'error', error: 'Claude exited (code 3):\nacme: login expired\nrun acme login' })
+    } finally {
+      await rt.stopAll()
+    }
+  })
+
+  it('puts the stderr of a bridge that dies during start in the start error', async () => {
+    const rt = new ClaudeNativeRuntime({ bridgeDir: fakeBridge, stopTimeoutMs: 300 })
+    await expect(rt.start({ sessionId: 'die-start', agent: claude, account: null, cwd: fixtures, env: { FAKE_BRIDGE_DIE_ON_START: '1' } })).rejects.toThrow(
+      'the Claude bridge exited during start (code 2):\nError: cannot find module acme-sdk'
+    )
+  })
+
+  it('stops a bridge that never reports ready and fails the start', async () => {
+    const rt = new ClaudeNativeRuntime({ bridgeDir: fakeBridge, stopTimeoutMs: 300, startTimeoutMs: 200 })
+    const events: AgentEvent[] = []
+    rt.subscribe((e) => events.push(e))
+    try {
+      await expect(rt.start({ sessionId: 'silent-start', agent: claude, account: null, cwd: fixtures, env: { FAKE_BRIDGE_SILENT_ON_START: '1' } })).rejects.toThrow(
+        /the Claude bridge did not finish starting within 0 s; it was stopped/
+      )
+      expect(events.filter((e) => e.type === 'state').at(-1)).toMatchObject({ state: 'error' })
+      await expect(rt.prompt('silent-start', 'hello')).rejects.toThrow()
+    } finally {
+      await rt.stopAll()
+    }
   })
 })

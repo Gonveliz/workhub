@@ -19,6 +19,15 @@ you open one from Usage and reports).
 - Filter by **Profile**, **Account** and **Agent**.
 - **Reload** reads the sessions again.
 
+### Older sessions
+
+To keep start-up quick, History reads the newest 400 sessions of each account from their files.
+Older sessions that are already in the search index stay listed and searchable without being read
+again (Claude Code; for Kiro, OpenCode and Codex they stay in the index but are not listed). When an
+account has more, the end of the list says so and **List older sessions** reads 400 more of each
+account, which are then indexed and stay listed from then on. A session leaves History and the
+index only when its file is gone.
+
 ### The search index
 
 The search uses an index Workhub keeps on this computer, inside its database (`workhub.db`, so the
@@ -37,13 +46,18 @@ profile's folders (see [Remote access](remote-access.md)).
 ## Resume
 
 - Double-click a session, or use **Resume** / **Resume in the App**, to continue it in the app.
-- **Resume in Console** continues it in the agent's terminal UI.
+- **Resume in Console** continues it in the agent's terminal UI (Claude Code only: the other
+  agents have no terminal view in Workhub).
 - The row menu also has **Reveal Folder**, **Copy Session ID**, **Tags…** (labels for
   [Usage and reports](usage.md#usage-and-reports)) and **Open** (shows the session if it is already
   open).
 
-Only Claude Code sessions can be resumed so far; the sessions of Kiro, OpenCode and Codex are listed
-for reading. A resumed conversation replays its earlier messages and marks where it resumed.
+Claude Code, Kiro, OpenCode and Codex sessions can be resumed. A resumed conversation replays its
+earlier messages and marks where it resumed. Kiro, OpenCode and Codex continue the stored
+conversation only when the installed agent can load a past session (the Agent Client Protocol's
+`session/load`). When it cannot, or the load fails, a new conversation starts in the same chat: the
+earlier messages stay above as history, and a **New conversation** notice says the agent does not
+remember them.
 
 Runs of an automation reuse its open session and are grouped in History.
 
@@ -58,6 +72,7 @@ An agent in a Workhub session can read the history through the local control end
 `agent`, `automation` or `folder`; with words (`q`) it searches the index like the search box,
 best match first, and each match carries the text around it (`snippet`); `GET /v1/history/<agent>/<session id>` returns the
 last messages of one of them, with text shortened and tool output and images left out. It cannot
-resume, rename or change a past session.
+resume, rename or change a past session. These calls need the session's own token
+(`WORKHUB_SESSION_TOKEN`); without it they are refused.
 
 Next: [Usage and budgets](usage.md).

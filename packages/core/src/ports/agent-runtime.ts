@@ -71,6 +71,11 @@ export interface StartedSession {
   modelIgnored?: boolean
   /** A mode was asked for but the agent does not offer it (or refused): it runs in its default. */
   modeIgnored?: boolean
+  /**
+   * A resume was asked for but a new conversation started instead (ACP): the agent does not offer
+   * `session/load` (`unsupported`), or it refused the stored session (`failed`).
+   */
+  resumeFailed?: 'unsupported' | 'failed'
   /** Whether prompts can carry images, when the agent says at start (ACP `promptCapabilities.image`). */
   imageInput?: boolean
   /** Models the session can switch to, and the current one, when the agent reports them. */

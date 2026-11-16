@@ -61,8 +61,11 @@ export function detectPrEvents({ previous, mine, toReview, left, now }: DetectIn
     const open = new Set(mine.map((p) => p.url))
     for (const pr of mine) {
       const cur = snapshotOf(pr)
-      nextMine[pr.url] = cur
       const old = before.mine[pr.url]
+      // An older memory has no settledCi: its plain ci is the best guess when it was settled.
+      const oldSettled = old?.settledCi ?? (old?.ci === 'failure' || old?.ci === 'success' ? old.ci : undefined)
+      const settled = cur.ci === 'failure' || cur.ci === 'success' ? cur.ci : oldSettled
+      nextMine[pr.url] = settled ? { ...cur, settledCi: settled } : cur
       if (first || !old) continue
       if (old.decision !== cur.decision) {
         if (cur.decision === 'approved') event('approved', pr, `approved|${pr.headSha ?? ''}|${pr.updatedAt ?? ''}`, { headSha: pr.headSha })
@@ -71,7 +74,7 @@ export function detectPrEvents({ previous, mine, toReview, left, now }: DetectIn
       if (old.ci !== cur.ci) {
         const stamp = pr.headSha ?? String(pr.updatedAt ?? '')
         if (cur.ci === 'failure') event('ciFailed', pr, `ci-failed|${stamp}`, { headSha: pr.headSha })
-        else if (cur.ci === 'success' && old.ci === 'failure') event('ciPassed', pr, `ci-passed|${stamp}`, { headSha: pr.headSha })
+        else if (cur.ci === 'success' && oldSettled === 'failure') event('ciPassed', pr, `ci-passed|${stamp}`, { headSha: pr.headSha })
       }
       if (old.mergeable !== 'conflicting' && cur.mergeable === 'conflicting') {
         event('conflicts', pr, `conflicts|${pr.headSha ?? pr.updatedAt ?? ''}`, { headSha: pr.headSha })

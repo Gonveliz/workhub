@@ -1,19 +1,25 @@
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync } from 'node:fs'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { controlEnv, controlSocketPath, NO_CONTROL_ENV, newControlToken, parseReviewBody, privateSocketDir, probeSocket, startControlServer, startLoopbackControlServer, usesLoopbackControl, type ReviewRequestRepo } from '../src/main/control-server'
+import type { ControlAuth } from '../src/main/control-auth'
+import { controlEnv, controlSocketPath, NO_CONTROL_ENV, newControlToken, parseReviewBody, privateSocketDir, probeSocket, reviewPathOutside, startControlServer, startLoopbackControlServer, usesLoopbackControl, type ReviewRequestRepo } from '../src/main/control-server'
 
 const dirs: string[] = []
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
-function call(socketPath: string, method: string, path: string, body?: unknown): Promise<{ status: number; json: { ok: boolean; error?: string } }> {
+/** Sessions by token, for the endpoint's `auth`: `t-<id>` is the token of session `<id>`. */
+function testAuth(sessions: readonly string[] = ['s1'], readOnly: readonly string[] = []): ControlAuth {
+  return { sessionOf: (t) => sessions.find((s) => `t-${s}` === t), readOnly: (id) => readOnly.includes(id) }
+}
+
+function call(socketPath: string, method: string, path: string, body?: unknown, token: string | null = 't-s1'): Promise<{ status: number; json: { ok: boolean; error?: string } }> {
   return new Promise((resolve, reject) => {
-    const req = request({ socketPath, method, path, headers: { 'content-type': 'application/json' } }, (res) => {
+    const req = request({ socketPath, method, path, headers: { 'content-type': 'application/json', ...(token ? { 'x-workhub-token': token } : {}) } }, (res) => {
       let text = ''
       res.on('data', (c) => (text += c))
       res.on('end', () => resolve({ status: res.statusCode ?? 0, json: JSON.parse(text) }))
@@ -32,10 +38,11 @@ describe('control endpoint', () => {
     expect(long).toMatch(/workhub-control-[0-9a-f]{16}\.sock$/)
     expect(controlSocketPath('C:\\data', 'win32')).toMatch(/^\\\\\.\\pipe\\workhub-control-[0-9a-f]{16}$/)
     // Every variable is set, the unused ones empty, so nothing inherited from a parent process is left.
-    expect(controlEnv('s1', { socket: '/x.sock' })).toEqual({ WORKHUB_SESSION: 's1', WORKHUB_SOCKET: '/x.sock', WORKHUB_URL: '', WORKHUB_TOKEN: '' })
-    expect(controlEnv('s1', { url: 'http://127.0.0.1:5000', token: 't' })).toEqual({ WORKHUB_SESSION: 's1', WORKHUB_SOCKET: '', WORKHUB_URL: 'http://127.0.0.1:5000', WORKHUB_TOKEN: 't' })
-    expect(controlEnv('s1', null)).toEqual({ WORKHUB_SESSION: '', WORKHUB_SOCKET: '', WORKHUB_URL: '', WORKHUB_TOKEN: '' })
-    expect(NO_CONTROL_ENV).toEqual(controlEnv('s1', null))
+    expect(controlEnv('s1', { socket: '/x.sock' }, () => 'st')).toEqual({ WORKHUB_SESSION: 's1', WORKHUB_SESSION_TOKEN: 'st', WORKHUB_SOCKET: '/x.sock', WORKHUB_URL: '', WORKHUB_TOKEN: '' })
+    expect(controlEnv('s1', { url: 'http://127.0.0.1:5000', token: 't' }, () => 'st')).toEqual({ WORKHUB_SESSION: 's1', WORKHUB_SESSION_TOKEN: 'st', WORKHUB_SOCKET: '', WORKHUB_URL: 'http://127.0.0.1:5000', WORKHUB_TOKEN: 't' })
+    // No token is minted while no endpoint listens.
+    expect(controlEnv('s1', null, () => expect.unreachable())).toEqual({ WORKHUB_SESSION: '', WORKHUB_SESSION_TOKEN: '', WORKHUB_SOCKET: '', WORKHUB_URL: '', WORKHUB_TOKEN: '' })
+    expect(NO_CONTROL_ENV).toEqual(controlEnv('s1', null, () => ''))
     expect(usesLoopbackControl('win32')).toBe(true)
     expect(usesLoopbackControl('darwin')).toBe(false)
     expect(newControlToken()).toMatch(/^[0-9a-f]{64}$/)
@@ -45,7 +52,7 @@ describe('control endpoint', () => {
   it('serves on a loopback port only with the token and without a browser origin (Windows)', async () => {
     const token = newControlToken()
     const opened: string[] = []
-    const started = await startLoopbackControlServer(token, { openReview: (id) => (opened.push(id), { ok: true }) })
+    const started = await startLoopbackControlServer(token, { auth: testAuth(), openReview: (id) => (opened.push(id), { ok: true }) })
     expect(started).not.toBeNull()
     const { server, url } = started!
     expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
@@ -64,7 +71,10 @@ describe('control endpoint', () => {
       expect(await hit({ authorization: 'Bearer nope' })).toBe(401)
       expect(await hit({ authorization: `Bearer ${token}`, origin: 'https://evil.example.com' })).toBe(401)
       expect(await hit({ authorization: `Bearer ${token}` })).toBe(200)
-      expect(await hit({ authorization: `Bearer ${token}` }, 'POST', '/v1/sessions/s1/review')).toBe(200)
+      // The launch token only reaches the endpoint: acting as a session needs that session's token on top.
+      expect(await hit({ authorization: `Bearer ${token}` }, 'POST', '/v1/sessions/s1/review')).toBe(401)
+      expect(await hit({ 'x-workhub-token': 't-s1' }, 'POST', '/v1/sessions/s1/review')).toBe(401)
+      expect(await hit({ authorization: `Bearer ${token}`, 'x-workhub-token': 't-s1' }, 'POST', '/v1/sessions/s1/review')).toBe(200)
       expect(opened).toEqual(['s1'])
     } finally {
       server.close()
@@ -87,6 +97,7 @@ describe('control endpoint', () => {
     // A socket file next to the maps, or a named pipe on Windows.
     const socket = controlSocketPath(dir)
     const server = await startControlServer(socket, {
+      auth: testAuth(['s1', 'zz']),
       openReview: (id, repos) => (id === 's1' ? (opened.push([id, repos]), { ok: true }) : { ok: false, status: 404, error: 'unknown session' })
     })
     expect(server).not.toBeNull()
@@ -94,7 +105,7 @@ describe('control endpoint', () => {
       expect(await call(socket, 'GET', '/v1/health')).toEqual({ status: 200, json: { ok: true } })
       expect(await call(socket, 'POST', '/v1/sessions/s1/review', { repos: [dir] })).toEqual({ status: 200, json: { ok: true } })
       expect(opened).toEqual([['s1', [{ path: dir }]]])
-      expect((await call(socket, 'POST', '/v1/sessions/zz/review')).status).toBe(404)
+      expect((await call(socket, 'POST', '/v1/sessions/zz/review', undefined, 't-zz')).status).toBe(404)
       expect((await call(socket, 'GET', '/v1/sessions/s1/review')).status).toBe(405)
       expect((await call(socket, 'POST', '/nope')).status).toBe(404)
     } finally {
@@ -111,6 +122,7 @@ describe('automation and history routes', () => {
     const ok = (what: string) => async (...args: unknown[]) => (calls.push([what, ...args.filter((a) => typeof a === 'string')].join(' ')), { status: 200, body: { ok: true } })
     const socket = controlSocketPath(dir)
     const server = await startControlServer(socket, {
+      auth: testAuth(),
       openReview: () => ({ ok: true }),
       automations: { list: ok('list'), create: ok('create'), update: ok('update'), history: ok('history'), session: ok('session') }
     })
@@ -161,11 +173,11 @@ describe.skipIf(process.platform === 'win32')('control socket ownership', () => 
   it('leaves a socket another app serves alone and answers null', async () => {
     const socket = join(newDir(), 'control.sock')
     const logs: string[] = []
-    const first = await startControlServer(socket, { openReview: () => ({ ok: true }) })
+    const first = await startControlServer(socket, { auth: testAuth(), openReview: () => ({ ok: true }) })
     expect(first).not.toBeNull()
     try {
       expect(await probeSocket(socket)).toBe('live')
-      const second = await startControlServer(socket, { openReview: () => ({ ok: true }), log: (m) => logs.push(m) })
+      const second = await startControlServer(socket, { auth: testAuth(), openReview: () => ({ ok: true }), log: (m) => logs.push(m) })
       expect(second).toBeNull()
       expect(logs.join()).toMatch(/served by another process/)
       // The first app still answers on its socket.
@@ -185,12 +197,30 @@ describe.skipIf(process.platform === 'win32')('control socket ownership', () => 
     await new Promise((resolve) => child.once('exit', resolve))
     expect(existsSync(socket)).toBe(true)
     expect(await probeSocket(socket)).toBe('stale')
-    const server = await startControlServer(socket, { openReview: () => ({ ok: true }) })
+    const server = await startControlServer(socket, { auth: testAuth(), openReview: () => ({ ok: true }) })
     expect(server).not.toBeNull()
     try {
       expect(await call(socket, 'GET', '/v1/health')).toEqual({ status: 200, json: { ok: true } })
     } finally {
       server?.close()
     }
+  })
+})
+
+describe.skipIf(process.platform === 'win32')('reviewPathOutside', () => {
+  it('accepts folders inside a root, refuses outside ones and symlinks that point outside', () => {
+    const base = mkdtempSync(join(tmpdir(), 'wh-rev-'))
+    dirs.push(base)
+    const session = join(base, 'session')
+    const profile = join(base, 'profile')
+    const outside = join(base, 'outside')
+    for (const d of [join(session, 'repo'), profile, outside]) mkdirSync(d, { recursive: true })
+    symlinkSync(outside, join(session, 'link'))
+    const roots = [session, profile]
+    expect(reviewPathOutside([{ path: join(session, 'repo') }, { path: session }, { path: profile }], roots)).toBeNull()
+    expect(reviewPathOutside([{ path: join(session, 'repo') }, { path: outside }], roots)).toBe(outside)
+    expect(reviewPathOutside([{ path: join(session, 'link') }], roots)).toBe(join(session, 'link'))
+    expect(reviewPathOutside([{ path: join(session, '..', 'outside') }], roots)).toBe(join(session, '..', 'outside'))
+    expect(reviewPathOutside([{ path: join(session, 'missing') }], roots)).toBe(join(session, 'missing'))
   })
 })

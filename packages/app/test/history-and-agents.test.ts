@@ -27,17 +27,17 @@ describe('history accounts per agent', () => {
 })
 
 describe('listAllHistory', () => {
-  it('merges every agent, newest first, tagging agent, name and whether it can resume', async () => {
+  it('merges every agent, newest first, tagging agent, name and whether it can resume (in the terminal too)', async () => {
     const result = await listAllHistory(config(), '/home/u', {
       claude: source([entry('claude', 'c1', 10)]),
       kiro: source([entry('kiro', 'k1', 30)]),
       codex: source([entry('codex', 'x1', 20)])
     })
     expect(result.errors).toEqual([])
-    expect(result.entries.map((e) => [e.agentId, e.agentName, e.resumable])).toEqual([
-      ['kiro', 'Kiro', false],
-      ['codex', 'Codex', false],
-      ['claude', 'Claude Code', true]
+    expect(result.entries.map((e) => [e.agentId, e.agentName, e.resumable, e.consoleResumable])).toEqual([
+      ['kiro', 'Kiro', true, false],
+      ['codex', 'Codex', true, false],
+      ['claude', 'Claude Code', true, true]
     ])
   })
 
@@ -48,20 +48,50 @@ describe('listAllHistory', () => {
     expect(result.entries.map((e) => e.agentSessionId)).toEqual(['k1'])
   })
 
+  it('marks an account with more sessions than the depth as truncated, never as fully listed', async () => {
+    const many = Array.from({ length: 6 }, (_, i) => entry('kiro', `k${i}`, 100 - i))
+    const limits: (number | undefined)[] = []
+    const kiro: SessionHistorySource = { list: async (_a, o) => (limits.push(o?.limit), many.slice(0, o?.limit)), messages: async () => [] }
+    const cut = await listAllHistory(config(), '/home/u', { kiro }, { depth: 4 })
+    expect(limits).toEqual([5])
+    expect(cut.entries.map((e) => e.agentSessionId)).toEqual(['k0', 'k1', 'k2', 'k3'])
+    expect(cut.truncated).toEqual(['kiro\u0000'])
+    expect(cut.listed).toEqual([])
+    const whole = await listAllHistory(config(), '/home/u', { kiro }, { depth: 6 })
+    expect([whole.truncated, whole.listed]).toEqual([[], ['kiro\u0000']])
+  })
+
+  it('lists the older indexed sessions still on disk of a truncated account, which is then complete for the index', async () => {
+    const many = Array.from({ length: 6 }, (_, i) => entry('claude', `c${i}`, 100 - i))
+    const claude: SessionHistorySource = { list: async (_a, o) => many.slice(0, o?.limit), messages: async () => [], sessionIds: async () => new Set(['c0', 'c1', 'c2', 'c4']) }
+    const indexed = (agentId: string, accountId: string | null) => (agentId === 'claude' && accountId === null ? [many[1]!, many[4]!, many[5]!] : [])
+    const result = await listAllHistory(config(), '/home/u', { claude }, { depth: 2, indexed })
+    // c4 is older than the depth and still on disk; c5 is indexed but its transcript is gone.
+    expect(result.entries.map((e) => e.agentSessionId)).toEqual(['c0', 'c1', 'c4'])
+    expect(result.truncated).toEqual(['claude\u0000'])
+    expect(result.listed).toEqual(['claude\u0000'])
+    const failing: SessionHistorySource = { ...claude, sessionIds: async () => Promise.reject(new Error('EACCES')) }
+    const unsure = await listAllHistory(config(), '/home/u', { claude: failing }, { depth: 2, indexed })
+    expect([unsure.entries.length, unsure.listed]).toEqual([2, []])
+  })
+
   it('skips agents without a history source and the Claude ACP alias', async () => {
     const result = await listAllHistory(config(), '/home/u', { claude: source([entry('claude', 'c1', 1)]) })
     expect(result.entries.map((e) => e.agentId)).toEqual(['claude'])
   })
 
-  it('resumes only agents Workhub can reopen', () => {
-    expect(['claude', 'claude-acp', 'kiro', 'opencode', 'codex', 'gemini'].map((id) => [id, canResume(agent(id))])).toEqual([
+  it('resumes only agents Workhub can reopen: native, with a console, or ACP agents that load a stored session', () => {
+    expect(['claude', 'claude-acp', 'kiro', 'opencode', 'codex', 'gemini', 'shell'].map((id) => [id, canResume(agent(id))])).toEqual([
       ['claude', true],
       ['claude-acp', true],
-      ['kiro', false],
-      ['opencode', false],
-      ['codex', false],
-      ['gemini', false]
+      ['kiro', true],
+      ['opencode', true],
+      ['codex', true],
+      ['gemini', true],
+      ['shell', false]
     ])
+    // A custom ACP agent resumes only when its definition says it can.
+    expect(canResume({ ...agent('gemini'), id: 'acme', capabilities: { ...agent('gemini').capabilities, resume: false } })).toBe(false)
   })
 })
 

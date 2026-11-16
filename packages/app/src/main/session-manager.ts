@@ -5,6 +5,7 @@ import { dirname, join, relative, isAbsolute } from 'node:path'
 import {
   ActiveClock,
   accountAgent,
+  appOptions,
   BUILTIN_AGENTS,
   canSetModel,
   canSetSessionMode,
@@ -21,6 +22,7 @@ import {
   worktreeBranch,
   worktreeFolderName,
   worktreeSettings,
+  worktreeSetupCommand,
   worktreesLocation,
   type AgentAccount,
   type McpServerLaunch,
@@ -41,13 +43,18 @@ import {
   type WorktreeStatus,
   type SubagentConversation,
   type TranscriptReader,
-  type WorkhubConfig
+  type WorkhubConfig,
+  redactText
 } from '@workhub/core'
 import { terminalChannel, type PendingPermission, type SessionMode, type SessionView, type SetModeOptions, type StartSessionInput } from '../shared/api'
+import { JOURNAL_MAX_ENTRIES } from './chat-journal'
 import { ConsoleActivity } from './console-activity'
 import { NO_CONTROL_ENV } from './control-server'
 import { pathInsideFolder } from './reveal'
 import { SendGate } from './send-gate'
+import { StallWatch } from './stall-watch'
+import { translate, type MessageKey } from '../renderer/i18n/translate'
+import { bootstrapWorktree, type SetupRunner } from './worktree-bootstrap'
 import { cleanSessionName, type SessionNameStore } from './session-names'
 
 /** What runs the session right now: the agent's runtime (app) or the agent's own TUI in a PTY (console). */
@@ -86,6 +93,8 @@ interface ManagedSession {
   reportsActiveTime: boolean
   /** The last transcript snapshot sent, to skip polls that found nothing new. */
   lastMonitor?: string
+  /** The transcript was read once after the session stopped; polling skips it until it starts again. */
+  finalRead?: boolean
   /** The folders the transcript says the session worked in, most recent last; unset until one says so. */
   workPaths?: string[]
   /** The folders among `workPaths` the session changed something in. */
@@ -116,9 +125,14 @@ interface ManagedSession {
   held?: { events: AgentEvent[]; state?: Extract<AgentEvent, { type: 'state' }> }
 }
 
+/** How often the watchdog looks for working sessions that went silent. */
+const STALL_CHECK_MS = 15_000
+
 const CHAT_EVENTS: ReadonlySet<AgentEvent['type']> = new Set(['message', 'tool', 'permission', 'permissionCancelled', 'notice', 'exit'])
 
 export interface SessionManagerDeps {
+  /** How often the stuck-session check runs (tests shorten it). */
+  stallCheckMs?: number
   config: ConfigurationService
   /** Environment variables the session's profile adds (Settings → Profiles); applied before the internal ones. */
   profileEnv?: (profileId: string | null, cwd: string) => Promise<Record<string, string>>
@@ -151,12 +165,27 @@ export interface SessionManagerDeps {
   settleMs?: number
   /** Longest wait for the earlier conversation before a resumed chat opens without it. */
   replayWaitMs?: number
+  /** Most messages a resume replays (the chat journal keeps no more): the conversation's last ones. */
+  replayLast?: number
   /** The names the user gave sessions (Rename…), by identity; without it renaming keeps the name for this run only. */
   names?: SessionNameStore
   /** A session reported its models and modes: remembered so the next session can offer them before it starts. */
   onAgentOptions?: (agentId: string, accountId: string | null, options: { models: ModelOption[]; modes: SessionModeOption[] }) => void
   /** Creates and removes the worktrees of sessions that ask for one; without it they start in the folder. */
   worktrees?: Worktrees
+  /** Words a session notice in the user's language (the renderer's dictionaries); English without it. */
+  text?: (key: string, params?: Record<string, string | number>) => string
+  /** Runs the setup command of a new worktree; tests pass a fake. */
+  setupRunner?: SetupRunner
+  /** The main log: a session that failed to start or ended on its own, with the agent's last stderr lines (never prompt text). */
+  log?: (message: string) => void
+}
+
+/** Where a new session runs; `created` when its worktree was made for it just now (it gets bootstrapped). */
+interface PlacedSession {
+  cwd: string
+  worktree?: SessionWorktree
+  created?: { setupCommand?: string }
 }
 
 /** What closing a session with its worktree did: `blocked` when the worktree has work removing it would lose (nothing was closed). */
@@ -198,6 +227,9 @@ export class SessionManager {
   /** One prompt in flight per session, whoever sends it (see `prompt`). */
   private readonly sends = new SendGate()
   private readonly timer: ReturnType<typeof setInterval>
+  /** Notices a working session whose agent went silent (see `checkStalls`). */
+  private readonly stalls = new StallWatch()
+  private readonly stallTimer: ReturnType<typeof setInterval>
   private polling = false
   /** The last size each terminal channel reported, so a terminal started later starts at that size. */
   private readonly sizes = new Map<string, { cols: number; rows: number }>()
@@ -207,6 +239,8 @@ export class SessionManager {
     for (const runtime of runtimes) runtime?.subscribe((e) => this.onEvent(e))
     this.timer = setInterval(() => void this.pollTranscripts(), deps.pollMs ?? 3000)
     this.timer.unref?.()
+    this.stallTimer = setInterval(() => void this.checkStalls().catch(() => undefined), deps.stallCheckMs ?? STALL_CHECK_MS)
+    this.stallTimer.unref?.()
   }
 
   list(): SessionView[] {
@@ -215,12 +249,29 @@ export class SessionManager {
 
   /** Drops a stopped or failed session from the list. A live one stays: the caller must stop it first. */
   remove(id: string): boolean {
+    return this.drop(id, true)
+  }
+
+  private drop(id: string, stopTerminals: boolean): boolean {
     const s = this.sessions.get(id)
     if (!s || (s.view.state !== 'stopped' && s.view.state !== 'error')) return false
     this.sessions.delete(id)
+    this.stalls.forget(id)
     this.sends.withdraw(id)
+    // The agent may have exited on its own, which `stop()` never saw: its Shell and console
+    // terminals would keep running with no session left to show them.
+    if (stopTerminals) this.stopTerminals(id)
+    const reader = this.reader(s)
+    if (reader && s.view.agentSessionId) reader.forget(s.view.agentSessionId)
     this.deps.emitRemoved?.(id)
     return true
+  }
+
+  /** Stops the session's shell and console terminal channels, whatever its state (best effort). */
+  private stopTerminals(id: string): void {
+    for (const channel of ['shell', 'console'] as const) {
+      void (async () => this.deps.terminal.stop(terminalChannel(id, channel)))().catch(() => undefined)
+    }
   }
 
   /**
@@ -261,6 +312,21 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Prepares a worktree made for a session: the `.worktreeinclude` copy, then the user's setup
+   * command with the session's environment. Reported as a notice; never stops the session.
+   */
+  private async bootstrap(s: ManagedSession, worktree: SessionWorktree, command: string | undefined): Promise<void> {
+    if (!this.deps.worktrees) return
+    const text = this.deps.text ?? ((key: string, params?: Record<string, string | number>) => translate('en', key as MessageKey, params))
+    const report = await bootstrapWorktree(
+      { worktrees: this.deps.worktrees, t: text, ...(this.deps.setupRunner ? { run: this.deps.setupRunner } : {}), ...(this.deps.log ? { log: this.deps.log } : {}) },
+      { repoRoot: worktree.repoRoot, path: worktree.path, command, env: s.env }
+    ).catch(() => null)
+    if (!report) return
+    this.deps.emitEvent({ sessionId: s.view.id, type: 'notice', noticeId: `${s.view.id}:worktree`, kind: report.failed ? 'warning' : 'info', title: report.title, text: report.text, ...(report.failed ? { failed: true } : {}) })
+  }
+
   /** A live session (starting, running or idle) that runs this agent session id or identity. */
   private liveWith(key: string | undefined): ManagedSession | undefined {
     if (!key) return undefined
@@ -279,7 +345,7 @@ export class SessionManager {
     account: AgentAccount | null,
     runtime: AgentRuntime,
     input: StartSessionInput,
-    placed: { cwd: string; worktree?: SessionWorktree },
+    placed: PlacedSession,
     internal: { env?: Record<string, string>; origin?: SessionOrigin; restored?: boolean; handOver?: boolean; dormant?: boolean; title?: string }
   ): Promise<SessionView> {
 
@@ -289,7 +355,8 @@ export class SessionManager {
     // A read-only reviewer has no console: the agent's own TUI would run with its usual permissions.
     if ((agent.adapter === 'terminal' || agent.console) && !input.readOnly) modes.push('console')
     modes.push('shell')
-    const engine: Engine = modes[0] === 'app' && input.mode !== 'console' ? 'app' : 'console'
+    // An agent without a console (most ACP agents) opens its chat even when the terminal is asked for.
+    const engine: Engine = modes[0] === 'app' && !(input.mode === 'console' && modes.includes('console')) ? 'app' : 'console'
     // Agents with a console share one session id between chat, console and transcript.
     const agentSessionId = input.resumeAgentSessionId ?? (agent.console || agent.adapter === 'native' ? randomUUID() : undefined)
 
@@ -380,15 +447,28 @@ export class SessionManager {
     // What was picked for this session, else the account's defaults, else the agent's (Settings → Agents).
     const model = input.model ?? account?.defaultModel
     const modeId = input.readOnly ? undefined : (input.modeId ?? defaultStartMode(config, choice.agent.id, account))
-    // A session reopened at launch resumes its conversation only when it exists (one never
-    // prompted has none): otherwise the same session id starts fresh, as Workhub 1 does.
+    // A session reopened (at launch, or by hand from the list) resumes its conversation only when
+    // it exists (one never prompted has none, and a transcript may be gone): otherwise the same
+    // session id starts fresh, as Workhub 1 does. An agent without a transcript reader cannot be
+    // checked, so a manual reopen of it keeps resuming, and so does one restored at launch when it
+    // resumes over ACP (`session/load`; it falls back to a new conversation with a notice).
     const starting = async () => {
-      const resume = internal.restored ? await this.hasTranscript(session).catch(() => false) : Boolean(input.resumeAgentSessionId)
+      if (placed.created && placed.worktree && this.deps.worktrees) await this.bootstrap(session, placed.worktree, placed.created.setupCommand)
+      const resume = internal.restored
+        ? this.reader(session)
+          ? await this.hasTranscript(session).catch(() => false)
+          : agent.adapter === 'acp' && agent.capabilities.resume === true && Boolean(session.view.agentSessionId)
+        : input.resumeAgentSessionId
+          ? !this.reader(session) || (await this.hasTranscript(session).catch(() => false))
+          : false
       return engine === 'app' ? this.startChat(session, { resume, model, effort: input.effort, modeId, cols: input.cols, rows: input.rows }) : this.startConsole(session, input.cols, input.rows, model)
     }
-    void starting().catch(
-      (err: unknown) => this.update(view.id, { state: 'error', error: err instanceof Error ? err.message : String(err) })
-    )
+    void starting().catch((err: unknown) => {
+      const error = err instanceof Error ? err.message : String(err)
+      // A runtime that reports its own failure as a state event has logged it already.
+      if (this.sessions.get(view.id)?.view.state !== 'error') this.logFailure(this.sessions.get(view.id), error)
+      this.update(view.id, { state: 'error', error })
+    })
     return view
   }
 
@@ -397,7 +477,7 @@ export class SessionManager {
    * one (never for a reviewer, a reopened or a resumed session), else the folder asked for. The
    * folder's place inside the repository is kept (`repo/src` starts in `<worktree>/src`).
    */
-  private async placeInWorktree(input: StartSessionInput, config: WorkhubConfig, internal: { restored?: boolean; worktree?: SessionWorktree }): Promise<{ cwd: string; worktree?: SessionWorktree }> {
+  private async placeInWorktree(input: StartSessionInput, config: WorkhubConfig, internal: { restored?: boolean; worktree?: SessionWorktree }): Promise<PlacedSession> {
     if (internal.worktree) return { cwd: input.cwd, worktree: internal.worktree }
     const asked = input.worktree
     const worktrees = this.deps.worktrees
@@ -417,7 +497,7 @@ export class SessionManager {
     await worktrees.create(repoRoot, { path, branch, base: settings.baseRef })
     const inside = relative(repoRoot, input.cwd)
     const cwd = inside && !inside.startsWith('..') && !isAbsolute(inside) ? join(path, inside) : path
-    return { cwd: existsSync(cwd) ? cwd : path, worktree: { repoRoot, path, branch } }
+    return { cwd: existsSync(cwd) ? cwd : path, worktree: { repoRoot, path, branch }, created: { setupCommand: worktreeSetupCommand(profile, repoRoot, home) } }
   }
 
   /**
@@ -450,10 +530,12 @@ export class SessionManager {
   async close(id: string): Promise<void> {
     const s = this.sessions.get(id)
     if (!s) return
-    if (s.view.state !== 'stopped' && s.view.state !== 'error') await this.stop(id)
+    // `stop()` already stopped the terminals; a session that had exited on its own needs it here.
+    const wasLive = s.view.state !== 'stopped' && s.view.state !== 'error'
+    if (wasLive) await this.stop(id)
     // A late event may have moved it out of `stopped`; closing wins.
     if (s.view.state !== 'stopped' && s.view.state !== 'error') this.update(id, { state: 'stopped' })
-    this.remove(id)
+    this.drop(id, !wasLive)
   }
 
   /**
@@ -502,6 +584,11 @@ export class SessionManager {
     const s = this.chatSession(id)
     if (!s.view.capabilities.midTurnInput && this.sends.busy(id)) return null
     return this.prompt(id, text)
+  }
+
+  /** Prompts held in main behind a running turn, over every session (the quit guard counts them). */
+  queuedPromptCount(): number {
+    return this.sends.waitingCount()
   }
 
   /** Takes back a prompt still waiting for its turn (the user removed it); false once it went out. */
@@ -720,6 +807,7 @@ export class SessionManager {
 
   async stopAll(): Promise<void> {
     clearInterval(this.timer)
+    clearInterval(this.stallTimer)
     for (const s of this.sessions.values()) this.clearPending(s)
     for (const s of this.sessions.values()) s.switching = true
     const runtimes = new Set([...Object.values(this.deps.runtimes), this.deps.terminal])
@@ -765,9 +853,21 @@ export class SessionManager {
     // The agent's own word on images (ACP) wins over its definition.
     if (started.imageInput !== undefined) patch.capabilities = { ...s.view.capabilities, imageInput: started.imageInput }
     this.update(s.view.id, patch)
+    if (opts.resume && started.resumeFailed) this.noteNewConversation(s, started.resumeFailed)
     if (started.models?.length || started.availableModes?.length) {
       this.deps.onAgentOptions?.(s.agent.id, s.account?.id ?? null, { models: started.models ?? [], modes: started.availableModes ?? [] })
     }
+  }
+
+  /**
+   * A resume that started a new conversation instead (an ACP agent without `session/load`, or a
+   * load the agent refused). Sent through `onEvent`, so while the earlier conversation is replayed
+   * it waits with the chat's own events and shows right below it: what came before stays readable
+   * as history, and the notice says the agent does not remember it.
+   */
+  private noteNewConversation(s: ManagedSession, reason: 'unsupported' | 'failed'): void {
+    const text = this.deps.text ?? ((key: string, params?: Record<string, string | number>) => translate('en', key as MessageKey, params))
+    this.onEvent({ sessionId: s.view.id, type: 'notice', noticeId: `${s.view.id}:resume`, kind: 'warning', title: text('session.resumeFailed.title'), text: text(`session.resumeFailed.${reason}`) })
   }
 
   /** The session's name and sidebar place follow it to a new identity. */
@@ -840,7 +940,7 @@ export class SessionManager {
   }
 
   /**
-   * Starts the chat; a resumed one shows its whole conversation first. The SDK resumes a session
+   * Starts the chat; a resumed one shows its conversation first (its last `replayLast` messages). The SDK resumes a session
    * without replaying it, so the stored messages are read (in parallel with the start) and sent
    * before any live event of the new chat, and the chat turns ready only after them: the
    * renderer replaces what it showed with the full conversation, the console's turns included.
@@ -859,7 +959,7 @@ export class SessionManager {
     const agentSessionId = s.view.agentSessionId
     let timer: ReturnType<typeof setTimeout> | undefined
     const replayed = Promise.race([
-      this.readHistory(source, agentSessionId, s).then((messages) => {
+      this.readHistory(source, agentSessionId, s, this.deps.replayLast ?? JOURNAL_MAX_ENTRIES).then((messages) => {
         if (s.held === held && messages.length) this.deps.emitReplay(s.view.id, messages)
       }),
       new Promise<void>((resolve) => (timer = setTimeout(resolve, this.deps.replayWaitMs ?? 10_000)))
@@ -882,9 +982,11 @@ export class SessionManager {
     return this.readHistory(source, s.view.agentSessionId, s)
   }
 
-  private async readHistory(source: SessionHistorySource, agentSessionId: string, s: ManagedSession): Promise<HistoryMessage[]> {
+  private async readHistory(source: SessionHistorySource, agentSessionId: string, s: ManagedSession, last?: number): Promise<HistoryMessage[]> {
     try {
-      return await source.messages(agentSessionId, s.view.cwd, s.account?.configDir)
+      const messages = await source.messages(agentSessionId, s.view.cwd, s.account?.configDir, last ? { last } : undefined)
+      // A source that cannot cut the conversation itself returns all of it.
+      return last && messages.length > last ? messages.slice(-last) : messages
     } catch {
       // A conversation that cannot be read back still resumes; only the earlier messages are missing.
       return []
@@ -898,7 +1000,11 @@ export class SessionManager {
     try {
       const prefixes = ticketPrefixes(await this.deps.config.current())
       for (const s of this.sessions.values()) {
+        // A stopped session cannot change: it gets one last read, then is left alone until it starts again.
+        const over = (s.view.state === 'stopped' || s.view.state === 'error') && !s.switching
+        if (over && s.finalRead) continue
         await this.pollOne(s, prefixes)
+        if (over) s.finalRead = true
         if (s.clock.isBusy()) this.emitDerivedActive(s)
       }
     } finally {
@@ -947,6 +1053,7 @@ export class SessionManager {
       if (channel === 'shell') {
         if (e.state === 'stopped' || e.state === 'error') this.update(id, { shellRunning: false, ...(s.view.mode === 'shell' ? { mode: s.engine } : {}) })
       } else if ((channel === 'console') === (s.engine === 'console') && !s.switching) {
+        if (e.state === 'error') this.logFailure(s, e.error)
         this.update(id, { state: e.state, ...(e.error ? { error: e.error } : {}) })
       }
     }
@@ -961,9 +1068,39 @@ export class SessionManager {
       }
     }
     if (s && e.type === 'monitor' && e.snapshot.activeTimeMs !== undefined) s.reportsActiveTime = true
+    // Anything the agent sends (not the polled transcript, nor the shell beside it) ends its silence.
+    if (s && e.type !== 'monitor' && channel !== 'shell') this.noteActivity(s)
     if (s) this.track(s, e, channel)
     this.deps.emitEvent(e)
     if (s) this.checkPending(s)
+  }
+
+  private noteActivity(s: ManagedSession): void {
+    this.stalls.note(s.view.id, Date.now())
+    if (s.view.stalledSince !== undefined) this.update(s.view.id, { stalledSince: undefined })
+  }
+
+  /** Flags the working sessions whose agent has been silent for the preference's minutes; nothing is stopped. */
+  private async checkStalls(): Promise<void> {
+    const minutes = appOptions(await this.deps.config.current()).stuckSessionMinutes
+    const inputs = [...this.sessions.values()].map((s) => ({
+      id: s.view.id,
+      working: s.view.state === 'busy' && !s.dormant && !s.held,
+      waitingOnUser: s.openPermissions.size > 0 || Boolean(s.view.consoleAsking)
+    }))
+    const { flag } = this.stalls.check(inputs, Date.now(), minutes * 60_000)
+    for (const f of flag) this.update(f.id, { stalledSince: f.since })
+    // Turned off (or raised past the silence so far): a notice already showing goes.
+    for (const s of this.sessions.values()) {
+      if (s.view.stalledSince !== undefined && (minutes <= 0 || !inputs.find((i) => i.id === s.view.id)?.working)) this.update(s.view.id, { stalledSince: undefined })
+    }
+  }
+
+  /** "Keep waiting": the silence starts over; the notice comes back after another full interval. */
+  keepWaiting(id: string): void {
+    const s = this.require(id)
+    this.stalls.keepWaiting(id, Date.now())
+    if (s.view.stalledSince !== undefined) this.update(id, { stalledSince: undefined })
   }
 
   /** The agent titled the conversation (or titled it again): the sidebar shows it unless the user named the session. */
@@ -987,6 +1124,13 @@ export class SessionManager {
     }
   }
 
+  /** One line in the main log for a session that failed to start or ended on its own; `error` carries the agent's last stderr lines. */
+  private logFailure(s: ManagedSession | undefined, error: string | undefined): void {
+    if (!s || !this.deps.log) return
+    const what = s.view.state === 'starting' ? 'failed to start' : 'ended unexpectedly'
+    this.deps.log(`session ${s.view.id} (${s.view.agentId}) ${what}: ${error ? redactText(error, 2000) : 'no error reported'}`)
+  }
+
   private update(id: string, patch: Partial<SessionView>): void {
     const s = this.sessions.get(id)
     if (!s) return
@@ -995,10 +1139,13 @@ export class SessionManager {
       if (patch.state !== 'stopped' && patch.state !== 'error' && patch.state !== 'starting') return
     }
     // When the state began, for the header's "Working 1:23" / "Idle 2 min".
+    if (patch.state && patch.state !== 'stopped' && patch.state !== 'error') s.finalRead = false
     const since = patch.state && patch.state !== s.view.state ? { stateSince: Date.now() } : {}
     // A console that stopped, failed or restarts no longer asks anything.
     const consoleGone = s.view.consoleAsking && patch.state && patch.state !== 'ready' && patch.state !== 'busy' ? { consoleAsking: false, consoleAskingSince: undefined } : {}
-    s.view = { ...s.view, ...patch, ...since, ...consoleGone }
+    // A turn that ended (or a session that stopped) is no longer silent.
+    const unstalled = patch.state && patch.state !== 'busy' && s.view.stalledSince !== undefined ? { stalledSince: undefined } : {}
+    s.view = { ...s.view, ...patch, ...since, ...consoleGone, ...unstalled }
     this.deps.emitChanged(s.view)
     if (patch.state && 'stateSince' in since) {
       s.clock.observe(patch.state, s.view.stateSince ?? Date.now())

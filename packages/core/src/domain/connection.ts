@@ -42,7 +42,7 @@ export const CONNECTION_PROVIDERS: readonly ConnectionProvider[] = [
   { id: 'gitlab', kind: 'codeHost', name: 'GitLab', requiresSecret: false, requiresEndpoint: false, defaultEndpoint: 'https://gitlab.com', phase: 'P3' },
   { id: 'jira', kind: 'tracker', name: 'Jira', requiresSecret: true, requiresEndpoint: true, phase: 'P4' },
   { id: 'linear', kind: 'tracker', name: 'Linear', requiresSecret: true, requiresEndpoint: false, defaultEndpoint: 'https://api.linear.app', phase: 'P4' },
-  { id: 'github-issues', kind: 'tracker', name: 'GitHub Issues', requiresSecret: true, requiresEndpoint: false, defaultEndpoint: 'https://api.github.com', phase: 'P4' },
+  { id: 'github-issues', kind: 'tracker', name: 'GitHub Issues', requiresSecret: false, requiresEndpoint: false, defaultEndpoint: 'https://api.github.com', phase: 'P4' },
   // Slack is read through the agent's own MCP server, as in Workhub 1: no token in Workhub.
   { id: 'slack', kind: 'chat', name: 'Slack (via agent MCP)', requiresSecret: false, requiresEndpoint: false, phase: 'P6' },
   { id: 'elastic-apm', kind: 'health', name: 'Elastic APM', requiresSecret: true, requiresEndpoint: true, phase: 'P6' },

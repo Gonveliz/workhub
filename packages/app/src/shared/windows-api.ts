@@ -13,6 +13,16 @@ export type MenuCommand =
   | { kind: 'openInWindow' }
   /** Shows the session as the app, its console or a shell. */
   | { kind: 'showMode'; mode: 'app' | 'console' | 'shell' }
+  /** Shows the next (1) or previous (-1) session in sidebar order. */
+  | { kind: 'stepSession'; step: 1 | -1 }
+  /** Shows the next session that needs the user (a question, an unread reply, a failure), cycling. */
+  | { kind: 'nextNeedsYou' }
+  /** Opens the command palette (sessions, screens and actions in one list). */
+  | { kind: 'commandPalette' }
+  /** Moves the focus to the session's oldest pending permission request or question. */
+  | { kind: 'answerRequest' }
+  /** Opens the find bar of the session's chat (⌘F). */
+  | { kind: 'findInChat' }
 
 /**
  * What the main window's renderer holds about a session and main does not: the chat items, the

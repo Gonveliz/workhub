@@ -97,6 +97,11 @@ export const usageReportsEn = {
   'reports.pager.rangeOf': '{from}–{to} of {total}',
   'reports.pager.rangeMore': '{from}–{to} of more than {to}',
   'reports.table.pages': 'Table pages',
+  'reports.csv.export': 'Export CSV',
+  'reports.csv.activeSeconds': 'Agent time (seconds)',
+  'reports.csv.cost': 'Cost (USD)',
+  'reports.csv.saved': 'Saved to {path}',
+  'reports.csv.failed': 'Could not save the file: {error}',
   'reports.sessions.pages': 'Session pages',
   'reports.sessions.untitled': 'Untitled session',
   'reports.sessions.openHint': 'Show it in Session history',
@@ -143,5 +148,6 @@ export const usageReportsEn = {
   'tags.error.invalid': 'These tags could not be saved: each one must be text, and a session keeps a limited number.',
   'tags.error.noSession': 'This session has no id yet, so its tags cannot be saved.',
   'tags.error.failed': 'The tags could not be saved. Try again.',
-  'copy.failed': 'Could not copy'
+  'copy.failed': 'Could not copy',
+  'reports.workhubBackground': 'Workhub background'
 } as const

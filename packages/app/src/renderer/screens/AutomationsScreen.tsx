@@ -4,12 +4,14 @@ import { automationsForProfile, newAutomation, prReviewsPreset, type AutomationD
 import type { AutomationStatus } from '@shared/chat-api'
 import { Badge, Button, IconButton, Spinner, Switch } from '../components/atoms'
 import { Card, CardBody, CardHeader, ConfirmDeleteDialog, EmptyState, useToast } from '../components/molecules'
-import { useAutomations, useSlack } from '../chatStore'
+import { useAgentChanges, useAutomations, useSlack } from '../chatStore'
+import { changesOf } from '../lib/agentChanges'
 import { refreshConfig } from '../configStore'
 import { useI18n } from '../i18n/I18nProvider'
 import { useAsyncAction } from '../lib/useAsyncAction'
 import { readPrefs, setPrefs } from '../lib/prefs'
 import { relativeTime } from '../lib/pullRequests'
+import { PR_KIND_LABEL } from '../lib/prEvents'
 import { formatTokens } from '../lib/home'
 import { runUsageLabel } from '../lib/runUsage'
 import { shortDuration } from '../lib/subagentView'
@@ -148,6 +150,7 @@ export function AutomationsScreen({ profile, profiles = [], agents, onOpenSessio
 function AutomationCard({ status: s, profileName, now, lastRun, channelName, onEdit, onRemove, onOpen }: { status: AutomationStatus; profileName: string | null; now: number; lastRun: AutomationRun | undefined; channelName: (id: string) => string; onEdit: () => void; onRemove: () => void; onOpen: () => void }) {
   const { t, locale } = useI18n()
   const a = s.definition
+  const byAgent = changesOf(useAgentChanges(), 'automation', a.id).length > 0
   const toggle = useAsyncAction(async (on: boolean) => {
     const r = await window.hub.automations.setEnabled(a.id, on)
     if (!r.ok) throw new Error(r.issues.map((i) => i.message).join('; '))
@@ -156,6 +159,7 @@ function AutomationCard({ status: s, profileName, now, lastRun, channelName, onE
   const runNow = useAsyncAction(() => window.hub.automations.runNow(a.id))
   const triggers = [
     ...(a.triggers.chatChannelIds.length ? [t('automations.trigger.chat', { channels: a.triggers.chatChannelIds.map((id) => `#${channelName(id)}`).join(', ') })] : []),
+    ...(a.triggers.prEvents?.length ? [t('automations.trigger.prEvents', { events: a.triggers.prEvents.map((k) => t(PR_KIND_LABEL[k])).join(', ') })] : []),
     ...(a.triggers.intervalMinutes ? [t('automations.trigger.interval', { minutes: a.triggers.intervalMinutes })] : [])
   ]
   return (
@@ -166,6 +170,11 @@ function AutomationCard({ status: s, profileName, now, lastRun, channelName, onE
           <span className="inline-flex items-center gap-1.5">
             <Badge tone={HEALTH_TONE[s.health]}>{t(`automations.health.${s.health}`)}</Badge>
             {profileName && <Badge tone="neutral">{profileName}</Badge>}
+            {byAgent && (
+              <Badge tone="warning" data-testid="automation-agent-change" title={t('agentChanges.markerTitle')}>
+                {t('agentChanges.marker')}
+              </Badge>
+            )}
           </span>
         }
         actions={<Switch checked={a.enabled} disabled={toggle.pending} onChange={toggle.run} aria-label={t('automations.field.enabled')} />}
@@ -230,9 +239,9 @@ function RunRow({ run: r, now, locale, removed, onOpen }: { run: AutomationRun; 
       <Badge tone={OUTCOME_TONE[r.outcome]}>{t(`automations.outcome.${r.outcome}`)}</Badge>
       <span className="font-medium">{r.automationName}</span>
       {removed && <span className="text-xs text-subtle">{t('automations.removed')}</span>}
-      {r.trigger === 'chat' && r.triggerLink && /^https?:\/\//.test(r.triggerLink) ? (
+      {(r.trigger === 'chat' || r.trigger === 'prEvent') && r.triggerLink && /^https?:\/\//.test(r.triggerLink) ? (
         <button type="button" className="text-accent hover:underline" onClick={() => window.hub.openExternal(r.triggerLink!)}>
-          {t('automations.slackMessage')}
+          {t(r.trigger === 'chat' ? 'automations.slackMessage' : 'automations.pullRequest')}
         </button>
       ) : (
         <span className="text-subtle">{t(`automations.triggerKind.${r.trigger}`)}</span>
@@ -257,4 +266,4 @@ function RunRow({ run: r, now, locale, removed, onOpen }: { run: AutomationRun; 
   )
 }
 
-const DETAIL_KEYS = new Set(['window.days', 'window.hours', 'limit.window', 'limit.day', 'mergedIntoPending', 'sessionClosed', 'neverIdle', 'clearFailed', 'stoppedByUser', 'moduleOff', 'paused', 'usage'])
+const DETAIL_KEYS = new Set(['window.days', 'window.hours', 'limit.window', 'limit.day', 'mergedIntoPending', 'sessionClosed', 'neverIdle', 'clearFailed', 'stoppedByUser', 'moduleOff', 'paused', 'usage', 'backlogFull'])

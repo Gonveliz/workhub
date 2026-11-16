@@ -29,7 +29,7 @@ const SKILL_NAME = /^workhub-[a-z0-9-]{1,60}$/
 export function workhubMcpLaunch(env: Record<string, string>, where: { node: string; script: string }): McpServerLaunch[] {
   const session = env['WORKHUB_SESSION'] ?? ''
   if (!session || (!env['WORKHUB_SOCKET'] && !env['WORKHUB_URL'])) return []
-  const pass = ['WORKHUB_SESSION', 'WORKHUB_SOCKET', 'WORKHUB_URL', 'WORKHUB_TOKEN'] as const
+  const pass = ['WORKHUB_SESSION', 'WORKHUB_SESSION_TOKEN', 'WORKHUB_SOCKET', 'WORKHUB_URL', 'WORKHUB_TOKEN'] as const
   return [
     {
       name: WORKHUB_MCP_NAME,

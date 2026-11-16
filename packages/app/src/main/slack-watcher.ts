@@ -20,6 +20,7 @@ import {
   reopenThread,
   sendRepliesToOwner,
   sessionIdentity,
+  splitByWaker,
   THREADS_PER_READ,
   trackMessage,
   trackPermalink,
@@ -52,6 +53,8 @@ import type { ChatNoticeEvent, SlackDemoInput, SlackHealth, SlackHookAccount, Sl
 import { claudeAccounts } from './claude-accounts'
 import { OwnerStarts } from './owner-starts'
 import type { SessionDriver } from './session-driver'
+import { jobReports } from './job-reporter'
+import type { BackgroundUsage } from './background-usage'
 
 /** What the automations tell the watcher (set once both exist). */
 export interface ChatAutomationLink {
@@ -81,6 +84,8 @@ export interface SlackWatcherDeps {
   prState: (url: string) => Promise<string | undefined>
   emit: (snapshot: SlackSnapshot) => void
   notice: (notice: ChatNoticeEvent) => void
+  /** Each read's tokens and cost go to the usage data ("Workhub background"); the Slack screen shows their sums. */
+  background?: Pick<BackgroundUsage, 'record' | 'summary'>
   now?: () => number
 }
 
@@ -100,6 +105,7 @@ const ELSEWHERE_MS = 120_000
 export class SlackWatcherService {
   private state: ChatWatcherState
   private running = false
+  private readonly job = jobReports.job('slack watcher')
   private failureStreak = 0
   private notifiedFailure = false
   private lastError: string | undefined
@@ -200,15 +206,18 @@ export class SlackWatcherService {
       const open = this.state.threads.filter((t) => !t.closed).slice(0, THREADS_PER_READ)
       if (!s.channels.length && !open.length) {
         this.lastError = 'nothingToWatch'
+        this.job.ok()
         return
       }
       const result = await this.deps.source
         .read({ channels: s.channels, cursors: this.state.cursors, threads: open, model: s.model, now: started, ...(this.configDirOf(s.accountId) ? { configDir: this.configDirOf(s.accountId) } : {}) })
         .catch((err: unknown): ChatReadResult => ({ ok: false, failure: 'failed', error: err instanceof Error ? err.message : String(err), deniedTools: [] }))
+      this.recordUsage(s, result, started)
       if (!result.ok) return this.recordFailure(s, result, started)
       const myPrs = await this.deps.myPullRequests().catch(() => new Set<string>())
       const applied = applyDigest(this.state, result.digest, { channelIds: s.channels.map((c) => c.id), myPullRequests: myPrs })
       this.lastError = undefined
+      this.job.ok()
       this.failureStreak = 0
       this.notifiedFailure = false
       this.pausedUntil = undefined
@@ -220,6 +229,7 @@ export class SlackWatcherService {
           at: started,
           durationMs: this.now() - started,
           ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+          ...(result.readMode ? { readMode: result.readMode } : {}),
           ok: true,
           outcome: applied.messages + applied.replies === 0 ? 'nothing new' : 'ok',
           messages: applied.messages,
@@ -230,15 +240,34 @@ export class SlackWatcherService {
       for (const n of applied.notices) this.deps.notice(n)
       if (applied.fresh.length) this.automations?.onMessages(applied.fresh, this.state.me)
       if (applied.replies) await this.deliverPendingWakes()
+    } catch (err) {
+      // Not swallowed: the caller sees it as before; the reporter only makes it traceable.
+      this.job.failed(err)
+      throw err
     } finally {
       this.running = false
       this.changed()
     }
   }
 
+  /** Every read is a model run on the account, failed or not: it counts as usage (never the demo's synthetic reads). */
+  private recordUsage(s: ChatWatcherSettings, result: ChatReadResult, started: number): void {
+    if (this.deps.demo) return
+    this.deps.background?.record({
+      kind: 'slackWatch',
+      accountId: s.accountId,
+      at: started,
+      durationMs: this.now() - started,
+      ...(result.usage ? { usage: result.usage } : {}),
+      ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+      ...(s.model ? { model: s.model } : {})
+    })
+  }
+
   private recordFailure(s: ChatWatcherSettings, result: Extract<ChatReadResult, { ok: false }>, started: number): void {
     const now = this.now()
     this.lastError = result.error
+    this.job.failed(result.error)
     this.failureStreak += 1
     if (!this.notifiedFailure) {
       this.notifiedFailure = true
@@ -258,6 +287,7 @@ export class SlackWatcherService {
         at: started,
         durationMs: now - started,
         ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+        ...(result.readMode ? { readMode: result.readMode } : {}),
         ok: false,
         outcome: result.error + denied,
         messages: 0,
@@ -335,15 +365,17 @@ export class SlackWatcherService {
   }
 
   private async wake(threadId: string): Promise<void> {
-    const thread = this.state.threads.find((t) => t.id === threadId)
-    if (!thread || !isListening(thread) || !thread.pendingWake.length) return
-    const owner = thread.owner!
-    const now = this.now()
+    const waiting = this.state.threads.find((t) => t.id === threadId)
+    if (!waiting || !isListening(waiting) || !waiting.pendingWake.length) return
+    const owner = waiting.owner!
     const views = this.deps.driver.views()
     const candidates = views.map((v) => ({ id: v.id, identity: sessionIdentity(v), state: v.state, startedAt: v.startedAt }))
     const knownHere = candidates.some((c) => c.identity === owner)
     const live = candidates.some((c) => c.identity === owner && c.state !== 'stopped' && c.state !== 'error')
     const located = live ? null : await locateClaudeTranscript(owner, await this.claudeDirs())
+    const thread = await this.dropUnlistedReplies(waiting, views, located?.cwd ?? undefined)
+    if (!thread) return
+    const now = this.now()
     const plan = planWake(thread, {
       sessions: candidates,
       now,
@@ -399,6 +431,31 @@ export class SlackWatcherService {
         }
       }
     }
+  }
+
+  /**
+   * Replies from people not on the owner's profile list (Settings → Profiles › Slack, "Who may wake
+   * a session") never reach the session: they are notified and leave the queue. An empty list lets
+   * anyone wake it. Returns the thread with the replies left to deliver, or null when none are.
+   */
+  private async dropUnlistedReplies(thread: TrackedThread, views: readonly SessionView[], cwd: string | undefined): Promise<TrackedThread | null> {
+    const config = await this.deps.configuration.current()
+    const profileId = this.profileOf(thread.owner!, views, config, cwd)
+    const allowed = config.profiles.find((p) => p.id === profileId)?.slackWakeFrom
+    // Read again: replies may have arrived while the configuration was read.
+    const current = this.state.threads.find((t) => t.id === thread.id) ?? thread
+    const { notify } = splitByWaker(current.pendingWake, allowed)
+    if (!notify.length) return current
+    const dropped = new Set(notify.map((r) => r.ts))
+    this.deps.notice({ kind: 'notWoken', threadId: current.id, title: current.title, reason: 'notAllowed', replies: notify.map((r) => ({ user: r.user, text: r.text })) })
+    this.setState(
+      updateThread(this.state, current.id, (t) => {
+        const left = { ...t, pendingWake: t.pendingWake.filter((r) => !dropped.has(r.ts)) }
+        return left.pendingWake.length ? left : recordWake(left, 'notifyOnly', 'notAllowed', this.now(), true)
+      })
+    )
+    const next = this.state.threads.find((t) => t.id === current.id)
+    return next && next.pendingWake.length ? next : null
   }
 
   /**
@@ -636,7 +693,8 @@ export class SlackWatcherService {
       threads: this.state.threads,
       runs: this.state.runs,
       me: this.state.me,
-      hooks: this.hooks
+      hooks: this.hooks,
+      ...(this.deps.background && !this.deps.demo ? { cost: this.deps.background.summary('slackWatch') } : {})
     }
   }
 

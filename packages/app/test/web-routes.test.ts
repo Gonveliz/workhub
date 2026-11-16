@@ -8,6 +8,7 @@ describe('web routes', () => {
     expect(parseRoute('#new')).toEqual({ screen: 'new' })
     expect(parseRoute('#prs')).toEqual({ screen: 'pullRequests' })
     expect(parseRoute('#alerts')).toEqual({ screen: 'alerts' })
+    expect(parseRoute('#automations')).toEqual({ screen: 'automations' })
     expect(parseRoute('#settings')).toEqual({ screen: 'settings' })
     expect(parseRoute('#session/abc%2F1')).toEqual({ screen: 'session', id: 'abc/1' })
     expect(parseRoute('#pair=eyJ2IjoxfQ')).toEqual({ screen: 'pair' })
@@ -18,7 +19,13 @@ describe('web routes', () => {
     expect(parseRoute('#item/i%2F1')).toEqual({ screen: 'planItem', id: 'i/1' })
     expect(parseRoute('#milestone/m1')).toEqual({ screen: 'milestone', id: 'm1' })
     expect(parseRoute('#session/s%2F1/agent/a1')).toEqual({ screen: 'subagent', sessionId: 's/1', id: 'a1' })
-    for (const hash of ['#session/s%2F1/agent/a1', '#new', '#prs', '#alerts', '#settings', '#session/abc%2F1', '#plan/inbox', '#item/new', '#item/i%2F1', '#milestone/m1']) expect(routeHash(parseRoute(hash))).toBe(hash)
+    for (const hash of ['#session/s%2F1/agent/a1', '#new', '#prs', '#alerts', '#automations', '#settings', '#session/abc%2F1', '#plan/inbox', '#item/new', '#item/i%2F1', '#milestone/m1']) expect(routeHash(parseRoute(hash))).toBe(hash)
+  })
+
+  it('opens a session’s changes, and round-trips the hash', () => {
+    expect(parseRoute('#session/s%2F1/changes')).toEqual({ screen: 'changes', sessionId: 's/1' })
+    expect(routeHash({ screen: 'changes', sessionId: 's/1' })).toBe('#session/s%2F1/changes')
+    expect(parseRoute('#session/%E0/changes')).toEqual({ screen: 'home' })
   })
 
   it('splits the desktop a notification names off the hash', () => {

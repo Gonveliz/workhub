@@ -19,8 +19,8 @@ export default defineConfig(async () => {
     main: {
       build: {
         externalizeDeps: { exclude: bundled },
-        // The analytics worker runs in its own utility process (out/main/analytics-worker.js).
-        rollupOptions: { input: { index: resolve('src/main/index.ts'), 'analytics-worker': resolve('src/main/analytics-worker.ts') } }
+        // The analytics and transcript workers run in their own utility processes (out/main/analytics-worker.js, transcript-worker.js).
+        rollupOptions: { input: { index: resolve('src/main/index.ts'), 'analytics-worker': resolve('src/main/analytics-worker.ts'), 'transcript-worker': resolve('src/main/transcript-worker.ts') } }
       },
       define: { __WORKHUB_RELEASE_REPO__: JSON.stringify(`${BRAND.repo.owner}/${BRAND.repo.name}`), __WORKHUB_DEFAULT_RELAY__: JSON.stringify(BRAND.relay) }
     },

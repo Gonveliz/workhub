@@ -1,13 +1,14 @@
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
-import { generateIdentity, makeAuth, MAX_FRAME_BYTES, type RelayMessage } from '@workhub/protocol'
+import { generateIdentity, makeAuth, MAX_FRAME_BYTES, PUSH_MAX_AGE_MS, type RelayMessage } from '@workhub/protocol'
 import { addressOf, createRelayServer, type RelayServer } from '../src/server'
-import { resolveStatic } from '../src/static'
+import { PassThrough, Readable, Writable } from 'node:stream'
+import { resolveStatic, sendStream } from '../src/static'
 import { FilePushStore } from '../src/push-store'
-import { pushEndpointAllowed } from '../src/push'
+import { PUSH_TTL_SECONDS, pushEndpointAllowed } from '../src/push'
 
 let server: RelayServer
 let base: string
@@ -115,13 +116,28 @@ describe('relay server', () => {
 })
 
 describe('addressOf', () => {
-  const req = (headers: Record<string, string>) => ({ headers, socket: { remoteAddress: '203.0.113.9' } }) as unknown as Parameters<typeof addressOf>[0]
-  it('ignores forwarded headers unless a proxy is trusted, then takes the proxy-set address', () => {
+  const req = (headers: Record<string, string>, remote = '203.0.113.9') => ({ headers, socket: { remoteAddress: remote } }) as unknown as Parameters<typeof addressOf>[0]
+  it('ignores forwarded headers unless a proxy is trusted, then takes the last hop of the configured one', () => {
     expect(addressOf(req({ 'x-forwarded-for': '1.1.1.1' }), false)).toBe('203.0.113.9')
     // The client wrote 1.1.1.1; the proxy appended the real address last.
     expect(addressOf(req({ 'x-forwarded-for': '1.1.1.1, 198.51.100.7' }), true)).toBe('198.51.100.7')
-    expect(addressOf(req({ 'x-real-ip': '198.51.100.8', 'x-forwarded-for': '1.1.1.1' }), true)).toBe('198.51.100.8')
     expect(addressOf(req({}), true)).toBe('203.0.113.9')
+  })
+  it('trusts only the configured header', () => {
+    // A client-sent X-Real-IP is not the configured header, so it cannot pick the bucket.
+    expect(addressOf(req({ 'x-real-ip': '1.1.1.1', 'x-forwarded-for': '198.51.100.7' }), true)).toBe('198.51.100.7')
+    expect(addressOf(req({ 'x-real-ip': '1.1.1.1' }), true)).toBe('203.0.113.9')
+    expect(addressOf(req({ 'x-real-ip': '198.51.100.8', 'x-forwarded-for': '1.1.1.1' }), true, 'X-Real-IP')).toBe('198.51.100.8')
+    expect(addressOf(req({ 'x-forwarded-for': '1.1.1.1' }), true, 'x-real-ip')).toBe('203.0.113.9')
+  })
+  it('buckets IPv6 addresses by their /64', () => {
+    const a = addressOf(req({ 'x-forwarded-for': '2001:db8:1:2:aaaa:bbbb:cccc:dddd' }), true)
+    expect(a).toBe('2001:db8:1:2::/64')
+    expect(addressOf(req({ 'x-forwarded-for': '2001:DB8:1:2::1' }), true)).toBe(a)
+    expect(addressOf(req({ 'x-forwarded-for': '2001:db8:1:3::1' }), true)).not.toBe(a)
+    expect(addressOf(req({}, '2001:db8::5'), false)).toBe('2001:db8:0:0::/64')
+    expect(addressOf(req({}, '::1'), false)).toBe('0:0:0:0::/64')
+    expect(addressOf(req({}, '::ffff:198.51.100.7'), false)).toBe('198.51.100.7')
   })
 })
 
@@ -145,6 +161,33 @@ describe('resolveStatic', () => {
     expect(resolveStatic(webDir, '/')?.path).toBe(join(webDir, 'index.html'))
     expect(resolveStatic(webDir, '/anything?x=1')?.path).toBe(join(webDir, 'index.html'))
   })
+
+  it('rejects traversal in every encoding', () => {
+    // A file next to the root, with an extension so a miss is null rather than the index fallback.
+    const outside = join(webDir, '..', `${basename(webDir)}-secret.txt`)
+    writeFileSync(outside, 'secret')
+    const name = basename(outside)
+    expect(resolveStatic(webDir, `/../${name}`)).toBeNull()
+    expect(resolveStatic(webDir, `/assets/../../${name}`)).toBeNull()
+    expect(resolveStatic(webDir, `/%2e%2e/${name}`)).toBeNull()
+    expect(resolveStatic(webDir, `/%2E%2E%2F${name}`)).toBeNull()
+    expect(resolveStatic(webDir, `/%252e%252e/${name}`)).toBeNull()
+    expect(resolveStatic(webDir, `/..%5c${name}`)).toBeNull()
+    expect(resolveStatic(webDir, `/..\\${name}`)).toBeNull()
+    expect(resolveStatic(webDir, `/index.html%00.js`)).toBeNull()
+    expect(resolveStatic(webDir, '/assets/app-abc123.js\0')).toBeNull()
+    expect(resolveStatic(webDir, outside)).toBeNull()
+    expect(resolveStatic(webDir, `/${encodeURIComponent(outside)}`)).toBeNull()
+    expect(resolveStatic(webDir, `//${outside}`)).toBeNull()
+    expect(resolveStatic(webDir, '/assets/app-abc123.js')?.path).toBe(join(webDir, 'assets', 'app-abc123.js'))
+  })
+
+  it.skipIf(process.platform === 'win32')('does not follow a symlink out of the root', () => {
+    const outsideDir = mkdtempSync(join(tmpdir(), 'relay-outside-'))
+    writeFileSync(join(outsideDir, 'leak.txt'), 'secret')
+    symlinkSync(outsideDir, join(webDir, 'linked'))
+    expect(resolveStatic(webDir, '/linked/leak.txt')).toBeNull()
+  })
 })
 
 describe('FilePushStore', () => {
@@ -163,5 +206,45 @@ describe('FilePushStore', () => {
     b.delete('d1')
     b.flush()
     expect(new FilePushStore(path).size()).toBe(0)
+  })
+})
+
+describe('push TTL', () => {
+  it('stays inside the window in which the phone still shows a push', () => {
+    expect(PUSH_TTL_SECONDS).toBeGreaterThan(0)
+    expect(PUSH_TTL_SECONDS * 1000).toBeLessThan(PUSH_MAX_AGE_MS)
+  })
+})
+
+describe('sendStream', () => {
+  const sink = () => {
+    const res = new Writable({ write: (_c, _e, cb) => cb() })
+    return res as Writable & { destroyed: boolean }
+  }
+
+  it('does not throw on a read error and cuts the response short', async () => {
+    const res = sink()
+    const source = new Readable({ read() {} })
+    sendStream(source, res as never)
+    source.destroy(new Error('EIO'))
+    await new Promise((r) => setTimeout(r, 10))
+    expect(res.destroyed).toBe(true)
+  })
+
+  it('closes the file when the client goes away', async () => {
+    const res = sink()
+    const source = new PassThrough()
+    sendStream(source, res as never)
+    res.destroy()
+    await new Promise((r) => setTimeout(r, 10))
+    expect(source.destroyed).toBe(true)
+  })
+
+  it('ends the response after a complete read', async () => {
+    const chunks: string[] = []
+    const res = new Writable({ write: (c, _e, cb) => (chunks.push(String(c)), cb()) })
+    sendStream(Readable.from(['a', 'b']), res as never)
+    await new Promise((r) => res.on('finish', r))
+    expect(chunks.join('')).toBe('ab')
   })
 })

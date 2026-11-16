@@ -157,6 +157,33 @@ export interface ReportFilterValues {
   tags: string[]
 }
 
+/** One row of the totals table as exported: numbers raw, in the units the headers name. */
+export interface UsageCsvRow {
+  /** The group as the table names it, in full (a folder path, a pull request URL). */
+  group: string
+  tokensIn: number
+  tokensOut: number
+  /** Cache reads and writes together, as the table's Cache column. */
+  cache: number
+  usd: number
+  sessions: number
+  /** Agent time, in whole seconds. */
+  activeSeconds: number
+}
+
+/** The totals table as it is filtered, grouped and sorted on screen. The renderer never names the file: main asks the user where. */
+export interface UsageCsvExport {
+  groupBy: ReportGroupBy
+  /** The period shown: epoch ms, `since` inclusive and `until` exclusive. */
+  since: number
+  until: number
+  /** The column titles, in the language of the screen: group, input, output, cache, cost, sessions, agent time. */
+  headers: string[]
+  rows: UsageCsvRow[]
+}
+
+export type UsageCsvResult = { ok: true; path: string } | { ok: false; canceled: boolean; error?: string }
+
 export interface AnalyticsApi {
   /** The free tags on a session (by its identity: the agent's session id), sorted. */
   tags(sessionId: string): Promise<string[]>
@@ -172,6 +199,8 @@ export interface AnalyticsApi {
   weekly(query: { weekStart: number; profileId?: string }): Promise<WeeklyReport>
   /** The values each filter offers. */
   filters(query: { profileId?: string; since?: number; until?: number }): Promise<ReportFilterValues>
+  /** Saves the totals table as a CSV file: main shows the save dialog and writes it. */
+  exportCsv(table: UsageCsvExport): Promise<UsageCsvResult>
   /** Reads the transcripts now (the token spend scan, then new turns) instead of at the next 10-minute scan; resolves when done or after about 20 s. */
   refresh(): Promise<void>
 }

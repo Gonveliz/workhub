@@ -1,8 +1,14 @@
 import { DemoTracker } from '@workhub/adapters/tracker-demo'
 import { JiraTracker } from '@workhub/adapters/tracker-jira'
 import { LinearTracker } from '@workhub/adapters/tracker-linear'
+import { GitHubIssuesTracker } from '@workhub/adapters/tracker-github'
+import { createCliRunner, type CliRunner } from '@workhub/adapters/cli'
+import { GIT_HARDENING } from '@workhub/adapters/git-hardening'
 import type { HttpClient } from '@workhub/adapters/http'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import {
+  githubSlugFromRemote,
   secretForConnectionTest,
   type ConfigurationService,
   type Connection,
@@ -22,7 +28,9 @@ const NOT_READY: Record<TicketsStatus['state'], string> = {
 }
 
 /** Settings keys a tracker connection uses (Settings → Trackers writes them). */
-export const TRACKER_SETTINGS = { email: 'email', ignoredStatuses: 'ignoredStatuses', projectKeys: 'projectKeys' } as const
+export const TRACKER_SETTINGS = { email: 'email', ignoredStatuses: 'ignoredStatuses', projectKeys: 'projectKeys', repositories: 'repositories' } as const
+
+const exec = promisify(execFile)
 
 const list = (value: string | undefined) =>
   (value ?? '')
@@ -36,8 +44,39 @@ interface Resolved {
   ignoredStatuses: string[]
 }
 
+/** What GitHub Issues needs beyond the connection: the `gh` runner and the profile's folders (their remotes are the default scope). */
+export interface TrackerContext {
+  run?: CliRunner
+  folders?: string[]
+}
+
+/** The `owner/repo` behind each folder's `origin` remote; folders that are not GitHub clones are skipped. */
+export async function githubReposOfFolders(folders: readonly string[], host = 'github.com'): Promise<string[]> {
+  const out: string[] = []
+  for (const folder of folders) {
+    try {
+      const url = (await exec('git', [...GIT_HARDENING, '-C', folder, 'remote', 'get-url', 'origin'], { windowsHide: true, timeout: 10_000 })).stdout.trim()
+      const slug = githubSlugFromRemote(url, host)
+      if (slug) out.push(slug)
+    } catch {
+      // Not a git repository, or no origin.
+    }
+  }
+  return out
+}
+
+/** The GitHub Enterprise host of an endpoint; undefined for github.com (and its API host). */
+function githubHostOf(endpoint: string | undefined): string | undefined {
+  try {
+    const host = endpoint ? new URL(endpoint).hostname : ''
+    return host && host !== 'github.com' && host !== 'api.github.com' ? host : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** Builds a tracker from a saved or typed connection; `incomplete` names what is missing. */
-export function buildTracker(connection: Connection, secret: string | null, http?: HttpClient): { tracker: TicketTracker } | { missing: 'unsupported' | 'incomplete'; detail?: string } {
+export function buildTracker(connection: Connection, secret: string | null, http?: HttpClient, context: TrackerContext = {}): { tracker: TicketTracker } | { missing: 'unsupported' | 'incomplete'; detail?: string } {
   const projectKeys = list(connection.settings[TRACKER_SETTINGS.projectKeys])
   if (connection.provider === 'jira') {
     const email = connection.settings[TRACKER_SETTINGS.email]?.trim()
@@ -50,6 +89,19 @@ export function buildTracker(connection: Connection, secret: string | null, http
     if (!secret) return { missing: 'incomplete', detail: 'token' }
     // The provider catalog's default endpoint is the REST root; the tracker adds /graphql.
     return { tracker: new LinearTracker({ apiKey: secret, endpoint: connection.endpoint, projectKeys, http }) }
+  }
+  if (connection.provider === 'github-issues') {
+    // No token: `gh` is signed in by the user. Without listed repositories the profile's folders decide.
+    const host = githubHostOf(connection.endpoint)
+    const folders = context.folders ?? []
+    return {
+      tracker: new GitHubIssuesTracker({
+        run: context.run ?? createCliRunner(),
+        host,
+        repositories: list(connection.settings[TRACKER_SETTINGS.repositories]),
+        fallbackRepositories: folders.length > 0 ? () => githubReposOfFolders(folders, host) : undefined
+      })
+    }
   }
   return { missing: 'unsupported' }
 }
@@ -64,7 +116,9 @@ export class TicketService {
     private readonly demo: boolean,
     private readonly http?: HttpClient,
     /** The demo scenario whose tickets the demo tracker serves (`WORKHUB_DEMO_SCENARIO`). */
-    private readonly demoScenario?: string
+    private readonly demoScenario?: string,
+    /** The `gh` runner of GitHub Issues (tests); the real one by default. */
+    private readonly run?: CliRunner
   ) {}
 
   async resolve(profileId: string | null): Promise<Resolved> {
@@ -81,7 +135,7 @@ export class TicketService {
     }
     if (!connection) return { status: { state: 'noConnection', projectKeys }, ignoredStatuses }
     const secret = connection.secretRef ? await this.secrets.get(connection.secretRef) : null
-    const built = buildTracker(connection, secret, this.http)
+    const built = buildTracker(connection, secret, this.http, { run: this.run, folders: profile?.folders })
     if ('missing' in built) return { status: { ...base, state: built.missing }, ignoredStatuses }
     return { status: { ...base, state: 'ready' }, tracker: built.tracker, ignoredStatuses }
   }
@@ -96,7 +150,7 @@ export class TicketService {
     if (!resolved.ok) return resolved
     const { secret } = resolved
     try {
-      const built = buildTracker(connection, secret, this.http)
+      const built = buildTracker(connection, secret, this.http, { run: this.run })
       if ('missing' in built) return { ok: false, error: built.missing === 'unsupported' ? NOT_READY.unsupported : `The ${built.detail} is missing` }
       return await built.tracker.testConnection()
     } catch (error) {
@@ -117,7 +171,8 @@ export class TicketService {
       const connection = (await this.configuration.current()).connections.find((c) => c.id === connectionId && c.kind === 'tracker')
       if (!connection) return { error: 'The tracker connection no longer exists' }
       const secret = connection.secretRef ? await this.secrets.get(connection.secretRef) : null
-      const built = buildTracker(connection, secret, this.http)
+      const folders = (await this.configuration.current()).profiles.find((p) => p.id === profileId)?.folders
+      const built = buildTracker(connection, secret, this.http, { run: this.run, folders })
       return 'missing' in built ? { error: NOT_READY[built.missing] } : { tracker: built.tracker }
     } catch (error) {
       return { error: error instanceof Error ? error.message : String(error) }

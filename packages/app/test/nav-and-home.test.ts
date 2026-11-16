@@ -127,6 +127,15 @@ describe('preferences', () => {
     expect(parsePrefs('{"themeApp":"yes","terminalTheme":3}')).toMatchObject({ themeApp: false, terminalTheme: '' })
   })
 
+  it('keep the terminal scrollback at 10,000 lines by default, within 1,000 to 100,000', () => {
+    expect(DEFAULT_PREFS.terminalScrollback).toBe(10_000)
+    expect(parsePrefs('{}').terminalScrollback).toBe(10_000)
+    expect(parsePrefs('{"terminalScrollback":5}').terminalScrollback).toBe(1000)
+    expect(parsePrefs('{"terminalScrollback":5000000}').terminalScrollback).toBe(100_000)
+    expect(parsePrefs('{"terminalScrollback":"lots"}').terminalScrollback).toBe(10_000)
+    expect(parsePrefs('{"terminalScrollback":25000}').terminalScrollback).toBe(25_000)
+  })
+
   it('keep the remembered model per agent key and drop anything that is not a model id', () => {
     expect(parsePrefs('{"models":{"claude":"haiku","claude:work":"","kiro":3}}').models).toEqual({ claude: 'haiku' })
   })

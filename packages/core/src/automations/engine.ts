@@ -1,7 +1,9 @@
 import { pruneLedger } from '../chat/ledger'
 import type { ChatMessage } from '../chat/types'
 import type { SessionState } from '../domain/session'
-import { chatTriggers, evaluatePendingGate, failureBackoffMs, limitWait, looksRateLimited, resetTimeIn, windowReason, type GateVerdict } from './rules'
+import type { PrEvent } from '../pr-events/types'
+import { automationPrompt } from './prompt'
+import { chatTriggers, evaluatePendingGate, failureBackoffMs, limitWait, looksRateLimited, prEventTriggers, resetTimeIn, windowReason, type GateVerdict } from './rules'
 import {
   automationNotifies,
   EMPTY_AUTOMATIONS_STATE,
@@ -12,6 +14,7 @@ import {
   type AutomationRun,
   type AutomationsState,
   type AutomationTrigger,
+  type PrTriggerContext,
   type SessionUsage,
   usageDelta
 } from './types'
@@ -82,6 +85,8 @@ export interface AutomationHost {
 interface Pending {
   trigger: AutomationTrigger
   link?: string
+  /** The pull request a `prEvent` run is about (its prompt's placeholders). */
+  pr?: PrTriggerContext
   queuedAt: number
   merged: number
   /** The log row that counts the triggers merged into this run. */
@@ -90,6 +95,7 @@ interface Pending {
 
 interface Active {
   run: AutomationRun
+  pr?: PrTriggerContext
   sessionId?: string
   /** `clearing`: the session's context is being cleared before the prompt goes in. */
   stage: 'opening' | 'clearing' | 'delivering' | 'running'
@@ -108,6 +114,11 @@ export const USAGE_SETTLE_MS = 20_000
 
 export interface RunState {
   pending?: Pending
+  /**
+   * Pull request events of other PRs that came while a run was pending: each gets a run of its
+   * own (its prompt names that PR), one after another, instead of merging into the pending one.
+   */
+  backlog?: Pending[]
   active?: Active
   failureStreak: number
   notified: boolean
@@ -118,13 +129,15 @@ export interface RunState {
   /** Why the pending run has not started yet (`window.days`, `limit.window`, `usage`…). */
   waitReason?: string
   waitUntil?: number
-  lastIntervalAt?: number
   lastCheck?: { at: number; verdict: GateVerdict; fired: boolean }
   /** The gate lets a missing state file through once, so the first run can create it. */
   missingFileFired: boolean
 }
 
 export type AutomationHealth = 'off' | 'idle' | 'waiting' | 'paused' | 'failing' | 'running'
+
+/** Pull request runs waiting behind the pending one, at most; more are skipped (`backlogFull`). */
+export const PR_BACKLOG_LIMIT = 20
 
 /** A chat run that cannot deliver its prompt within this time fails. */
 export const DELIVERY_TIMEOUT_MS = 180_000
@@ -223,6 +236,19 @@ export class AutomationEngine {
     return triggers.length
   }
 
+  /** Code host sync callback: new pull request events of a profile fire the automations listening to them. */
+  onPrEvents(profileId: string | null, events: readonly PrEvent[]): number {
+    const now = this.host.now()
+    const defs = this.host.definitions()
+    const { ledger, triggers } = prEventTriggers(defs, profileId, events, this.state.ledger, { now, isActive: (a) => this.host.isActive(a) })
+    if (ledger !== this.state.ledger) this.save({ ...this.state, ledger: pruneLedger(ledger, now) })
+    for (const t of triggers) {
+      const a = defs.find((d) => d.id === t.automationId)
+      if (a) this.enqueue(a, 'prEvent', t.pr.url, t.pr)
+    }
+    return triggers.length
+  }
+
   /** "Run now": ignores the window, the limits, the usage guard and pauses; only a run in progress stops it. */
   runNow(id: string): void {
     const a = this.host.definitions().find((d) => d.id === id)
@@ -244,7 +270,8 @@ export class AutomationEngine {
   /** Resuming an automation clears a rate-limit pause and the failure backoff. */
   resumed(id: string): void {
     const s = this.runState(id)
-    this.runtime.set(id, { ...s, pausedUntil: undefined, pauseReason: undefined, failureStreak: 0, notified: false, lastIntervalAt: this.host.now() })
+    this.runtime.set(id, { ...s, pausedUntil: undefined, pauseReason: undefined, failureStreak: 0, notified: false })
+    this.save({ ...this.state, intervals: { ...this.state.intervals, [id]: this.host.now() } })
   }
 
   /** Forgets a removed automation's schedule (its log rows and sessions stay). */
@@ -253,7 +280,9 @@ export class AutomationEngine {
     this.owner.delete(id)
     const starts = { ...this.state.starts }
     delete starts[id]
-    this.save({ ...this.state, starts })
+    const intervals = { ...this.state.intervals }
+    delete intervals[id]
+    this.save({ ...this.state, starts, intervals })
   }
 
   /** A session got its real identity late (an ACP agent reports its id after starting): the records follow it. */
@@ -271,14 +300,17 @@ export class AutomationEngine {
     this.save({ ...this.state, owned, sessions, retiring, runs })
   }
 
-  private enqueue(a: AutomationDefinition, trigger: AutomationTrigger, link?: string): void {
+  private enqueue(a: AutomationDefinition, trigger: AutomationTrigger, link?: string, pr?: PrTriggerContext): void {
     const s = this.runState(a.id)
     const now = this.host.now()
+    const fresh: Pending = { trigger, queuedAt: now, merged: 0, ...(link ? { link } : {}), ...(pr ? { pr } : {}) }
     if (!s.pending) {
-      this.runtime.set(a.id, { ...s, pending: { trigger, queuedAt: now, merged: 0, ...(link ? { link } : {}) } })
+      this.runtime.set(a.id, { ...s, pending: fresh })
       return
     }
-    const pending = { ...s.pending, merged: s.pending.merged + 1 }
+    // Another pull request's event waits for a run of its own; one of the same PR merges into its run.
+    if (pr && s.pending.pr?.url !== pr.url) return this.backlog(a, fresh)
+    const pending = { ...s.pending, merged: s.pending.merged + 1, ...(pr && s.pending.pr ? { pr: mergeKinds(s.pending.pr, pr) } : {}) }
     const rowIndex = pending.coalescedRowId ? this.state.runs.findIndex((r) => r.id === pending.coalescedRowId) : -1
     if (rowIndex >= 0) {
       const runs = [...this.state.runs]
@@ -290,6 +322,23 @@ export class AutomationEngine {
       this.log(row)
     }
     this.runtime.set(a.id, { ...s, pending })
+  }
+
+  /** Queues a pull request run behind the pending one; a second event of a PR already queued merges into it. */
+  private backlog(a: AutomationDefinition, run: Pending): void {
+    const s = this.runState(a.id)
+    const queue = s.backlog ?? []
+    const same = queue.findIndex((p) => p.pr?.url === run.pr?.url)
+    if (same >= 0) {
+      const merged = queue.map((p, i) => (i === same ? { ...p, merged: p.merged + 1, pr: mergeKinds(p.pr!, run.pr!) } : p))
+      this.runtime.set(a.id, { ...s, backlog: merged })
+      return
+    }
+    if (queue.length >= PR_BACKLOG_LIMIT) {
+      this.log({ id: this.host.newId(), automationId: a.id, automationName: a.name, trigger: run.trigger, queuedAt: run.queuedAt, outcome: 'skipped', detail: 'backlogFull', merged: 0, ...(run.link ? { triggerLink: run.link } : {}) })
+      return
+    }
+    this.runtime.set(a.id, { ...s, backlog: [...queue, run] })
   }
 
   // The loop
@@ -308,6 +357,11 @@ export class AutomationEngine {
 
   private async step(a: AutomationDefinition): Promise<void> {
     if (this.runState(a.id).active) return this.monitor(a)
+    const queued = this.runState(a.id)
+    if (!queued.pending && queued.backlog?.length) {
+      const [next, ...rest] = queued.backlog
+      this.runtime.set(a.id, { ...queued, pending: next, backlog: rest })
+    }
     const on = a.enabled && this.host.isActive(a)
     if (on) await this.fireInterval(a)
     const s = this.runState(a.id)
@@ -323,16 +377,18 @@ export class AutomationEngine {
     const minutes = a.triggers.intervalMinutes
     if (!minutes || minutes <= 0) return
     const now = this.host.now()
-    let s = this.runState(a.id)
-    if (s.lastIntervalAt === undefined) {
-      this.runtime.set(a.id, { ...s, lastIntervalAt: now })
+    const last = this.state.intervals[a.id]
+    if (last === undefined) {
+      // A new automation waits one full interval before its first run.
+      this.save({ ...this.state, intervals: { ...this.state.intervals, [a.id]: now } })
       return
     }
-    if (now - s.lastIntervalAt < minutes * 60_000) return
-    s = { ...s, lastIntervalAt: now }
-    this.runtime.set(a.id, s)
-    // Outside the window the interval simply does not fire; a run already queued or working covers it.
+    if (now - last < minutes * 60_000) return
+    // Outside the window, or with a run already queued, the interval stays due and fires once at the
+    // first moment it is allowed, instead of losing its turn.
+    const s = this.runState(a.id)
     if (windowReason(a.window, now) || s.pending || s.active) return
+    this.save({ ...this.state, intervals: { ...this.state.intervals, [a.id]: now } })
     const gate = a.triggers.pendingGate
     if (gate) {
       const verdict = evaluatePendingGate(await this.host.readGate(gate.stateFile).catch(() => undefined), now)
@@ -408,7 +464,7 @@ export class AutomationEngine {
       merged: pending.merged,
       ...(pending.link ? { triggerLink: pending.link } : {})
     }
-    this.runtime.set(a.id, { ...this.runState(a.id), pending: undefined, waitReason: undefined, waitUntil: undefined, active: { run, stage: 'opening', turnsAtSubmit: 0 } })
+    this.runtime.set(a.id, { ...this.runState(a.id), pending: undefined, waitReason: undefined, waitUntil: undefined, active: { run, stage: 'opening', turnsAtSubmit: 0, ...(pending.pr ? { pr: pending.pr } : {}) } })
     const starts = [...(this.state.starts[a.id] ?? []).filter((t) => now - t < 2 * 86_400_000), now]
     this.save({ ...this.state, starts: { ...this.state.starts, [a.id]: starts } })
     let session: DrivenSession
@@ -528,7 +584,7 @@ export class AutomationEngine {
       if (session.state === 'ready') {
         // A session that already ran something starts the run with an empty context when asked to.
         const clear = a.clearContext === true && !active.fresh && !active.cleared && this.host.clearsContext?.(a) === true
-        const delivered = await this.host.sessions.deliver(session.id, clear ? CLEAR_CONTEXT_PROMPT : a.prompt).catch(() => 'waiting' as const)
+        const delivered = await this.host.sessions.deliver(session.id, clear ? CLEAR_CONTEXT_PROMPT : automationPrompt(a.prompt, active.pr)).catch(() => 'waiting' as const)
         if (delivered === 'delivered' && clear) {
           this.patchActive(a.id, { stage: 'clearing', turnsAtSubmit: session.turnsEnded })
           return
@@ -619,4 +675,9 @@ export class AutomationEngine {
     this.state = state
     this.host.persist(state)
   }
+}
+
+/** The event kinds of two triggers about the same pull request, each once, in arrival order. */
+function mergeKinds(a: PrTriggerContext, b: PrTriggerContext): PrTriggerContext {
+  return { ...a, kinds: [...new Set([...a.kinds, ...b.kinds])] }
 }

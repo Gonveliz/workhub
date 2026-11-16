@@ -1,7 +1,9 @@
 import { ShieldAlert } from 'lucide-react'
+import type { KeyboardEvent } from 'react'
 import { Button } from '../../components/atoms'
 import { useI18n } from '../../i18n/I18nProvider'
 import { cn } from '../../lib/cn'
+import { optionForKey } from '../../lib/pendingFocus'
 import { ANSWERED_ELSEWHERE, type ChatItem } from '../../store'
 import { QuestionCard } from './QuestionCard'
 
@@ -30,8 +32,17 @@ export function PermissionCard({ item, onAnswer, pinned }: { item: PermissionIte
   if (item.questions?.length) {
     return <QuestionCard questions={item.questions} answer={item.answer} onSubmit={(answers, label) => onAnswer(item.requestId, answers ? 'allow' : 'deny', label, answers ?? undefined)} pinned={pinned} />
   }
+  const open = item.answer === undefined
+  // With the focus on the card (⇧⌘A, or Tab), 1-9 pick its buttons in order.
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const n = open ? optionForKey(e, item.options.length) : null
+    if (n === null) return
+    e.preventDefault()
+    const o = item.options[n]!
+    onAnswer(item.requestId, o.optionId, o.name)
+  }
   return (
-    <div role="group" aria-label={t('chat.permissionRequested')} className={cn('rounded-lg border border-warning/40 bg-warning-soft p-3', !pinned && 'ml-8')} data-testid="permission-card">
+    <div role="group" aria-label={t('chat.permissionRequested')} className={cn('rounded-lg border border-warning/40 bg-warning-soft p-3', !pinned && 'ml-8')} data-testid="permission-card" onKeyDown={onKeyDown}>
       <div className="flex items-center gap-2 text-sm font-medium text-warning">
         <ShieldAlert className="size-4" aria-hidden />
         {t('chat.permissionRequested')}
@@ -42,8 +53,15 @@ export function PermissionCard({ item, onAnswer, pinned }: { item: PermissionIte
         <div className="mt-2 text-sm text-muted">{answerText(item.answer, t)}</div>
       ) : (
         <div className="mt-2.5 flex flex-wrap gap-1.5">
-          {item.options.map((o) => (
-            <Button key={o.optionId} size="sm" variant={o.kind.startsWith('allow') ? 'primary' : 'secondary'} onClick={() => onAnswer(item.requestId, o.optionId, o.name)}>
+          {item.options.map((o, i) => (
+            <Button
+              key={o.optionId}
+              size="sm"
+              variant={o.kind.startsWith('allow') ? 'primary' : 'secondary'}
+              aria-keyshortcuts={i < 9 ? String(i + 1) : undefined}
+              title={i < 9 ? `${o.name} · ${i + 1}` : undefined}
+              onClick={() => onAnswer(item.requestId, o.optionId, o.name)}
+            >
               {o.name}
             </Button>
           ))}

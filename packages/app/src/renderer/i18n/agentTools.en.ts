@@ -2,7 +2,7 @@
 export const agentToolsEn = {
   'agentTools.title': 'Workhub tools for agents',
   'agentTools.help':
-    'How agents in your sessions reach Workhub: Plan, automations, history, the review of their changes and flow maps. The MCP server gives them tools; the skills teach them when and how to use them. Both can be on.',
+    'How agents in your sessions reach Workhub: Plan, automations, history, the review of their changes, flow maps and your other sessions (what they propose waits for your approval). The MCP server gives them tools; the skills teach them when and how to use them. Both can be on.',
   'agentTools.mcp': 'Give sessions the Workhub MCP server',
   'agentTools.mcpHint': 'Every new session (except reviewers) gets Workhub’s tools. They add some tokens to each turn; Claude Code loads them on demand when there are many.',
   'agentTools.account': 'Claude Code folder',
@@ -17,7 +17,7 @@ export const agentToolsEn = {
   'agentTools.update': 'Update',
   'agentTools.remove': 'Remove',
   'agentTools.globalMcp': 'MCP outside Workhub',
-  'agentTools.globalMcpHint': 'Adds the server to Claude Code’s user settings, so `claude` in any terminal reaches this Workhub while it is open.',
+  'agentTools.globalMcpHint': 'Adds the server to Claude Code’s user settings, so `claude` in any terminal reaches this Workhub while it is open. Outside a session it can only read the active profile’s plan and automations: changes, history and usage data need a session’s own token.',
   'agentTools.globalMcp.installed': 'Installed',
   'agentTools.globalMcp.missing': 'Not installed',
   'agentTools.globalMcp.noClaude': 'Claude Code not found',

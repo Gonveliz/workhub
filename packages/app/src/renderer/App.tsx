@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { appOptions, EMPTY_SESSION_GROUPS, groupOf, notificationTitle, orderAgents, pickAgent, profileDefaultFolder, refreshMembers, sessionIdentity, setGroupCollapsed, worktreeDefault, type EffectiveAgent, type GroupMember } from '@workhub/core'
+import { appOptions, EMPTY_SESSION_GROUPS, groupOf, nextNeedingYou, notificationTitle, orderAgents, pickAgent, profileDefaultFolder, refreshMembers, sessionIdentity, setGroupCollapsed, statusLevel, stepSession, worktreeDefault, type EffectiveAgent, type GroupMember } from '@workhub/core'
 import type { SessionView, WorkspaceFolder } from '@shared/api'
 import { TooltipProvider } from './components/atoms'
 import { ToastProvider, useToast } from './components/molecules'
 import { NewSessionDialog, Sidebar, Toolbar } from './components/organisms'
+import { CommandPalette, type PaletteEntry } from './components/organisms/CommandPalette'
 import { TopNav } from './components/organisms/TopNav'
 import { dropOnSessionsTitle, isWorking, SessionList } from './components/organisms/SessionList'
 import { RenameSessionDialog } from './components/organisms/RenameSessionDialog'
@@ -11,22 +12,29 @@ import { CloseSessionDialog } from './components/organisms/CloseSessionDialog'
 import { closeAsks } from './lib/closeSession'
 import { UpdatePromptDialog } from './components/organisms/UpdatePromptDialog'
 import { ResumeSheet } from './components/organisms/ResumeSheet'
+import { ConfigLoadErrorBanner } from './components/organisms/ConfigLoadErrorBanner'
+import { QuitPendingBanner } from './components/organisms/QuitPendingBanner'
 import { DetachedSessionNotice } from './screens/sessions/DetachedSessionNotice'
 import { useDetachedSessions } from './lib/windows'
 import type { MenuCommand } from '@shared/windows-api'
 import { currentConfig, refreshConfig, useConfig } from './configStore'
 import { I18nProvider, useI18n } from './i18n/I18nProvider'
 import { setComposerDraft } from './lib/drafts'
-import { runIntent, type IntentDeps } from './lib/links'
+import { runIntent, type IntentDeps, type IntentOutcome } from './lib/links'
+import { PrPromptOfferDialog, type PrPromptOffer } from './screens/pullRequests/PrPromptOfferDialog'
 import { keyProviders } from './lib/tickets'
 import type { SessionIntent } from '@shared/links-api'
-import { usageGroups } from './lib/home'
+import { folderName, usageGroups } from './lib/home'
 import { allNavItems, MONITOR_SHORTCUT, NEW_SESSION_SHORTCUT, SESSIONS_ITEM, SIDEBAR_SHORTCUT, visibleNavItems, type Route } from './lib/nav'
 import { usePlatform } from './lib/platform'
-import { attentionDetail, NOTIFY_BODY, NOTIFY_OPTION } from './lib/attention'
+import { attentionDetail, LEVEL_LABEL, NOTIFY_BODY, NOTIFY_OPTION } from './lib/attention'
 import { readPrefs, setPrefs, usePrefs } from './lib/prefs'
 import { useAppearance } from './lib/appearance'
-import { historyLookupKeys, listSessions, lookUpHistory, memberOf, sameRows, sessionLabel, updateGroups } from './lib/sessionGroups'
+import { historyLookupKeys, listSessions, lookUpHistory, memberOf, sessionLabel, sessionRows, sidebarSessionOrder, updateGroups, useSessionRows } from './lib/sessionGroups'
+import { requestAnswerFocus } from './lib/pendingFocus'
+import { requestFind } from './lib/chatReveal'
+import { SETTINGS_INDEX, hitKey } from './screens/settings/settings-index'
+import { SETTINGS_SECTIONS, sectionMeta } from './screens/settings/sections'
 import { ROUTE_LABEL } from './lib/routes'
 import { matchesShortcut } from './lib/shortcuts'
 import { useAccountUsage, useUsageAlerts } from './lib/usage'
@@ -43,17 +51,17 @@ import { HistoryScreen } from './screens/HistoryScreen'
 import { HealthScreen } from './screens/HealthScreen'
 import { FlowMapsScreen } from './screens/flowMaps/FlowMapsScreen'
 import { PlanScreen } from './screens/plan/PlanScreen'
-import { HomeScreen } from './screens/HomeScreen'
+import { HomeScreen, type HomeScreenProps } from './screens/HomeScreen'
 import { PullRequestsScreen } from './screens/PullRequestsScreen'
 import { SessionsScreen } from './screens/SessionsScreen'
 import { SubagentSheet } from './screens/sessions/SubagentView'
 import { TicketsScreen } from './screens/TicketsScreen'
-import { onAttention, sessionSnapshot, setExternalViewing, setViewing, startStore, useSessions, type SessionData } from './store'
+import { awaitingAnswer, getSessions, hydrateFromMain, onAttention, sessionSnapshot, setExternalViewing, setViewing, startStore, useSessions, type SessionData } from './store'
 import { errorText } from './lib/errorText'
 import { quickSessionPlan } from './lib/quickSession'
 import { createQuickSessionGate } from './lib/quickSessionGate'
 import { abbreviateFolder } from './lib/sessionHeader'
-import { startPromptQueue } from './promptQueue'
+import { startPromptQueue, submitPrompt } from './promptQueue'
 
 /** Applies the appearance preferences to <html> and tells the main process (native chrome). */
 function useTheme(): 'light' | 'dark' {
@@ -70,7 +78,8 @@ function Shell() {
   const platform = usePlatform()
   const theme = useTheme()
   const snap = useConfig()
-  const sessionMap = useSessions()
+  // The rows, not every session: the shell (sidebar, toolbar, screens) skips the flushes of a streaming reply.
+  const sessions = useSessionRows()
   const accountUsage = useAccountUsage()
   const [route, setRoute] = useState<Route>('home')
   // History and Pull requests stay mounted once visited: filters, selection and loaded lists survive a trip elsewhere.
@@ -90,11 +99,14 @@ function Shell() {
   const [renaming, setRenaming] = useState<SessionView | null>(null)
   const [resumeFolder, setResumeFolder] = useState<string | null>(null)
   const [closing, setClosing] = useState<SessionData | null>(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   // Sessions shown in windows of their own: the main window shows a placeholder for them.
   const detached = useDetachedSessions()
 
   useEffect(() => {
     startStore()
+    // A reloaded window (after a crash, or "Reload window") gets its chats back from main.
+    void hydrateFromMain()
     // Listening now: main reopens the sessions of the last run, whose resumed chats replay here.
     window.hub.sessions.ready()
     startPromptQueue()
@@ -141,24 +153,17 @@ function Shell() {
     if (snap && !reachable.some((i) => i.route === route)) setRoute('home')
   }, [snap, reachable, route])
 
-  const sessions = useMemo(() => Object.values(sessionMap).sort((a, b) => b.view.startedAt - a.view.startedAt), [sessionMap])
   // A session in its own window is not mounted here too: one terminal per session, one size.
   const docked = useMemo(() => sessions.filter((s) => !detached.has(s.view.id)), [sessions, detached])
 
   const groups = snap?.config.sessionGroups ?? EMPTY_SESSION_GROUPS
-  // The sessions as rows: a new array only when a row changes (a view, a flag, the prompt that names it),
-  // not on every flush of a streaming reply. The tray and the group-member effects read these.
-  const rowsRef = useRef(sessions)
-  if (!sameRows(rowsRef.current, sessions)) rowsRef.current = sessions
-  const rows = rowsRef.current
-  const listed = useMemo(() => listSessions(rows), [rows])
+  const listed = useMemo(() => listSessions(sessions), [sessions])
   const liveKeys = useMemo(() => listed.map((s) => s.key), [listed])
   // Latest values for callbacks that outlive a render (notifications, opening a session).
-  const latest = useRef({ sessions, groups, snap, t, tn, liveKeys })
-  latest.current = { sessions, groups, snap, t, tn, liveKeys }
+  const latest = useRef({ groups, snap, t, tn, liveKeys })
+  latest.current = { groups, snap, t, tn, liveKeys }
   usePrEventNotifications(() => latest.current)
   useChatNotices()
-  useReadAloud(sessionMap, appOptions(snap?.config ?? { options: undefined }), platform)
   useAiReviewNotices()
   // An automation moved a session's sidebar place in the stored config.
   useEffect(() => window.hub.automations.onConfigChanged(() => void refreshConfig()), [])
@@ -167,7 +172,7 @@ function Shell() {
     setSelectedSession(id)
     setRoute('sessions')
     // Opening a session from anywhere (Home, a ticket, a notification) shows it: its group unfolds.
-    const view = latest.current.sessions.find((s) => s.view.id === id)?.view
+    const view = getSessions()[id]?.view
     const group = view && groupOf(latest.current.groups, sessionIdentity(view))
     if (group?.collapsed) void updateGroups((g) => setGroupCollapsed(g, group.id, false), latest.current.liveKeys)
   }, [])
@@ -177,6 +182,8 @@ function Shell() {
   // Session windows: "Move to Main Window" selects the session here; a focused one counts as seen;
   // a new one starts from the chat this window holds.
   useEffect(() => window.hub.windows.onShowSession(openSession), [openSession])
+  // Docked back: the chat followed the session's events meanwhile, but main's journal is the whole of it.
+  useEffect(() => window.hub.windows.onShowSession((id) => void hydrateFromMain(id)), [])
   useEffect(() => window.hub.windows.onFocusedSession(setExternalViewing), [])
   useEffect(() => window.hub.windows.onSnapshotRequest((requestId, id) => window.hub.windows.replySnapshot(requestId, sessionSnapshot(id))), [])
 
@@ -192,9 +199,10 @@ function Shell() {
   useEffect(
     () =>
       onAttention((id, kind) => {
-        const { sessions: all, groups: stored, snap: config, t: tr } = latest.current
+        const { groups: stored, snap: config, t: tr } = latest.current
         const options = appOptions(config?.config ?? { options: undefined })
-        const data = all.find((s) => s.view.id === id)
+        // The store's own copy: the rows the shell renders may hold an older chat.
+        const data = getSessions()[id]
         // An AI reviewer's turns are reported by the review itself (Review panel and its notices).
         if (!data || data.view.readOnly || !options[NOTIFY_OPTION[kind]]) return
         const group = groupOf(stored, sessionIdentity(data.view))
@@ -297,17 +305,39 @@ function Shell() {
     [newSession, openSession, toast]
   )
   // The menu bar / notification area icon: it lists the sessions and opens screens and starts a new session.
-  useTraySync({ sessions: rows, groups, locale, navigate, newSession: () => void quickSession() })
+  useTraySync({ sessions, groups, locale, navigate, newSession: () => void quickSession() })
 
   // The application menu (main sends its commands to the window they act on).
-  const menuState = useRef({ route, selectedSession, reachable, sessions })
-  menuState.current = { route, selectedSession, reachable, sessions }
+  const menuState = useRef({ route, selectedSession, reachable, groups, listed })
+  menuState.current = { route, selectedSession, reachable, groups, listed }
   useEffect(
     () =>
       window.hub.menu.onCommand((command: MenuCommand) => {
-        const { route: now, selectedSession: selected, reachable: items, sessions: all } = menuState.current
-        const current = now === 'sessions' ? all.find((s) => s.view.id === selected) : undefined
+        const { route: now, selectedSession: selected, reachable: items, groups: stored, listed: open } = menuState.current
+        const current = now === 'sessions' ? getSessions()[selected ?? ''] : undefined
+        const viewing = now === 'sessions' ? selected : null
         switch (command.kind) {
+          case 'stepSession': {
+            const id = stepSession(sidebarSessionOrder(stored, open).map((d) => d.view.id), viewing, command.step)
+            if (id) openSession(id)
+            return
+          }
+          case 'nextNeedsYou': {
+            const order = sidebarSessionOrder(stored, open).map((d) => ({ id: d.view.id, attention: { state: d.view.state, unseen: d.unseen, awaitingAnswer: awaitingAnswer(d) } }))
+            const id = nextNeedingYou(order, viewing)
+            if (id) openSession(id)
+            else toast(latest.current.t('keyboard.noneNeedsYou'))
+            return
+          }
+          case 'answerRequest':
+            if (current) requestAnswerFocus(current.view.id)
+            return
+          case 'findInChat':
+            if (current) requestFind(current.view.id)
+            return
+          case 'commandPalette':
+            setPaletteOpen(true)
+            return
           case 'navigate': {
             const item = items.find((i) => i.route === command.route)
             if (item) navigate(item.route)
@@ -330,8 +360,31 @@ function Shell() {
             return
         }
       }),
-    [navigate, quickSession]
+    [navigate, quickSession, openSession, toast]
   )
+
+  // ⌘K: sessions in sidebar order, the screens, then actions and Settings (its sections, and its search index once typing).
+  const paletteItems = useMemo((): PaletteEntry[] => {
+    if (!paletteOpen) return []
+    const sessionItems = sidebarSessionOrder(groups, listed).map((d): PaletteEntry => {
+      const level = statusLevel({ state: d.view.state, unseen: d.unseen, awaitingAnswer: awaitingAnswer(d) })
+      const detail = [folderName(d.view.cwd), d.view.agentName, level ? t(LEVEL_LABEL[level]) : ''].filter(Boolean).join(' · ')
+      return { id: `session:${d.view.id}`, kind: 'session', label: sessionLabel(d), detail, run: () => openSession(d.view.id) }
+    })
+    const screens = reachable
+      .filter((i) => i.route !== 'settings')
+      .map((i): PaletteEntry => ({ id: `screen:${i.route}`, kind: 'screen', label: t(ROUTE_LABEL[i.route]), run: () => navigate(i.route) }))
+    const sections = SETTINGS_SECTIONS.map((s): PaletteEntry => ({ id: `settings:${s.id}`, kind: 'setting', label: t('palette.settingsSection', { section: t(s.label) }), run: () => openSettings(s.id) }))
+    const seen = new Set<string>()
+    const rows = SETTINGS_INDEX.flatMap((entry): PaletteEntry[] => {
+      const key = hitKey(entry)
+      if (seen.has(key)) return []
+      seen.add(key)
+      const where = [t(sectionMeta(entry.section).label), entry.subgroup && entry.subgroup !== entry.label ? t(entry.subgroup) : ''].filter(Boolean).join(' · ')
+      return [{ id: `setting:${key}`, kind: 'setting', label: t(entry.label), detail: where, searchOnly: true, run: () => openSettings(entry.section) }]
+    })
+    return [...sessionItems, ...screens, { id: 'action:newSession', kind: 'action', label: t('toolbar.newSession'), run: () => void quickSession() }, ...sections, ...rows]
+  }, [paletteOpen, groups, listed, reachable, t, openSession, navigate, openSettings, quickSession])
 
   // CmdOrCtrl shortcuts for every nav item, plus CmdOrCtrl+T for a new session (Workhub 1's keys).
   useEffect(() => {
@@ -405,29 +458,34 @@ function Shell() {
   useEffect(() => window.hub.flowMaps.onAsk((draft, folder) => void investigateRef.current(draft, folder)), [])
 
   // A pull request or ticket window (or screen) asked for a session: open it, or start one with a drafted, unsent prompt.
+  // "Fix CI" / "Address review comments" send theirs (the user clicked), asking first when a session would have to start.
   const linkDeps = useRef<Pick<IntentDeps, 'agents' | 'profile' | 'sessions' | 'locale'>>({ agents, profile, sessions, locale })
   linkDeps.current = { agents, profile, sessions, locale }
-  useEffect(
-    () =>
-      window.hub.links.onIntent((intent: SessionIntent) => {
-        const deps: IntentDeps = {
-          ...linkDeps.current,
-          checkouts: (profileId) => window.hub.links.checkouts(profileId),
-          providers: async (profileId) => keyProviders(await window.hub.tickets.status(profileId)),
-          defaultCwd: () => window.hub.getDefaultCwd(),
-          model: (agentKey) => readPrefs().models[agentKey],
-          start: (input) => window.hub.sessions.start(input),
-          setDraft: setComposerDraft
-        }
-        void runIntent(deps, intent).then((outcome) => {
-          const tr = latest.current.t
-          if (outcome.kind === 'error') return toast(tr(outcome.message, outcome.params), 'danger')
-          openSession(outcome.sessionId)
-          toast(outcome.kind === 'opened' ? tr('links.opened') : outcome.drafted ? tr('links.drafted') : tr('links.started', { folder: outcome.folder }))
-        })
-      }),
+  const [prOffer, setPrOffer] = useState<PrPromptOffer | null>(null)
+  const carryOut = useCallback(
+    (intent: SessionIntent) => {
+      const deps: IntentDeps = {
+        ...linkDeps.current,
+        checkouts: (profileId) => window.hub.links.checkouts(profileId),
+        providers: async (profileId) => keyProviders(await window.hub.tickets.status(profileId)),
+        defaultCwd: () => window.hub.getDefaultCwd(),
+        model: (agentKey) => readPrefs().models[agentKey],
+        start: (input) => window.hub.sessions.start(input),
+        setDraft: setComposerDraft,
+        send: (sessionId, text, state) => submitPrompt(sessionId, state, false, text) !== 'refused'
+      }
+      void runIntent(deps, intent).then((outcome: IntentOutcome) => {
+        const tr = latest.current.t
+        if (outcome.kind === 'error') return toast(tr(outcome.message, outcome.params), 'danger')
+        if (outcome.kind === 'offer') return setPrOffer(outcome)
+        openSession(outcome.sessionId)
+        if (outcome.kind === 'sent') return toast(outcome.started ? tr('prFeedback.startedSent', { folder: outcome.started.folder }) : tr('prFeedback.sent'))
+        toast(outcome.kind === 'opened' ? tr('links.opened') : outcome.drafted ? tr('links.drafted') : tr('links.started', { folder: outcome.folder }))
+      })
+    },
     [openSession, toast]
   )
+  useEffect(() => window.hub.links.onIntent(carryOut), [carryOut])
 
   const layout = usePrefs()
   const selectProfile = async (id: string) => {
@@ -484,11 +542,13 @@ function Shell() {
           sidebarHidden={layout.sidebarHidden}
           onToggleSidebar={() => setPrefs({ sidebarHidden: !layout.sidebarHidden })}
         />
+        <ConfigLoadErrorBanner snap={snap} />
+        <QuitPendingBanner />
         <main className="relative min-h-0 flex-1">
           {/* Sessions stay mounted so terminals and chats survive a visit to another screen. */}
           <div className={route === 'sessions' ? 'relative h-full' : 'hidden'}>
             <SessionsScreen sessions={docked} selectedId={selectedSession} visible={route === 'sessions'} theme={theme} onNewSession={() => void quickSession()} />
-            {selectedSession && detached.has(selectedSession) && <DetachedSessionNotice data={sessionMap[selectedSession]} />}
+            {selectedSession && detached.has(selectedSession) && <DetachedSessionNotice data={sessions.find((s) => s.view.id === selectedSession)} />}
           </div>
           {kept.map((r) => (
             <div key={r} className={r === route ? SCREEN_PANE : 'hidden'}>
@@ -502,9 +562,8 @@ function Shell() {
           {route !== 'sessions' && route !== 'settings' && !KEPT_ROUTES.has(route) && (
             <div key={route} className={SCREEN_PANE}>
               {route === 'home' ? (
-                <HomeScreen
+                <LiveHomeScreen
                   profile={profile}
-                  sessions={sessions}
                   usage={accountUsage}
                   onOpenSession={openSession}
                   onOpenSettings={openSettings}
@@ -552,12 +611,35 @@ function Shell() {
         onStarted={openSession}
       />
       <SubagentSheet />
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} />
+      <ReadAloud options={appOptions(snap?.config ?? { options: undefined })} platform={platform} />
       <RenameSessionDialog session={renaming} onClose={() => setRenaming(null)} />
       <UpdatePromptDialog />
+      <PrPromptOfferDialog
+        offer={prOffer}
+        onClose={() => setPrOffer(null)}
+        onStart={(offer) => {
+          setPrOffer(null)
+          carryOut({ ...offer.intent, start: true })
+        }}
+      />
       <ResumeSheet folder={resumeFolder} profileId={activeProfileId} onClose={() => setResumeFolder(null)} onOpened={openSession} />
       {closing && <CloseSessionDialog session={closing} working={isWorking(closing)} onDone={() => setClosing(null)} onError={(message) => toast(message, 'danger')} />}
     </div>
   )
+}
+
+/** Reads finished replies aloud. It follows every session's chat, so it renders on its own, not with the shell. */
+function ReadAloud({ options, platform }: { options: Parameters<typeof useReadAloud>[1]; platform: Parameters<typeof useReadAloud>[2] }) {
+  useReadAloud(useSessions(), options, platform)
+  return null
+}
+
+/** Home shows what each session waits for, read from its chat: it follows the sessions itself, while it is open. */
+function LiveHomeScreen(props: Omit<HomeScreenProps, 'sessions'>) {
+  const all = useSessions()
+  const sessions = useMemo(() => sessionRows(all), [all])
+  return <HomeScreen {...props} sessions={sessions} />
 }
 
 export function App() {

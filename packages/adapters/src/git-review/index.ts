@@ -10,10 +10,11 @@
 import { execFile } from 'node:child_process'
 import { mkdir, readdir, rm, stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
+import { GIT_HARDENING } from '../git-hardening'
 import { repoSlugOfRemote, type LocalChanges, type RepoChanges, type RepoFacts } from '@workhub/core'
 
-/** Options every call adds: no hooks, no pager, no colors (external diff tools are refused per diff command). */
-const SAFE = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.pager=cat', '-c', 'color.ui=false']
+/** Options every call adds: no hooks, no pager, no colors, paths unescaped, plus the hardening every git call on an agent-writable folder gets (external diff tools are refused per diff command). */
+const SAFE = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.pager=cat', '-c', 'color.ui=false', '-c', 'core.quotePath=false', ...GIT_HARDENING]
 
 export interface GitResult {
   ok: boolean
@@ -95,7 +96,7 @@ export class GitReview {
    * probes often); `refreshBase` fetches before a round.
    */
   async resolveBase(root: string, base: string): Promise<{ name: string; ref: string } | null> {
-    const exists = async (ref: string) => (await this.out(root, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])) !== null
+    const exists = async (ref: string) => (await this.out(root, ['rev-parse', '--verify', '--quiet', '--end-of-options', `${ref}^{commit}`])) !== null
     if (await exists(`refs/remotes/origin/${base}`)) return { name: base, ref: `origin/${base}` }
     if (await exists(`refs/heads/${base}`)) return { name: base, ref: base }
     const head = await this.out(root, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'])
@@ -122,7 +123,7 @@ export class GitReview {
     const remotes = await this.remotes(root)
     if (!remotes.length) return { ok: false, reason: 'the repository has no remote' }
     const remote = remotes.includes('origin') ? 'origin' : remotes[0]!
-    const r = await this.git(root, ['fetch', '--quiet', '--no-tags', '--no-recurse-submodules', remote, base], { timeoutMs })
+    const r = await this.git(root, ['fetch', '--quiet', '--no-tags', '--no-recurse-submodules', '--end-of-options', remote, base], { timeoutMs })
     if (r.ok) return { ok: true, remote }
     if (r.timedOut) return { ok: false, reason: `git fetch timed out after ${Math.round(timeoutMs / 1000)} s` }
     const line = r.stderr.split('\n').map((l) => l.trim()).filter(Boolean).find((l) => !l.startsWith('hint:')) ?? 'git fetch failed'
@@ -137,7 +138,7 @@ export class GitReview {
     if (!headSha) return null
     const branch = (await this.out(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'])) || null
     const resolved = await this.resolveBase(root, base)
-    const ahead = resolved ? Number.parseInt((await this.out(root, ['rev-list', '--count', `${resolved.ref}..HEAD`])) ?? '0', 10) || 0 : 0
+    const ahead = resolved ? Number.parseInt((await this.out(root, ['rev-list', '--count', '--end-of-options', `${resolved.ref}..HEAD`])) ?? '0', 10) || 0 : 0
     const status = await this.git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=normal'])
     const dirtyFiles = status.ok ? parseStatus(status.stdout) : []
     return { root, branch, headSha, base: resolved?.name ?? base, baseRef: resolved?.ref ?? null, ahead, dirty: dirtyFiles.length > 0, dirtyFiles }
@@ -224,27 +225,27 @@ export class GitReview {
   }
 
   async mergeBase(root: string, a: string, b: string): Promise<string | null> {
-    return this.out(root, ['merge-base', a, b])
+    return this.out(root, ['merge-base', '--end-of-options', a, b])
   }
 
   /** Whether `ancestor` is an ancestor of `sha` (a rebase or force-push breaks the delta). */
   async isAncestor(root: string, ancestor: string, sha: string): Promise<boolean> {
-    return (await this.git(root, ['merge-base', '--is-ancestor', ancestor, sha])).ok
+    return (await this.git(root, ['merge-base', '--is-ancestor', '--end-of-options', ancestor, sha])).ok
   }
 
   /** `<short sha> <subject>` per commit in `from..to`, oldest first. */
   async commits(root: string, from: string, to: string, limit = 200): Promise<string[]> {
-    const out = await this.out(root, ['log', '--no-color', '--reverse', `--max-count=${limit}`, '--format=%h %s', `${from}..${to}`])
+    const out = await this.out(root, ['log', '--no-color', '--reverse', `--max-count=${limit}`, '--format=%h %s', '--end-of-options', `${from}..${to}`])
     return out ? out.split('\n').filter(Boolean) : []
   }
 
   async diffStat(root: string, from: string, to: string): Promise<string> {
-    return (await this.out(root, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '-M', '--stat=160', from, to])) ?? ''
+    return (await this.out(root, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '-M', '--stat=160', '--end-of-options', from, to])) ?? ''
   }
 
   /** The diff, cut at `maxChars` on a line boundary. */
   async diff(root: string, from: string, to: string, maxChars: number): Promise<{ text: string; truncated: boolean }> {
-    const text = (await this.out(root, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '-M', from, to], { maxBuffer: 256 * 1024 * 1024 })) ?? ''
+    const text = (await this.out(root, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '-M', '--end-of-options', from, to], { maxBuffer: 256 * 1024 * 1024 })) ?? ''
     return truncateDiff(text, maxChars)
   }
 
@@ -255,20 +256,20 @@ export class GitReview {
   async checkout(root: string, path: string, sha: string): Promise<void> {
     const listed = (await this.out(root, ['worktree', 'list', '--porcelain'])) ?? ''
     if (listed.split('\n').some((l) => l === `worktree ${path}`)) {
-      const r = await this.git(path, ['checkout', '--quiet', '--detach', '--force', sha])
+      const r = await this.git(path, ['checkout', '--quiet', '--detach', '--force', '--end-of-options', sha])
       if (r.ok) return
       await this.remove(root, path)
     }
     await rm(path, { recursive: true, force: true })
     await this.git(root, ['worktree', 'prune'])
     await mkdir(dirname(path), { recursive: true })
-    const r = await this.git(root, ['worktree', 'add', '--quiet', '--detach', '--force', path, sha])
+    const r = await this.git(root, ['worktree', 'add', '--quiet', '--detach', '--force', '--end-of-options', path, sha])
     if (!r.ok) throw new Error(`git worktree add failed: ${r.stderr.trim() || 'unknown error'}`)
   }
 
   /** Drops the review worktree; the dev's own checkout is never touched. */
   async remove(root: string, path: string): Promise<void> {
-    await this.git(root, ['worktree', 'remove', '--force', path])
+    await this.git(root, ['worktree', 'remove', '--force', '--end-of-options', path])
     await rm(path, { recursive: true, force: true })
     await this.git(root, ['worktree', 'prune'])
   }

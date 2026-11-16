@@ -1,6 +1,7 @@
 import { webEn } from './web.en'
 import { remoteEn } from './remote.en'
 import { linksEn } from './links.en'
+import { prFeedbackEn } from './prFeedback.en'
 import { aiReviewEn } from './aiReview.en'
 import { sessionsUxEn } from './sessionsUx.en'
 import { sessionMonitorEn } from './sessionMonitor.en'
@@ -14,6 +15,7 @@ import { automationsEn } from './automations.en'
 import { prEn } from './pullRequests.en'
 import { ticketsEn } from './tickets.en'
 import { updatesEn } from './updates.en'
+import { quitGuardEn } from './quitGuard.en'
 import { setupEn } from './setup.en'
 import { usageEn } from './usage.en'
 import { continuityEn } from './continuity.en'
@@ -30,6 +32,11 @@ import { windowsEn } from './windows.en'
 import { slashCommandsEn } from './slashCommands.en'
 import { storageEn } from './storage.en'
 import { usageReportsEn } from './usageReports.en'
+import { keyboardEn } from './keyboard.en'
+import { chatToolsEn } from './chatTools.en'
+import { sessionRequestsEn } from './sessionRequests.en'
+import { webChangesEn } from './webChanges.en'
+import { agentChangesEn } from './agentChanges.en'
 import { localReviewEn } from './localReview.en'
 import { unsavedEn } from './unsaved.en'
 import { planEn } from './plan.en'
@@ -199,6 +206,9 @@ export const en = {
   'home.tokensByFolder': 'Token spend by folder',
   'home.tokensByFolderMeta': 'tokens · last {days} days',
   'home.tokensByFolderEmpty': 'No agent activity in this profile\'s folders in the last {days} days',
+  'home.tokensBackground': 'Workhub background',
+  'home.tokensBackgroundValue': '{tokens} tokens · {usd}',
+  'home.tokensBackgroundHelp': 'Model runs Workhub starts by itself (Slack watcher reads, Listen summaries), every profile together. Usage and reports counts them as "Workhub background".',
   'home.tokensByFolderLoading': 'Reading transcripts…',
   'home.tokensByFolderNoFolders': 'No folders in this profile: add them in Settings → Profiles',
   'home.tokensByFolderRoot': '{name} (root)',
@@ -293,6 +303,11 @@ export const en = {
 
   'settings.saved': 'Saved',
   'settings.loadError': 'The config file could not be loaded; editing is off until it is fixed.',
+  'configLoad.title': 'Workhub could not read its config file',
+  'configLoad.body': 'Your profiles, accounts and connections are not shown and nothing is saved until the file loads. Fix the file (or restore a backup), then try again.',
+  'configLoad.file': 'File: {path}',
+  'configLoad.retry': 'Try again',
+  'configLoad.stillFailing': 'The config file still could not be loaded',
   'settings.general': 'General',
   'settings.appearance': 'Appearance',
   'settings.profiles': 'Profiles',
@@ -400,7 +415,10 @@ export const en = {
   'chat.permissionWithdrawn': 'The agent withdrew the request',
   'chat.resumedHere.one': '{count} earlier message · resumed here',
   'chat.resumedHere.other': '{count} earlier messages · resumed here',
-  'chat.imageRejected': 'Some pasted images were left out: only PNG, JPEG, GIF or WebP up to 5 MB.',
+  'chat.truncated': 'Earlier messages are not shown',
+  'chat.showEarlier': 'Show earlier messages',
+  'chat.jumpToLatest': 'Jump to latest',
+  'chat.imageRejected': 'Some pasted images were left out: only PNG, JPEG, GIF or WebP up to {size} MB each.',
   'chat.attached': 'Attached images',
   'chat.placeholderQueue': 'The agent is working… a message sent now waits for its turn to end',
   'chat.placeholderInject': 'The agent is working… a message sent now joins its turn',
@@ -439,7 +457,7 @@ export const en = {
   'history.loading': 'Reading the sessions…',
   'history.empty': 'No sessions yet',
   'history.noMatch': 'No session matches the search or the filters',
-  'history.emptyDescription': 'The sessions of Claude Code, Kiro, OpenCode and Codex show up here, grouped by folder. Only Claude Code sessions can be resumed.',
+  'history.emptyDescription': 'The sessions of Claude Code, Kiro, OpenCode and Codex show up here, grouped by folder. Claude Code sessions resume; Kiro, OpenCode and Codex sessions resume when the agent can load a stored session.',
   'history.noFolder': 'No folder',
   'history.untitled': 'Untitled session',
   'history.resume': 'Resume',
@@ -447,6 +465,8 @@ export const en = {
   'history.accountFailed': '{account}: the sessions could not be listed ({message})',
   'history.showMore.one': 'Show more ({count} more session)',
   'history.showMore.other': 'Show more ({count} more sessions)',
+  'history.truncated': 'Older sessions are listed only if they are already indexed for search.',
+  'history.loadOlder': 'List older sessions',
   'history.indexing': 'Indexing… {done}/{total} · results may be incomplete',
   'history.results': 'Search results',
   'history.resultsPending': 'Matches in titles, prompts and folders; searching the conversations…',
@@ -459,6 +479,7 @@ export const en = {
   ...prEn,
   ...ticketsEn,
   ...updatesEn,
+  ...quitGuardEn,
   ...setupEn,
   ...healthEn,
   ...metricAlertsEn,
@@ -466,6 +487,7 @@ export const en = {
   ...healthPromptsEn,
   ...prEventsEn,
   ...linksEn,
+  ...prFeedbackEn,
   ...slackEn,
   ...automationsEn,
   ...usageEn,
@@ -499,5 +521,10 @@ export const en = {
   ...settingsConnectionsEn,
   ...remoteEn,
   ...webEn,
-  ...usageReportsEn
+  ...usageReportsEn,
+  ...keyboardEn,
+  ...chatToolsEn,
+  ...sessionRequestsEn,
+  ...webChangesEn,
+  ...agentChangesEn
 } as const

@@ -9,6 +9,7 @@ import {
   type EffectiveAgent,
   type LinkableSession,
   type Profile,
+  type SessionState,
   type TicketKeyProvider
 } from '@workhub/core'
 import type { HistoryItem, StartSessionInput } from '@shared/api'
@@ -55,9 +56,14 @@ export async function resumeInput(profileId: string | null, e: HistoryItem, mode
   return { profileId, agentKey, cwd: e.cwd || (await defaultCwd()), mode, resumeAgentSessionId: e.agentSessionId, model: model(agentKey), cols: 100, rows: 30 }
 }
 
+export type PullRequestPromptIntent = Extract<SessionIntent, { kind: 'pullRequestPrompt' }>
+
 export type IntentOutcome =
   | { kind: 'opened'; sessionId: string }
   | { kind: 'started'; sessionId: string; folder: string; drafted: boolean }
+  | { kind: 'sent'; sessionId: string; started?: { folder: string } }
+  /** No session is linked to the PR: the user is asked before one starts in `folder`. */
+  | { kind: 'offer'; intent: PullRequestPromptIntent; folder: string; onBranch: boolean }
   | { kind: 'error'; message: MessageKey; params?: Params }
 
 /** The things an intent needs from the app; injected so the logic runs (and is tested) without Electron. */
@@ -71,9 +77,14 @@ export interface IntentDeps {
   providers: (profileId: string | null) => Promise<TicketKeyProvider[]>
   defaultCwd: () => Promise<string>
   model: (agentKey: string) => string | undefined
-  start: (input: StartSessionInput) => Promise<{ id: string }>
+  start: (input: StartSessionInput) => Promise<{ id: string; state?: SessionState }>
   /** Puts text in the composer of a session. It must never send it. */
   setDraft: (sessionId: string, text: string) => void
+  /**
+   * Sends a prompt the user asked for with a click ("Fix CI"): straight away, or queued until the
+   * session is ready. False when the session takes no messages. Only `pullRequestPrompt` uses it.
+   */
+  send?: (sessionId: string, text: string, state: SessionState) => boolean
 }
 
 const failure = (message: MessageKey, params?: Params): IntentOutcome => ({ kind: 'error', message, params })
@@ -84,9 +95,34 @@ async function startDrafted(deps: IntentDeps, profileId: string | null, agent: E
   return { kind: 'started', sessionId: view.id, folder: cwd, drafted: true }
 }
 
-/** Carries out one intent. Starting is the only side effect besides the draft; no prompt is ever sent. */
+/**
+ * "Fix CI" / "Address review comments": the prompt goes to the live session linked to the PR.
+ * Without one, a session starts in the PR's repository folder only once the user agreed (`start`);
+ * a folder that is not the PR's repository is never picked.
+ */
+async function promptPullRequest(deps: IntentDeps, intent: PullRequestPromptIntent): Promise<IntentOutcome> {
+  const { pr, prompt, profileId } = intent
+  const send = deps.send
+  if (!send) return failure('prFeedback.notSent')
+  const live = liveSessionForPullRequest(pr, deps.sessions, await deps.providers(profileId))
+  if (live) {
+    const state = deps.sessions.find((s) => s.view.id === live)!.view.state
+    return send(live, prompt, state) ? { kind: 'sent', sessionId: live } : failure('prFeedback.notSent')
+  }
+  const choice = chooseFolderForPullRequest(pr, await deps.checkouts(profileId))
+  if (!choice.path || (choice.reason !== 'branch' && choice.reason !== 'repo' && choice.reason !== 'name')) return failure('prFeedback.noFolder', { repo: `${pr.owner}/${pr.repo}` })
+  if (!intent.start) return { kind: 'offer', intent, folder: choice.path, onBranch: choice.reason === 'branch' }
+  const agent = agentForDraft(deps.profile, deps.agents, false)
+  if (!agent) return failure('links.noAgent')
+  const view = await deps.start({ profileId, agentKey: agent.key, cwd: choice.path, cols: 100, rows: 30, mode: 'app', model: deps.model(agent.key) })
+  if (!send(view.id, prompt, view.state ?? 'starting')) return failure('prFeedback.notSent')
+  return { kind: 'sent', sessionId: view.id, started: { folder: choice.path } }
+}
+
+/** Carries out one intent. Starting is the only side effect besides the draft; only `pullRequestPrompt` (a click on its button) sends a prompt. */
 export async function runIntent(deps: IntentDeps, intent: SessionIntent): Promise<IntentOutcome> {
   try {
+    if (intent.kind === 'pullRequestPrompt') return await promptPullRequest(deps, intent)
     if (intent.kind === 'resume') {
       const view = await deps.start(await resumeInput(intent.profileId, intent.entry, intent.mode, deps.model, deps.defaultCwd))
       return { kind: 'opened', sessionId: view.id }

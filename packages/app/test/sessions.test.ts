@@ -15,6 +15,7 @@ import {
   type WorkhubConfig,
   type Worktrees
 } from '@workhub/core'
+import { JOURNAL_MAX_ENTRIES } from '../src/main/chat-journal'
 import { claudeAccounts } from '../src/main/claude-accounts'
 import { resolveChoice, SessionManager, ticketPrefixes, type SessionManagerDeps } from '../src/main/session-manager'
 import type { SessionView } from '../src/shared/api'
@@ -170,7 +171,7 @@ describe('SessionManager', () => {
   })
 
   it('carries where a session came from (main only), and resumes a moved session under its own id', async () => {
-    const { manager, native } = setup()
+    const { manager, native } = setup(emptyConfig(), true)
     const origin = { kind: 'failover' as const, fromLabel: 'Claude - Personal', fromIdentity: 'abc', reason: 'limit' as const }
     const view = await manager.start({ profileId: null, agentKey: 'claude', cwd: '/tmp/demo', resumeAgentSessionId: 'abc' }, { origin })
     await flush()
@@ -235,7 +236,7 @@ describe('SessionManager', () => {
   })
 
   it('replays a resumed conversation and passes images only to agents that take them', async () => {
-    const { manager, native, acp, replays } = setup()
+    const { manager, native, acp, replays } = setup(emptyConfig(), true)
     const view = await manager.start({ profileId: null, agentKey: 'claude', cwd: '/tmp/demo', resumeAgentSessionId: 'abc' })
     await flush()
     await flush()
@@ -249,6 +250,24 @@ describe('SessionManager', () => {
     ;(acp as unknown as { caps: AgentCapabilities }).caps.imageInput = false
     await manager.prompt(other.id, 'look', [{ mediaType: 'image/png', data: 'AAAA' }])
     expect(acp.prompts[0]!.images).toBeUndefined()
+  })
+
+  it('asks a resume replay for the last messages only (the chat journal cap by default) and cuts a source that returns more', async () => {
+    const asked: (number | undefined)[] = []
+    const many: HistoryMessage[] = Array.from({ length: 5 }, (_, i) => ({ kind: 'user', text: `m${i}` }))
+    const history = { claude: { list: async () => [], messages: async (_id: string, _cwd: string, _dir?: string, o?: { last?: number }) => (asked.push(o?.last), many) } }
+    const capped = setup(emptyConfig(), true, { history, replayLast: 2 })
+    const view = await capped.manager.start({ profileId: null, agentKey: 'claude', cwd: '/tmp/demo', resumeAgentSessionId: 'abc' })
+    await flush()
+    await flush()
+    expect(capped.replays).toEqual([[view.id, many.slice(-2)]])
+    // The open session's whole conversation (a phone's pages) is not cut.
+    expect(await capped.manager.history(view.id)).toHaveLength(5)
+
+    const plain = setup(emptyConfig(), true, { history })
+    await plain.manager.start({ profileId: null, agentKey: 'claude', cwd: '/tmp/demo', resumeAgentSessionId: 'abc' })
+    await flush()
+    expect(asked).toEqual([2, undefined, JOURNAL_MAX_ENTRIES])
   })
 
   it('reopens a stored session resuming its conversation only when it still exists, and never prompts', async () => {
@@ -793,6 +812,7 @@ describe('SessionManager worktrees', () => {
     const worktrees: Worktrees = {
       repoRootOf: vi.fn(async (p: string) => (p.startsWith('/w/acme') ? '/w/acme' : null)),
       create: vi.fn(async (repoRoot, o) => void created.push({ repoRoot, ...o })),
+      copyIncluded: vi.fn(async () => ({ copied: [], skipped: [], bytes: 0, found: false })),
       status: vi.fn(async () => ({ dirty: false, unpushed: 0, branch: 'feat/login' })),
       remove: vi.fn(async (repoRoot, path, o) => void removed.push([repoRoot, path, o.force])),
       ...over
@@ -809,6 +829,23 @@ describe('SessionManager worktrees', () => {
     // The subfolder does not exist in the fake worktree, so the session starts at its root.
     expect(view.cwd).toBe(wt('acme-feat-login'))
     expect(view.profileId).toBe('work')
+  })
+
+  it('bootstraps a new worktree: the copy, then the folder setup command with the session environment, and reports it', async () => {
+    const copyIncluded = vi.fn(async () => ({ copied: ['.env'], skipped: [], bytes: 10, found: true }))
+    const { worktrees } = fake({ copyIncluded })
+    const run = vi.fn(async () => ({ exitCode: 1, output: 'boom\n', timedOut: false }))
+    const cfg = config()
+    cfg.profiles[0]!.folderOptions = { '/w': { setupCommand: 'npm ci' } }
+    const { manager, events } = setup(cfg, false, { worktrees, setupRunner: run, sessionEnv: () => ({ WORKHUB_SESSION: 'x' }) })
+    const view = await manager.start({ profileId: 'work', agentKey: 'claude', cwd: '/w/acme', worktree: { branch: 'login' } })
+    await vi.waitFor(() => expect(events.some((e) => e.type === 'notice')).toBe(true))
+    expect(copyIncluded).toHaveBeenCalledWith('/w/acme', wt('acme-feat-login'))
+    expect(run).toHaveBeenCalledWith('npm ci', expect.objectContaining({ cwd: wt('acme-feat-login'), env: expect.objectContaining({ WORKHUB_SESSION: 'x' }) }))
+    const notice = events.find((e) => e.type === 'notice')
+    expect(notice).toMatchObject({ sessionId: view.id, failed: true, kind: 'warning' })
+    expect(notice && 'text' in notice ? notice.text : '').toContain('boom')
+    expect(view.state).not.toBe('error')
   })
 
   it('never creates one unasked, for a reviewer, a resumed or a reopened session', async () => {
@@ -862,5 +899,68 @@ describe('SessionManager worktrees', () => {
     await flush()
     expect(await b.manager.closeRemovingWorktree(other.id, false)).toEqual({ ok: true })
     expect(clean.removed).toEqual([['/w/acme', wt('acme-feat-b'), false]])
+  })
+})
+
+describe('resuming an ACP session', () => {
+  const kiroHistory = { kiro: { list: async () => [], messages: async (): Promise<HistoryMessage[]> => [{ kind: 'user', text: 'earlier question' }, { kind: 'agent', text: 'earlier answer' }] } }
+
+  function resumed(resumeFailed?: 'unsupported' | 'failed') {
+    const order: string[] = []
+    const env = setup(emptyConfig(), false, {
+      history: kiroHistory,
+      emitReplay: (_id, m) => order.push(`replay:${m.length}`),
+      emitEvent: (e) => {
+        if (e.type === 'notice') order.push(`notice:${e.kind}:${e.title}:${e.text}`)
+        if (e.type === 'message') order.push(`message:${e.text}`)
+      }
+    })
+    env.acp.start = async (r: StartSessionRequest) => {
+      env.acp.started.push(r)
+      env.acp.emit({ sessionId: r.sessionId, type: 'state', state: 'ready' })
+      return { agentName: 'Kiro', permissionMode: null, agentSessionId: resumeFailed ? 'new-session' : r.agentSessionId, ...(resumeFailed ? { resumeFailed } : {}) }
+    }
+    return { ...env, order }
+  }
+
+  it('asks the runtime to resume the stored id and replays the conversation once, with no notice', async () => {
+    const { manager, acp, order, last } = resumed()
+    const view = await manager.start({ profileId: null, agentKey: 'kiro', cwd: '/tmp/demo', resumeAgentSessionId: 'kiro-7' })
+    await settle()
+    expect(acp.started[0]).toMatchObject({ agentSessionId: 'kiro-7', resume: true })
+    expect(order).toEqual(['replay:2'])
+    expect(last(view.id)).toMatchObject({ agentSessionId: 'kiro-7', state: 'ready' })
+  })
+
+  it('shows the earlier conversation as history, then says a new conversation started, when the agent cannot resume', async () => {
+    const { manager, order, last } = resumed('unsupported')
+    const view = await manager.start({ profileId: null, agentKey: 'kiro', cwd: '/tmp/demo', resumeAgentSessionId: 'kiro-7' })
+    await settle()
+    expect(order).toEqual(['replay:2', expect.stringMatching(/^notice:warning:New conversation:This agent cannot resume/)])
+    // The session follows the new conversation.
+    expect(last(view.id)).toMatchObject({ agentSessionId: 'new-session', identity: 'new-session' })
+  })
+
+  it('says so as well when the load fails', async () => {
+    const { manager, order } = resumed('failed')
+    await manager.start({ profileId: null, agentKey: 'kiro', cwd: '/tmp/demo', resumeAgentSessionId: 'kiro-7' })
+    await settle()
+    expect(order).toEqual(['replay:2', expect.stringMatching(/^notice:warning:New conversation:The agent could not load/)])
+  })
+
+  it('resumes an ACP agent without a transcript reader when it is restored at launch', async () => {
+    const { manager, acp } = resumed()
+    await manager.start({ profileId: null, agentKey: 'gemini', cwd: '/tmp/demo', resumeAgentSessionId: 'gem-1' }, { restored: true })
+    await settle()
+    expect(acp.started[0]).toMatchObject({ agentSessionId: 'gem-1', resume: true })
+  })
+
+  it('opens the chat of an agent without a console when the terminal is asked for', async () => {
+    const { manager, acp, terminal, last } = resumed()
+    const view = await manager.start({ profileId: null, agentKey: 'kiro', cwd: '/tmp/demo', resumeAgentSessionId: 'kiro-7', mode: 'console' })
+    await settle()
+    expect(acp.started).toHaveLength(1)
+    expect(terminal.started).toEqual([])
+    expect(last(view.id).mode).toBe('app')
   })
 })

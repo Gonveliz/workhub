@@ -3,7 +3,8 @@
  * session files. Each round lists every history source, reads again only the sessions whose stamp
  * (transcript time and size, title) changed since they were indexed, writes them in transactions
  * of at most about 1 MB of text with a macrotask between them, and drops the sessions whose
- * transcript is gone or whose account is no longer configured. A session that could not be read
+ * transcript is gone or whose account is no longer configured (never a session only left out of a
+ * listing cut at its limit). A session that could not be read
  * is skipped until its stamp changes. Rounds run at start, every few minutes and shortly after a
  * session stops (then with a fresh listing).
  */
@@ -11,6 +12,7 @@ import type { HistoryEntry, HistoryMessage } from '@workhub/core'
 import { HISTORY_WRITE_CHARS, historyContent, historyIndexKey, historyStamp, type IndexedSession, type IndexedStamps } from '@workhub/adapters/sqlite-store'
 import type { HistoryIndexProgress, HistoryResult } from '../shared/api'
 import { historyAccountKey } from './history'
+import { jobReports } from './job-reporter'
 
 /** What the indexer needs of the index (`SqliteHistoryIndex`). */
 export interface HistoryIndexStore {
@@ -23,8 +25,9 @@ export interface HistoryIndexStore {
 export interface HistoryIndexerDeps {
   index: HistoryIndexStore
   /**
-   * Every history source's sessions; `listed` names the accounts listed completely, `accounts`
-   * every account tried. `fresh`: a session just stopped, so a listing more than a few seconds old will not do.
+   * Every history source's sessions; `listed` names the accounts whose listing has every session
+   * they still have that the index may hold (a listing cut at its limit is not, unless it adds the
+   * older indexed sessions still on disk), `accounts` every account tried. `fresh`: a session just stopped, so a listing more than a few seconds old will not do.
    */
   list: (fresh: boolean) => Promise<Pick<HistoryResult, 'entries' | 'listed' | 'accounts'>>
   /** A past session's conversation. */
@@ -52,6 +55,7 @@ export const listedKey = historyAccountKey
 export class HistoryIndexer {
   private state: HistoryIndexProgress = { indexing: false, indexed: 0, total: 0 }
   private running: Promise<void> | null = null
+  private readonly job = jobReports.job('history index')
   private again = false
   private freshNext = false
   /** Sessions that could not be read, with the stamp they had then: skipped until it changes. */
@@ -100,8 +104,10 @@ export class HistoryIndexer {
           this.freshNext = false
           await this.round(useFresh)
         } while (this.again && !this.stopped)
+        this.job.ok()
       } catch (err) {
         this.deps.log?.(`history index: ${err instanceof Error ? err.message : String(err)}`)
+        this.job.failed(err)
       } finally {
         this.running = null
         this.set({ indexing: false })

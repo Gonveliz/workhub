@@ -2,7 +2,8 @@ import { isReply } from '../chat/digest'
 import { chatEventKey, claimEvent, type EventLedger } from '../chat/ledger'
 import { isMe, pullRequestOwner, tsToMs } from '../chat/links'
 import type { ChatMessage } from '../chat/types'
-import type { AutomationDefinition, AutomationLimits, AutomationWindow } from './types'
+import type { PrEvent } from '../pr-events/types'
+import type { AutomationDefinition, AutomationLimits, AutomationWindow, PrTriggerContext } from './types'
 
 /**
  * Whether an hour (0-23) is inside `[startHour, endHour)`. A window whose start is after its end
@@ -151,6 +152,50 @@ export function chatTriggers(
       const claim = claimEvent(next, key, a.id, opts.now)
       next = claim.ledger
       if (claim.claimed) triggers.push({ automationId: a.id, eventKey: key, ...(m.permalink ? { link: m.permalink } : {}) })
+      break
+    }
+  }
+  return { ledger: next, triggers }
+}
+
+// Pull request event triggers
+
+export interface PrEventTrigger {
+  automationId: string
+  eventKey: string
+  pr: PrTriggerContext
+}
+
+/** The ledger key of a pull request event: its detector id, which already names the PR and the occurrence. */
+export function prEventKey(event: Pick<PrEvent, 'id'>): string {
+  return `pr:${event.id}`
+}
+
+/**
+ * The runs pull request events of one profile's sync fire: an automation of that profile (or of
+ * none) that listens to the event's kind, for a PR of its owner when one is set. As with chat
+ * messages, each event is claimed in the ledger first, so it fires at most one run, whichever
+ * profile or account reads it again, and the first automation in order wins.
+ */
+export function prEventTriggers(
+  automations: readonly AutomationDefinition[],
+  profileId: string | null,
+  events: readonly PrEvent[],
+  ledger: EventLedger,
+  opts: { now: number; isActive?: (a: AutomationDefinition) => boolean }
+): { ledger: EventLedger; triggers: PrEventTrigger[] } {
+  let next = ledger
+  const triggers: PrEventTrigger[] = []
+  for (const e of events) {
+    const key = prEventKey(e)
+    for (const a of automations) {
+      if (!a.enabled || (opts.isActive && !opts.isActive(a)) || !(a.triggers.prEvents ?? []).includes(e.kind)) continue
+      if (a.profileId !== null && a.profileId !== profileId) continue
+      const owner = a.triggers.prOwner.trim().toLowerCase()
+      if (owner && pullRequestOwner(e.url) !== owner) continue
+      const claim = claimEvent(next, key, a.id, opts.now)
+      next = claim.ledger
+      if (claim.claimed) triggers.push({ automationId: a.id, eventKey: key, pr: { url: e.url, title: e.title, name: e.name, kinds: [e.kind] } })
       break
     }
   }
