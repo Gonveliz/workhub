@@ -77,6 +77,11 @@ function Header({ title, subtitle }: { title: string; subtitle?: string }) {
 function SetupCheckPage() {
   const { t } = useI18n()
   const state = useSetupCheck()
+  // The goal picker reads the saved goal from the settings: without them it showed "Both" whatever was saved.
+  useEffect(() => {
+    void refreshConfig()
+    return window.hub.config.onChanged(() => void refreshConfig())
+  }, [])
   return (
     <Frame title={t('setup.title')}>
       <Header title={t('setup.title')} subtitle={t('setup.intro')} />

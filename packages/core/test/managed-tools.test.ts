@@ -124,6 +124,8 @@ describe('install queue and plan', () => {
   it('says where each download comes from, how large it is, and whether it is checked', () => {
     expect(installPlanEntry('node', win)).toEqual({ installer: 'node', source: 'nodejs.org', bytes: 41_166_246, managed: true, version: '26.13.1', checksum: true })
     expect(installPlanEntry('opencode', win)).toMatchObject({ source: 'registry.npmjs.org', managed: true, checksum: true })
+    // The install takes several times its download: the list says both.
+    expect(installPlanEntry('opencode', win)!.diskBytes).toBeGreaterThan(installPlanEntry('opencode', win)!.bytes!)
     expect(installPlanEntry('claudeCode', win)).toEqual({ installer: 'claudeCode', source: 'claude.ai', bytes: null, managed: false, version: null, checksum: false })
   })
   it('codex: fetches its adapter (with Workhub’s Node.js) where it can', () => {

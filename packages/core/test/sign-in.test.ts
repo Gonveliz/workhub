@@ -33,6 +33,12 @@ describe('parseSignInPrompt', () => {
 
   it('GitHub CLI: a code without a full address leaves the address to the tool table', () => {
     expect(parseSignInPrompt('! First copy your one-time code: AB12-CD34\nPress Enter to open github.com in your browser... ')).toEqual({ code: 'AB12-CD34', url: null })
+    // A long address is one line in what the tool prints, however the terminal wraps it; escapes
+    // of the kitty keyboard protocol (glab) are not text.
+    const long = `https://auth.example.com/oauth/authorize?response_type=code&client_id=abc&redirect_uri=http%3A%2F%2F127.0.0.1%3A1455%2Fauth%2Fcallback&state=${'s'.repeat(300)}`
+    expect(parseSignInPrompt(`${ESC}[>4;2m${ESC}[>1uIf your browser did not open, navigate to this URL to authenticate:\r\n\r\n${long}\r\n\r\nOn a remote machine? Use another flow.`)).toEqual({ code: null, url: long })
+    // gh 2.104 words it differently and copies the code itself.
+    expect(parseSignInPrompt('! One-time code (AB12-CD34) copied to clipboard\nPress Enter to open https://github.com/login/device in your browser... ')).toEqual({ code: 'AB12-CD34', url: 'https://github.com/login/device' })
   })
 
   it('Codex device flow: the code is on the line after its label', () => {

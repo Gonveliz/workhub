@@ -74,6 +74,13 @@ export function useSetupCheck(): SetupState {
 
 /** Home reads the check at most this often: it runs a dozen commands. */
 export const SETUP_PROBLEMS_MAX_AGE_MS = 5 * 60_000
+/** While Home shows a problem, coming back to the window reads it again after this long: the fix is usually made in another window. */
+export const SETUP_PROBLEMS_RECHECK_MS = 10_000
+
+/** Whether coming back to the window should read the check again: only while a problem shows, and not more often than the short age. */
+export function recheckOnFocus(last: { at: number; count: number } | null, now: number): boolean {
+  return last !== null && last.count > 0 && now - last.at >= SETUP_PROBLEMS_RECHECK_MS
+}
 let lastProblems: { at: number; count: number } | null = null
 
 /**
@@ -101,5 +108,21 @@ export function useSetupProblems(needsKey: string): number | null {
       live = false
     }
   }, [needsKey])
+  useEffect(() => {
+    const onFocus = () => {
+      if (!recheckOnFocus(lastProblems, Date.now())) return
+      // Marked read now, so a burst of focus events starts one check.
+      lastProblems = { at: Date.now(), count: lastProblems!.count }
+      window.hub.setup.run().then(
+        (items) => {
+          lastProblems = { at: Date.now(), count: problemCount(items) }
+          setCount(lastProblems.count)
+        },
+        () => undefined
+      )
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [])
   return count
 }

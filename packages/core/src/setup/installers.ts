@@ -74,12 +74,14 @@ export const INSTALLERS: Record<InstallerId, Partial<Record<InstallPlatform, rea
     linux: [run('curl -fsSL https://claude.ai/install.sh | bash')],
     win32: [run('irm https://claude.ai/install.ps1 | iex')]
   },
-  // https://github.com/openai/codex (install scripts), checked 2026-11-16. Sessions run the ACP
-  // adapter through npx; this binary is Codex's own command line (its sign-in).
+  // https://github.com/openai/codex (npm package and install scripts), checked 2026-11-16. Sessions
+  // run the ACP adapter through npx; this is Codex's own command line (its sign-in). Installed with
+  // Workhub's own Node.js where it can, so it is on the app's PATH at once (on Windows a script's
+  // change to the PATH is only seen after the app starts again).
   codex: {
-    darwin: [run('curl -fsSL https://chatgpt.com/codex/install.sh | sh')],
-    linux: [run('curl -fsSL https://chatgpt.com/codex/install.sh | sh')],
-    win32: [run('powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"')]
+    darwin: [managed('codex'), run('curl -fsSL https://chatgpt.com/codex/install.sh | sh')],
+    linux: [managed('codex'), run('curl -fsSL https://chatgpt.com/codex/install.sh | sh')],
+    win32: [managed('codex'), run('powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"')]
   },
   // https://kiro.dev/docs/getting-started/installation/ (macOS install script; Linux packages and Windows have no one-line command there), checked 2026-11-16
   kiro: {
@@ -209,6 +211,8 @@ export interface InstallPlanEntry {
   source: string
   /** About how many bytes it downloads; null when the install script does not say. */
   bytes: number | null
+  /** About how many bytes it takes once installed, when that is known and far more than the download. */
+  diskBytes?: number
   /** Installed into Workhub's tools folder (no administrator rights, removable in Settings). */
   managed: boolean
   version: string | null
@@ -222,7 +226,7 @@ export function installPlanEntry(installer: InstallerId, context: InstallContext
   const id = method.managed
   if (id && isManagedToolId(id)) {
     const tool = MANAGED_TOOLS[id]
-    if (tool.kind === 'npm') return { installer, source: 'registry.npmjs.org', bytes: tool.bytes, managed: true, version: null, checksum: true }
+    if (tool.kind === 'npm') return { installer, source: 'registry.npmjs.org', bytes: tool.bytes, ...(tool.diskBytes ? { diskBytes: tool.diskBytes } : {}), managed: true, version: null, checksum: true }
     const download = managedDownload(id, context.platform, context.arch)
     if (!download) return null
     return { installer, source: installSource(download.url) ?? '', bytes: download.bytes, managed: true, version: tool.version, checksum: true }

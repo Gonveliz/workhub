@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { statSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import {
   agentItem,
@@ -26,6 +26,7 @@ import {
   type SetupItem,
   type WorkhubConfig
 } from '@workhub/core'
+import { planSpawn } from '@workhub/adapters/spawn-plan'
 import { claudeAccounts, claudeConfigDirOf } from './claude-accounts'
 
 /** Seconds a command-line check may take. */
@@ -56,13 +57,17 @@ export function probe(command: string, args: string[], options: { env?: NodeJS.P
   return new Promise((done) => {
     const env = options.env ?? process.env
     // cmd.exe reports a missing command as an ordinary failure (localized text, exit code 1), so on
-    // Windows the command is looked up first; only `.cmd`/`.bat` shims need the shell.
+    // Windows the command is looked up first; only `.cmd`/`.bat` shims need the shell. The line for
+    // cmd.exe is built as for a session: with `shell: true` Node joins the path and the arguments
+    // unquoted, and a shim in a folder with a space in its name ("Program Files", Workhub's own
+    // tools folder) is then cut at the space and reported as failed.
     const found = process.platform === 'win32' ? findOnWindowsPath(command, env) : command
     if (!found) return done({ result: 'notFound', output: '' })
+    const plan = planSpawn(found, args)
     execFile(
-      found,
-      args,
-      { env, timeout: options.timeoutMs ?? SETUP_TIMEOUT_MS, windowsHide: true, maxBuffer: 1 << 20, shell: process.platform === 'win32' && /\.(cmd|bat)$/i.test(found) },
+      plan.command,
+      plan.args,
+      { env, timeout: options.timeoutMs ?? SETUP_TIMEOUT_MS, windowsHide: true, maxBuffer: 1 << 20, windowsVerbatimArguments: plan.windowsVerbatimArguments },
       (err, stdout, stderr) => {
         const output = String(stdout || stderr || '').trim()
         if (!err) return done({ result: 'ok', output })
@@ -93,6 +98,8 @@ export interface SetupServiceDeps {
   arch?: string
   /** Test seam: replaces the command runner. */
   run?: typeof probe
+  /** Test seam: whether Codex's saved sign-in exists. */
+  codexSignedIn?: () => boolean
 }
 
 /** What the install table needs to know about this machine: Homebrew and npm are checked, never assumed. */
@@ -104,6 +111,16 @@ export async function installContext(run: typeof probe, env: NodeJS.ProcessEnv, 
 /** Checks what Workhub needs on this machine. Nothing here changes any setting. */
 export class SetupService {
   constructor(private readonly deps: SetupServiceDeps) {}
+
+  /**
+   * Whether Codex has a saved sign-in, read without its command line (the adapter sessions use
+   * needs none to run): the file `codex login` writes, or an API key in the environment.
+   */
+  private codexSignedIn(): boolean {
+    if (this.deps.codexSignedIn) return this.deps.codexSignedIn()
+    const codexHome = process.env['CODEX_HOME'] || join(this.deps.home, '.codex')
+    return existsSync(join(codexHome, 'auth.json')) || Boolean(process.env['OPENAI_API_KEY'])
+  }
 
   /** Every row, in display order, with its answer. */
   async run(): Promise<SetupItem[]> {
@@ -148,7 +165,7 @@ export class SetupService {
       run('claude', ['--version'], { env: base }).then((p) => claudeCodeItem(p, ctx)),
       // Codex sessions start through npx, with the session's PATH (no login shell fallback). Its
       // sign-in is read with Codex's own command, when that is installed.
-      Promise.all([run('npx', ['--version'], { env: base }), run('node', ['--version'], { env: base }), run('codex', ['login', 'status'], { env: base })]).then(([npx, n, auth]) => codexItem(npx, n, ctx, auth)),
+      Promise.all([run('npx', ['--version'], { env: base }), run('node', ['--version'], { env: base }), run('codex', ['login', 'status'], { env: base })]).then(([npx, n, auth]) => codexItem(npx, n, ctx, auth, this.codexSignedIn())),
       run('kiro-cli', ['--version'], { env: base }).then(async (p) => agentItem('kiro', p, ctx, p.result === 'ok' ? await run('kiro-cli', ['whoami'], { env: base }) : null)),
       run('opencode', ['--version'], { env: base }).then((p) => agentItem('opencode', p, ctx)),
       run('gemini', ['--version'], { env: base }).then((p) => agentItem('gemini', p, ctx)),

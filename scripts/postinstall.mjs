@@ -15,8 +15,10 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+// The shell is only for commands Windows finds through a `.cmd` shim. Node itself starts without
+// one: through the shell its path is joined unquoted and cut at the space of "Program Files".
 const run = (cmd, args) => {
-  const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', shell: process.platform === 'win32' })
+  const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', shell: process.platform === 'win32' && cmd !== process.execPath })
   if (r.status !== 0) process.exit(r.status ?? 1)
 }
 

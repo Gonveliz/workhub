@@ -7,6 +7,9 @@ import { Spinner } from '../atoms/Spinner'
 import { Dialog } from '../molecules/Dialog'
 import { useI18n } from '../../i18n/I18nProvider'
 
+/** How long "Done" holds the button after an install: longer than the check that follows takes. */
+const INSTALLED_HOLD_MS = 20_000
+
 /**
  * The Install button of a fix Workhub may run: asks first, shows the command, runs the installer
  * the main process names (never this text) with where it downloads from, and reports a failure.
@@ -18,15 +21,26 @@ export function InstallAction({ fix, name, onInstalled }: { fix: Extract<SetupFi
   const [installing, setInstalling] = useState(false)
   const [failure, setFailure] = useState<{ reason: string | null; output: string } | null>(null)
   const [phase, setPhase] = useState<string | null>(null)
+  // Installed, and the check has not read the row again yet: the button must not offer it a second time.
+  const [installed, setInstalled] = useState(false)
+  // "Install what is missing" (or another row) is installing: one install at a time.
+  const [queueRunning, setQueueRunning] = useState(false)
   const source = installSource(fix.command)
   // The same queue as "Install what is missing": its progress line for this installer.
   useEffect(() => {
-    if (!installing) return
+    void window.hub.setup.installState().then((s) => setQueueRunning(s.running))
     return window.hub.setup.onInstallProgress((s) => {
+      setQueueRunning(s.running)
       const item = s.items.find((i) => i.installer === fix.installer)
       if (item && item.state !== 'pending') setPhase(installStateText(t, item))
     })
-  }, [installing, fix.installer, t])
+  }, [fix.installer, t])
+  // The row goes away once the check finds the tool; if it does not, the button comes back.
+  useEffect(() => {
+    if (!installed) return
+    const timer = setTimeout(() => setInstalled(false), INSTALLED_HOLD_MS)
+    return () => clearTimeout(timer)
+  }, [installed])
   const install = () => {
     setInstalling(true)
     setFailure(null)
@@ -34,7 +48,10 @@ export function InstallAction({ fix, name, onInstalled }: { fix: Extract<SetupFi
     window.hub.setup.install(fix.installer).then(
       (result) => {
         setInstalling(false)
-        if (result.ok) onInstalled()
+        if (result.ok) {
+          setInstalled(true)
+          onInstalled()
+        }
         else if (result.reason !== 'canceled') setFailure({ reason: result.reason ? t(`setup.installAll.reason.${result.reason}` as MessageKey) : null, output: result.output.trim() })
       },
       (error: unknown) => {
@@ -47,8 +64,9 @@ export function InstallAction({ fix, name, onInstalled }: { fix: Extract<SetupFi
     <div className="flex flex-col items-end gap-2">
       <div className="flex items-center gap-2">
         {installing && phase && <span className="text-sm text-muted">{phase}</span>}
+        {installed && !installing && <span className="text-sm text-success">{t('setup.installAll.state.done')}</span>}
         {installing && <Spinner />}
-        <Button size="sm" className="shrink-0" disabled={installing} onClick={() => setConfirming(true)}>
+        <Button size="sm" className="shrink-0" disabled={installing || installed || queueRunning} onClick={() => setConfirming(true)}>
           {installing ? t('setup.installing') : t('setup.install')}
         </Button>
       </div>
