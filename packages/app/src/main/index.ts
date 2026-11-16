@@ -135,6 +135,7 @@ import { AnalyticsQueries, type QueryWorker } from './analytics-queries'
 import { registerStorageMaintenanceIpc, StorageMaintenance } from './storage-maintenance'
 import { DatabaseRestore, registerDatabaseRestoreIpc } from './database-restore'
 import { createAutomationControl } from './automation-control'
+import { createAgentChanges, journalControl, registerAgentChangesIpc, type AgentChangeState } from './agent-changes'
 import { createPlanControl, resolveControlProfile } from './plan-control'
 import { registerSessionRequestsIpc, SessionRequests } from './session-control'
 import { FlowHistoryStore } from './flow-history'
@@ -1552,6 +1553,7 @@ function registerIpc(): void {
   registerStorageMaintenanceIpc(ipc, storageMaintenance)
   registerDatabaseRestoreIpc(ipc, databaseRestore)
   registerSessionRequestsIpc(ipc, sessionRequests)
+  registerAgentChangesIpc(ipc, agentChanges)
   ipc.on('storage:revealBackups', () => {
     const folder = join(dataDir, BACKUP_FOLDER)
     mkdirSync(folder, { recursive: true, mode: 0o700 })
@@ -1877,6 +1879,8 @@ const planner = new PlannerService({
   // Every window (the main one, and the windows of single inbox items and milestones) and every paired device.
   changed: (profileId) => broadcastToWindowsAndDevices(BrowserWindow.getAllWindows(), remoteHub, 'planner:changed', profileId)
 })
+// What agents change over the control endpoint, kept for Keep or Revert on Home (desktop windows only).
+const agentChanges = createAgentChanges({ store: db.state<AgentChangeState>('agent-changes', 0), changed: (list) => send('agentChanges:changed', list), automations, flowMaps, planner, sessions: () => sessions.list() })
 
 const ticketWatcher = new TicketWatcher({
   activeProfileId: async () => (await configuration.current()).activeProfileId ?? null,
@@ -2254,7 +2258,7 @@ void app.whenReady().then(async () => {
       .then((config) => agentOptions.refreshAll(listableAgentTargets(knownAgents(config), config.accounts)))
       .catch((err: unknown) => diagnostics.log.warn(`agent options: ${err instanceof Error ? err.message : String(err)}`))
   }, 8_000).unref()
-  const controlDeps: ControlDeps = {
+  const controlDeps: ControlDeps = journalControl({
     auth: controlTokens.auth(() => sessions.list()),
     openReview: async (sessionId, repos) => {
       const v = sessions.list().find((s) => s.id === sessionId)
@@ -2297,7 +2301,7 @@ void app.whenReady().then(async () => {
     analytics: createAnalyticsControl({ ...controlProfiles, db, queries: analyticsQueries, log: (m) => diagnostics.log.info(m) }),
     sessions: sessionRequests,
     log: (m) => diagnostics.log.warn(m)
-  }
+  }, agentChanges)
   if (loopbackControl) {
     const started = await startLoopbackControlServer(controlToken, controlDeps)
     controlServer = started?.server ?? null

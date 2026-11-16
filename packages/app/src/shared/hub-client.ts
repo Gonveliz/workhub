@@ -11,6 +11,7 @@ import type { AiReviewNotice, AiReviewSnapshot, ReviewLoopView } from './ai-revi
 import type { AutomationsSnapshot, ChatNoticeEvent, SlackSnapshot } from './chat-api'
 import type { ContinuityMoved, ContinuityOffer } from './continuity-api'
 import type { SessionRequest } from './session-requests-api'
+import type { AgentChange } from './agent-changes-api'
 import type { TrayPopoverView, TrayRoute } from './tray-api'
 import type { PullRequestWindowTab } from './codehost-api'
 import type { MenuCommand } from './windows-api'
@@ -295,6 +296,12 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       approve: (id) => invoke('sessionRequests:approve', id),
       dismiss: (id) => invoke('sessionRequests:dismiss', id),
       onChanged: (cb) => subscribe<[SessionRequest[]]>('sessionRequests:changed', cb)
+    },
+    agentChanges: {
+      list: () => invoke('agentChanges:list'),
+      keep: (id) => invoke('agentChanges:keep', id),
+      revert: (id) => invoke('agentChanges:revert', id),
+      onChanged: (cb) => subscribe<[AgentChange[]]>('agentChanges:changed', cb)
     },
     setup: {
       run: () => invoke('setup:run'),

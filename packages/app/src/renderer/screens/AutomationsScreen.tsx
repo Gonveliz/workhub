@@ -4,7 +4,8 @@ import { automationsForProfile, newAutomation, prReviewsPreset, type AutomationD
 import type { AutomationStatus } from '@shared/chat-api'
 import { Badge, Button, IconButton, Spinner, Switch } from '../components/atoms'
 import { Card, CardBody, CardHeader, ConfirmDeleteDialog, EmptyState, useToast } from '../components/molecules'
-import { useAutomations, useSlack } from '../chatStore'
+import { useAgentChanges, useAutomations, useSlack } from '../chatStore'
+import { changesOf } from '../lib/agentChanges'
 import { refreshConfig } from '../configStore'
 import { useI18n } from '../i18n/I18nProvider'
 import { useAsyncAction } from '../lib/useAsyncAction'
@@ -149,6 +150,7 @@ export function AutomationsScreen({ profile, profiles = [], agents, onOpenSessio
 function AutomationCard({ status: s, profileName, now, lastRun, channelName, onEdit, onRemove, onOpen }: { status: AutomationStatus; profileName: string | null; now: number; lastRun: AutomationRun | undefined; channelName: (id: string) => string; onEdit: () => void; onRemove: () => void; onOpen: () => void }) {
   const { t, locale } = useI18n()
   const a = s.definition
+  const byAgent = changesOf(useAgentChanges(), 'automation', a.id).length > 0
   const toggle = useAsyncAction(async (on: boolean) => {
     const r = await window.hub.automations.setEnabled(a.id, on)
     if (!r.ok) throw new Error(r.issues.map((i) => i.message).join('; '))
@@ -168,6 +170,11 @@ function AutomationCard({ status: s, profileName, now, lastRun, channelName, onE
           <span className="inline-flex items-center gap-1.5">
             <Badge tone={HEALTH_TONE[s.health]}>{t(`automations.health.${s.health}`)}</Badge>
             {profileName && <Badge tone="neutral">{profileName}</Badge>}
+            {byAgent && (
+              <Badge tone="warning" data-testid="automation-agent-change" title={t('agentChanges.markerTitle')}>
+                {t('agentChanges.marker')}
+              </Badge>
+            )}
           </span>
         }
         actions={<Switch checked={a.enabled} disabled={toggle.pending} onChange={toggle.run} aria-label={t('automations.field.enabled')} />}

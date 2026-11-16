@@ -711,6 +711,33 @@ export class PlannerService {
     })
   }
 
+  /** The milestone with this id in any profile (the journal of agents' changes looks objects up by id). */
+  findMilestone(id: string): { profileId: string; milestone: Milestone } | undefined {
+    for (const [profileId, p] of Object.entries(this.state.profiles)) {
+      const milestone = p.milestones.find((m) => m.id === id)
+      if (milestone) return { profileId, milestone }
+    }
+    return undefined
+  }
+
+  /** The inbox item with this id in any profile. */
+  findItem(id: string): { profileId: string; item: InboxItem } | undefined {
+    for (const [profileId, p] of Object.entries(this.state.profiles)) {
+      const item = p.inbox.find((i) => i.id === id)
+      if (item) return { profileId, item }
+    }
+    return undefined
+  }
+
+  /** The user puts an item back as it was (reverting an agent's change on Home): every field, stamped as the user's. */
+  restoreItem(profileId: string, item: InboxItem): Promise<PlannerResult> {
+    return this.serial(async () => {
+      if (!this.of(profileId).inbox.some((i) => i.id === item.id)) return { ok: false, error: PLANNER_ERRORS.unknown }
+      this.replace(profileId, this.stamp(item, 'user'))
+      return { ok: true }
+    })
+  }
+
   /** Drops what is stored of a ticket just linked, so its next read counts as new: a ticket already done marks the item done. */
   private forgetTicket(profileId: string, key: string): void {
     const tickets = Object.fromEntries(Object.entries(this.of(profileId).tickets).filter(([k]) => !k.endsWith(`|${key}`)))

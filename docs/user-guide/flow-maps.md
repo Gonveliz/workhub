@@ -42,6 +42,12 @@ port with a token made at each launch): replace `--unix-socket "$WORKHUB_SOCKET"
   The answer is `{"ok":true,"id":…,"file":…}` or `{"ok":false,"errors":[…]}` naming the fields.
   A posted map replaces the stored one with the same `id`; when the posted file has no `alerts`,
   the stored map's `alerts` are kept, so an agent that redraws a map does not drop its limits.
+  New limits a posted map brings wait for you: the map is saved with the limits it had, the answer
+  carries a `note` saying so, and the change is listed under **Changes by agents** on Home with the
+  limits before and after. **Keep** puts the new limits in effect; **Revert** keeps the old ones and
+  puts back the rest of the map as it was (a map the agent added is deleted). When the old limits no
+  longer fit the redrawn map (a part they name is gone), the new limits apply at once and the entry
+  says they are already in effect. Revert refuses when the map changed again since.
 
 ## Turning it on
 

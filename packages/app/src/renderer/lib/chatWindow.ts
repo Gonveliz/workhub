@@ -1,3 +1,5 @@
+import { scrollToItem, setRevealItem, type RevealItem } from './chatReveal'
+
 /**
  * The part of a chat that is rendered. A long live chat would otherwise mount thousands of blocks
  * (main's journal caps a rebuilt chat, not one that keeps growing): the pane renders the newest
@@ -83,3 +85,14 @@ export function onRevealChatItem(cb: RevealListener): () => void {
   revealListeners.add(cb)
   return () => revealListeners.delete(cb)
 }
+
+/**
+ * Find in the conversation reveals its matches through chatReveal's hook: a chat pane of that
+ * session renders the window that holds the item and scrolls to it; with no pane answering, the
+ * default scroll is the fallback.
+ */
+export const revealThroughWindow: RevealItem = (sessionId, itemId) => {
+  if (!revealChatItem(sessionId, itemId)) scrollToItem(sessionId, itemId)
+}
+
+setRevealItem(revealThroughWindow)

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { revealItem } from '../src/renderer/lib/chatReveal'
 import { onRevealChatItem, revealChatItem, revealEarlier, revealItemStart, showJumpToLatest, turnStart, windowAfterScroll, windowStart } from '../src/renderer/lib/chatWindow'
 
 /** A chat of `turns` turns, each a user message followed by `per - 1` agent items; ids are the indexes. */
@@ -76,5 +77,16 @@ describe('revealChatItem', () => {
     off()
     expect(revealChatItem('s1', 4)).toBe(false)
     expect(asked).toEqual(['s1#4', 's2#4'])
+  })
+
+  it('is what find in the conversation reveals through', () => {
+    const asked: string[] = []
+    const off = onRevealChatItem((sessionId, itemId) => {
+      asked.push(`${sessionId}#${itemId}`)
+      return true
+    })
+    revealItem('s1', 9)
+    off()
+    expect(asked).toEqual(['s1#9'])
   })
 })

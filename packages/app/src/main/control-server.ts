@@ -104,7 +104,7 @@ export interface ControlDeps {
   /** Opens the session's "Review changes" window on these repos (plus the ones it finds itself). */
   openReview(sessionId: string, repos: ReviewRequestRepo[]): ControlResult | Promise<ControlResult>
   /** Validates and stores a flow map (the Flow maps screen); errors name the fields. `file` is a display name (`<id>.json`): maps live in the database. */
-  saveFlowMap?(map: unknown): { ok: true; file: string; id: string } | { ok: false; errors: string[] }
+  saveFlowMap?(map: unknown, caller?: ControlCaller): { ok: true; file: string; id: string; note?: string } | { ok: false; errors: string[] }
   /** Adds the items of a body to a profile's inbox as pending (`parseInboxProposals` checks it). */
   addInboxItems?(body: unknown): Promise<{ ok: true; added: string[]; duplicates: string[] } | { ok: false; status: number; error: string }>
   /** Plan for agents: today's meetings, reading and updating the inbox, milestones, people. */
@@ -303,7 +303,7 @@ export async function handleControl(deps: ControlDeps, req: IncomingMessage, res
     const read = await readBody(req, null)
     if (!read.ok) return send(res, read.status, { ok: false, error: read.error })
     const body = read.body
-    const saved = deps.saveFlowMap(body)
+    const saved = deps.saveFlowMap(body, caller)
     return saved.ok ? send(res, 200, saved) : send(res, 400, { ok: false, error: saved.errors.join('; '), errors: saved.errors })
   }
   if (url.pathname === '/v1/inbox') {

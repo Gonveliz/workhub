@@ -11,6 +11,7 @@ import { HomeTicketsCard } from '../components/organisms/HomeTickets'
 import { AgentUsageCard } from '../components/organisms/AgentUsageCard'
 import { TokenSpendCard } from '../components/organisms/TokenSpendCard'
 import { OpenAlertsCard } from '../components/organisms/OpenAlertsCard'
+import { AgentChangesCard } from '../components/organisms/AgentChangesCard'
 import { requestAlertsTab } from '../metricAlertsStore'
 import { useFolderSpend } from '../lib/folder-spend'
 import { agentUsageSections, kiroUsageNote } from '../lib/agent-usage'
@@ -166,6 +167,7 @@ export function HomeScreen({ profile, sessions, usage: reads = [], onOpenSession
               )
             })}
           </div>
+          <AgentChangesCard />
         </section>
 
         <div className="grid grid-cols-2 gap-3 @min-[760px]:grid-cols-4">

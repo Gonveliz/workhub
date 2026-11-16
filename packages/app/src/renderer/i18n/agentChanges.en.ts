@@ -1,0 +1,28 @@
+/** English copy of "Changes by agents" on Home: what agents changed through Workhub, for Keep or Revert. */
+export const agentChangesEn = {
+  'agentChanges.title': 'Changes by agents',
+  'agentChanges.hint': 'Agents changed these through Workhub. Keep marks a change as reviewed; Revert puts the values from before it back.',
+  'agentChanges.count.one': '{count} change waits for review',
+  'agentChanges.count.other': '{count} changes wait for review',
+  'agentChanges.kind.automation': 'Automation',
+  'agentChanges.kind.flowMap': 'Flow map',
+  'agentChanges.kind.milestone': 'Milestone',
+  'agentChanges.kind.inboxItem': 'Inbox item',
+  'agentChanges.action.create': 'added',
+  'agentChanges.action.update': 'edited',
+  'agentChanges.action.delete': 'deleted',
+  'agentChanges.bySession': 'By {name} ({agent})',
+  'agentChanges.bySessionOnly': 'By {name}',
+  'agentChanges.byUnknown': 'By an agent',
+  'agentChanges.unset': '(not set)',
+  'agentChanges.held': 'takes effect on Keep',
+  'agentChanges.inEffect': 'The new alert limits are already in effect: the old ones no longer fit the redrawn map.',
+  'agentChanges.keep': 'Keep',
+  'agentChanges.revert': 'Revert',
+  'agentChanges.marker': 'Changed by an agent',
+  'agentChanges.markerTitle': 'Keep or revert it in “Changes by agents” on Home',
+  'agentChanges.error.gone': 'This change, or what it changed, no longer exists.',
+  'agentChanges.error.changed': 'It changed again after the agent’s change, so it was left as it is. Change it by hand if needed.',
+  'agentChanges.error.cut': 'A value was too long, or looked like a secret, to keep in the journal: change it by hand.',
+  'agentChanges.error.failed': 'Workhub could not do it: {detail}'
+}

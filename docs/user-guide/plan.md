@@ -413,6 +413,15 @@ it. A proposal over a milestone you edited after the agent asked cannot be appli
 proposal never undoes your edit. With **Apply at once** the change answers `200` with
 `applied: true`.
 
+Every change an agent makes this way that is in effect (items it proposes, its edits and notes on
+items, milestone changes applied at once) is also listed under **Changes by agents** on Home, with
+the fields before and after. **Keep** marks it as reviewed; **Revert** puts the values from before
+back (a proposed item is discarded, a milestone it created is deleted, one it deleted comes back).
+Revert refuses when the item or milestone changed again since, so it never undoes a later edit; a
+value too long to keep in the journal (over 2000 characters) is shown shortened and must be changed
+by hand. Proposals that wait under **Proposed by agents** are not listed there: Apply and Reject
+review them already.
+
 ```sh
 curl --unix-socket "$WORKHUB_SOCKET" -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" \
   "http://workhub/v1/inbox?session=$WORKHUB_SESSION&status=local&q=rollout"
