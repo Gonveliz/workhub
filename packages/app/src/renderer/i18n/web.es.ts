@@ -186,5 +186,16 @@ export const webEs: Record<keyof typeof webEn, string> = {
   'web.desktops.title': 'Computadoras',
   'web.desktops.add': 'Vincular otra computadora',
   'web.desktops.current': 'Actual',
-  'web.desktops.use': 'Usar'
+  'web.desktops.use': 'Usar',
+  'web.nav.automations': 'Automatizaciones',
+  'web.automations.title': 'Automatizaciones',
+  'web.automations.empty': 'No hay automatizaciones.',
+  'web.automations.updateDesktop': 'Actualizá Workhub en la computadora para ver acá sus automatizaciones.',
+  'web.automations.lastRun': 'Última ejecución {time}',
+  'web.automations.neverRun': 'Nunca se ejecutó',
+  'web.automations.next': 'próxima {time}',
+  'web.automations.turnOff': 'Apagar {name}',
+  'web.automations.turnOnAtDesktop': 'Apagada. Encendela en la computadora.',
+  'web.automations.failed': 'La computadora no pudo hacerlo.',
+  'web.automations.refused': 'No se hizo: {message}'
 }

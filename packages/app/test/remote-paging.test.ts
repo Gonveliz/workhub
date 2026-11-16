@@ -152,7 +152,13 @@ describe('paging helpers', () => {
 
 describe('paged remote lists', () => {
   it('lists every paged channel in the allowlist under the capability of the list it pages', () => {
-    for (const [channel, source] of Object.entries(PAGED_SOURCES)) expect(REMOTE_INVOKES[channel]).toBe(REMOTE_INVOKES[source])
+    // `automations:get` stays closed to a device on purpose: its snapshot holds every prompt and folder, and only the page of short rows is open.
+    const closedSources = new Set(['automations:get'])
+    for (const [channel, source] of Object.entries(PAGED_SOURCES)) {
+      expect(REMOTE_INVOKES[channel]).toBeDefined()
+      if (closedSources.has(source)) expect(REMOTE_INVOKES[source]).toBeUndefined()
+      else expect(REMOTE_INVOKES[channel]).toBe(REMOTE_INVOKES[source])
+    }
     expect(Object.keys(REMOTE_INVOKES).some((c) => c.startsWith('storage:'))).toBe(false)
   })
 
@@ -223,9 +229,8 @@ describe('paged remote lists', () => {
     expect(views[0]!.commands[0]!.description!.length).toBeLessThanOrEqual(120)
   })
 
-  it('does not page automations: the phone has no screen for them', async () => {
+  it('does not page the run history: the phone has no screen for it', async () => {
     const { hub } = setup(['automations'])
-    await expect(hub.invoke('phone', 'remote:automations', [{ limit: 5 }])).rejects.toThrow('not available remotely')
     await expect(hub.invoke('phone', 'remote:automationRuns', [{ limit: 5 }])).rejects.toThrow('not available remotely')
   })
 

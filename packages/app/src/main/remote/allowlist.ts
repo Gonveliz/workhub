@@ -43,7 +43,12 @@ export const REMOTE_INVOKES: Readonly<Record<string, RemoteCapability | 'any'>> 
   'planner:saveMilestone': 'plan',
   'planner:deleteMilestone': 'plan',
   'planner:resolveProposal': 'plan',
-  'planner:refreshMilestones': 'plan'
+  'planner:refreshMilestones': 'plan',
+  // Automations: a paged list, run now, stop a run and turn one off (dispatcher.ts refuses turning one on).
+  'remote:automations': 'automations',
+  'automations:runNow': 'automations',
+  'automations:stop': 'automations',
+  'automations:setEnabled': 'automations'
 }
 
 /** One-way messages a device may send. `sessions:ready` is not one: it reopens the last quit's sessions. */

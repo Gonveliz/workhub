@@ -27,8 +27,8 @@ phone (web app, later a native app)  ⇄  relay (your server, or one you trust) 
   the code your phone shows: their device gets another code, and a wrong code cancels the
   request. If a second device answers the same QR, the desktop cancels it and tells you.
 - **Capabilities.** A device gets only what you tick: sessions (view, chat, answer permissions,
-  close, open a new one in a profile folder), pull requests (read-only lists), automations (their notifications only), health and alerts, Plan. A device
-  can call only what the phone app itself uses: it cannot review, comment on or close a pull request, or create, edit or run an automation, whatever it was granted.
+  close, open a new one in a profile folder), pull requests (read-only lists), automations (their notifications, and an Automations screen to run one, stop a run and turn one off), health and alerts, Plan. A device
+  can call only what the phone app itself uses: it cannot review, comment on or close a pull request, or create, edit, remove or turn on an automation, whatever it was granted.
   Sessions mean the agents run code on this computer, so grant them to phones you hold; automations
   start unticked. A device can never pick a folder outside the profile's, open windows or dialogs
   on the desktop, read or change settings, or see secrets. It never starts a session in a mode that
@@ -136,21 +136,31 @@ The phone opens the relay's address in its browser: the relay serves the phone a
    proposals too), the tasks you took on (done with a tap, or open one to edit it or add a note),
    and the milestones with their progress against time, pieces and notes. *+* adds a pending item.
    The calendars' addresses and the Plan settings stay on the desktop.
-6. **Several computers.** One phone can pair with more than one desktop (home and work, say):
+6. **Automations.** With the *Automations* capability, a tab lists the computer's automations: name,
+   state (off, idle, waiting, paused, failing, running), the last run with how it ended, and when it
+   runs next. *Run now* starts one that is on (it counts against the same budget of new agent runs per
+   minute as starting a session from the phone), *Stop* ends a run in progress, and the switch turns an automation off.
+   The phone never turns one on, and never runs one that is off: an agent can add or edit
+   automations (they are always saved off), so you review and turn them on at the computer, in
+   Automations. Prompts, folders and agents stay on the computer. The computer must be on a version
+   with this screen; an older one says so.
+   A session's chat also shows its permission mode (read-only) under the header: the mode the
+   session really runs in, tinted while tools run without asking.
+7. **Several computers.** One phone can pair with more than one desktop (home and work, say):
    Settings → *Pair another computer*. The phone talks to one at a time; a selector at the top of
    Sessions and the list in Settings switch between them, and a notification from another
    computer switches to it when tapped. Each desktop keeps its own cached state and its own
    capabilities. Revoking the phone on one desktop leaves the others paired.
-7. **Phone settings.** Language, theme and text size are the phone's own; the profile the lists
+8. **Phone settings.** Language, theme and text size are the phone's own; the profile the lists
    open with is remembered per phone.
-8. **Without network.** The phone keeps the last answer to each list and the latest messages of
+9. **Without network.** The phone keeps the last answer to each list and the latest messages of
    each open session, encrypted with its own key, and shows them with a banner under the header
    while the desktop is unreachable (after a second and a half, so a quick reconnect does not
    flash it). When the app goes to the
    background, notifications arrive as push at once; the connection itself stays for 30 seconds,
    so a quick look at another app or the Control Center does not reconnect. After that it closes,
    and back in front it reconnects.
-9. **Unpair.** Settings → *Unpair this phone* forgets the current desktop and its cached state. Revoking the
+10. **Unpair.** Settings → *Unpair this phone* forgets the current desktop and its cached state. Revoking the
    device on the desktop does the same from the other side.
 
 ## Self-hosting the relay

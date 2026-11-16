@@ -19,6 +19,7 @@ import { sessionTitle } from './HomeScreen'
 import { SubagentLink } from './SubagentScreen'
 import { subagentOfCall } from '../../renderer/lib/subagentView'
 import { SessionActivity } from './SessionActivity'
+import { PermissionBadge } from './PermissionBadge'
 
 const IMAGE = /\.(png|jpe?g|gif|webp|svg)$/i
 
@@ -347,6 +348,9 @@ export function SessionScreen({ id }: { id: string }) {
           </button>
         }
       />
+      <div className="px-4 pt-2">
+        <PermissionBadge view={v} />
+      </div>
       {closing && (
         <div className="px-4 pt-2">
           <InlineConfirm

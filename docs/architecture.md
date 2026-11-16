@@ -89,7 +89,7 @@ never breaks the session.
   (`main/remote/allowlist.ts`), each tied to a capability the user granted the device (sessions,
   pull requests, automations, health). A call channel is listed only while the phone's web client
   calls it (`test/remote-allowlist.test.ts` reads the client's sources), so a stolen device
-  identity reaches no more than the phone app offers. Nothing that opens a dialog or a window on
+  identity reaches no more than the phone app offers. Automations reach a device as short rows (`remote:automations`, paged; `automations:get`, whose snapshot holds every prompt, stays closed), with run now (only for one that is on), stop and turn off; a device can never turn one on (an agent may have edited it; `main/remote/automations.ts`). Nothing that opens a dialog or a window on
   the desktop, reads or writes a path the device names, touches settings or secrets, or tests a
   connection is listed. A new session may only start in a folder the profile lists, and never in
   a mode that skips permissions: a start with no mode is resolved to the mode it would really use,

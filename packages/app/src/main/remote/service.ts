@@ -582,7 +582,7 @@ export class RemoteService {
     switch (message.t) {
       case 'ready':
         link.ready = true
-        this.sendChannel(device.id, link, { t: 'ready', capabilities: device.capabilities, desktop: this.status().desktopName, features: [REMOTE_FEATURES.away, REMOTE_FEATURES.paging, REMOTE_FEATURES.activity] })
+        this.sendChannel(device.id, link, { t: 'ready', capabilities: device.capabilities, desktop: this.status().desktopName, features: [REMOTE_FEATURES.away, REMOTE_FEATURES.paging, REMOTE_FEATURES.activity, REMOTE_FEATURES.automations] })
         this.touch(device.id)
         this.changed()
         return

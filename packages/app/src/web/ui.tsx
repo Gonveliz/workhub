@@ -1,5 +1,5 @@
 // The phone's building blocks: a screen with a header, the tab bar, rows, and the connection banner.
-import { ChevronLeft, Bell, CalendarCheck, GitPullRequest, MessageSquare, Settings as SettingsIcon } from 'lucide-react'
+import { ChevronLeft, Bell, Bot, CalendarCheck, GitPullRequest, MessageSquare, Settings as SettingsIcon } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Spinner } from '../renderer/components/atoms'
 import { useI18n } from '../renderer/i18n/I18nProvider'
@@ -71,6 +71,7 @@ export function TabBar({ capabilities }: { capabilities: readonly string[] }) {
     { route: { screen: 'pullRequests' }, label: t('web.nav.pullRequests'), icon: <GitPullRequest className="size-5" aria-hidden />, need: 'pullRequests' },
     { route: { screen: 'plan', tab: 'tasks' }, label: t('web.nav.plan'), icon: <CalendarCheck className="size-5" aria-hidden />, need: 'plan' },
     { route: { screen: 'alerts' }, label: t('web.nav.alerts'), icon: <Bell className="size-5" aria-hidden />, need: 'health' },
+    { route: { screen: 'automations' }, label: t('web.nav.automations'), icon: <Bot className="size-5" aria-hidden />, need: 'automations' },
     { route: { screen: 'settings' }, label: t('web.nav.settings'), icon: <SettingsIcon className="size-5" aria-hidden /> }
   ]
   const tabs = all.filter((tab) => !tab.need || capabilities.includes(tab.need))

@@ -184,5 +184,16 @@ export const webEn = {
   'web.desktops.title': 'Computers',
   'web.desktops.add': 'Pair another computer',
   'web.desktops.current': 'Current',
-  'web.desktops.use': 'Use'
+  'web.desktops.use': 'Use',
+  'web.nav.automations': 'Automations',
+  'web.automations.title': 'Automations',
+  'web.automations.empty': 'No automations.',
+  'web.automations.updateDesktop': 'Update Workhub on the computer to see its automations here.',
+  'web.automations.lastRun': 'Last run {time}',
+  'web.automations.neverRun': 'Never run',
+  'web.automations.next': 'next {time}',
+  'web.automations.turnOff': 'Turn off {name}',
+  'web.automations.turnOnAtDesktop': 'Off. Turn it on at the computer.',
+  'web.automations.failed': 'The computer could not do that.',
+  'web.automations.refused': 'Not done: {message}'
 } as const

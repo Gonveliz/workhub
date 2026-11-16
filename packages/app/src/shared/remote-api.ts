@@ -1,7 +1,7 @@
 // Remote access (a phone or browser paired with this desktop): what a device may do, by capability,
 // and what Settings → Remote access shows and does.
 
-import type { BackgroundTaskSummary, HistoryMessage, PullRequestItem, SubagentSummary } from '@workhub/core'
+import type { AutomationHealth, AutomationOutcome, BackgroundTaskSummary, HistoryMessage, PullRequestItem, SubagentSummary } from '@workhub/core'
 import type { CodeHostLists } from './codehost-api'
 
 /** A group of `hub` calls and events a paired device can be granted. */
@@ -98,7 +98,7 @@ export interface RemoteHistoryPage {
  * paged lists or session activity only when the desktop names the feature; an older desktop gets
  * the calls it always had.
  */
-export const REMOTE_FEATURES = { away: 'away', paging: 'paging', activity: 'activity' } as const
+export const REMOTE_FEATURES = { away: 'away', paging: 'paging', activity: 'activity', automations: 'automations' } as const
 
 /** A page of a long list a device asks for (`remote:sessions`, `remote:pullRequests`, `remote:automations`, `remote:automationRuns`). */
 export interface RemotePageRequest {
@@ -133,6 +133,22 @@ export interface RemotePullRequestsPage {
   counts: Record<RemotePullRequestList, number>
   mine?: RemotePage<PullRequestItem>
   toReview?: RemotePage<PullRequestItem>
+}
+
+/**
+ * One automation as the phone lists it (`remote:automations`): never its prompt, folder or agent.
+ * `active`: its profile has the Automations module on (when off, it does not run).
+ */
+export interface RemoteAutomation {
+  id: string
+  name: string
+  enabled: boolean
+  active: boolean
+  health: AutomationHealth
+  /** The newest run on record: when it ended (or started) and how it went. */
+  lastRun?: { at: number; outcome: AutomationOutcome }
+  /** When it next checks or runs, when the desktop knows (an interval, a wait). */
+  nextRunAt?: number
 }
 
 /** `remote:automationRuns`: the run history, newest first; `automationId` keeps one automation's runs. */

@@ -10,6 +10,7 @@ export type Route =
   | { screen: 'subagent'; sessionId: string; id: string }
   | { screen: 'pullRequests' }
   | { screen: 'alerts' }
+  | { screen: 'automations' }
   | { screen: 'plan'; tab: PlanTab }
   /** An inbox item (a task, bug or decision). */
   | { screen: 'planItem'; id: string }
@@ -47,6 +48,7 @@ export function parseRoute(hash: string): Route {
   if (h === 'new') return { screen: 'new' }
   if (h === 'prs' || h === 'pullRequests') return { screen: 'pullRequests' }
   if (h === 'alerts') return { screen: 'alerts' }
+  if (h === 'automations') return { screen: 'automations' }
   if (h === 'settings') return { screen: 'settings' }
   if (h === 'history') return { screen: 'history' }
   if (h === 'plan') return { screen: 'plan', tab: 'tasks' }
@@ -91,6 +93,8 @@ export function routeHash(route: Route): string {
       return '#prs'
     case 'alerts':
       return '#alerts'
+    case 'automations':
+      return '#automations'
     case 'plan':
       return `#plan/${route.tab}`
     case 'planItem':

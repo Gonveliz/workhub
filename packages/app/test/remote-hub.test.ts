@@ -211,7 +211,7 @@ describe('RemoteHub', () => {
   it('refuses automations:save even when a handler exists', async () => {
     const { hub } = setup()
     await expect(hub.invoke('phone', 'automations:save', [{ id: 'a' }])).rejects.toThrow(/not available remotely/)
-    await expect(hub.invoke('phone', 'automations:runNow', ['a'])).rejects.toThrow(/not available remotely/)
+    await expect(hub.invoke('phone', 'automations:remove', ['a'])).rejects.toThrow(/not available remotely/)
   })
 
   it('sends a generic message for handler errors and logs the real one', async () => {
@@ -369,7 +369,7 @@ describe('allowlist', () => {
   it('never lets a device define or delete an automation', () => {
     expect(REMOTE_INVOKES['automations:save']).toBeUndefined()
     expect(REMOTE_INVOKES['automations:remove']).toBeUndefined()
-    expect(REMOTE_INVOKES['automations:runNow']).toBeUndefined()
+    expect(REMOTE_INVOKES['automations:openSession']).toBeUndefined()
   })
 
   it('lists only events main taps', () => {

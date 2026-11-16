@@ -8,6 +8,8 @@ import { remoteBackgroundTask, remoteSubagentSummary } from './activity'
 import type { HandlerTable } from './ipc-recorder'
 import { REMOTE_EVENTS, REMOTE_INVOKES, REMOTE_MESSAGES, remoteAllows } from './allowlist'
 import { remoteHistorySearch } from './history'
+import { readAutomationId, remoteAutomations } from './automations'
+import type { AutomationsSnapshot } from '../../shared/chat-api'
 import { historySearchOptions } from '../history'
 
 /** See `RemoteHubDeps.startMode`. `permissionModes`: the modes are permission presets, not personas. */
@@ -45,7 +47,7 @@ export const REMOTE_RATE = { calls: 600, windowMs: 10_000 }
 export const REMOTE_MAX_IN_FLIGHT = 32
 /** Per device: calls that start an agent on the desktop, on a budget of their own. */
 export const REMOTE_COSTLY_RATE = { calls: 10, windowMs: 60_000 }
-const COSTLY_CHANNELS: ReadonlySet<string> = new Set(['sessions:start', 'sessions:reopen', 'plan:brief'])
+const COSTLY_CHANNELS: ReadonlySet<string> = new Set(['sessions:start', 'sessions:reopen', 'plan:brief', 'automations:runNow'])
 
 /**
  * Lists a device reads a page at a time (`{ limit, cursor }` → `{ items, nextCursor, total }`), by
@@ -54,7 +56,8 @@ const COSTLY_CHANNELS: ReadonlySet<string> = new Set(['sessions:start', 'session
  */
 export const PAGED_SOURCES: Readonly<Record<string, string>> = {
   'remote:sessions': 'sessions:list',
-  'remote:pullRequests': 'codeHost:lists'
+  'remote:pullRequests': 'codeHost:lists',
+  'remote:automations': 'automations:get'
 }
 
 /** What a device sees when a handler fails for a reason other than a refusal; the real error goes to the log. */
@@ -191,7 +194,7 @@ export class RemoteHub {
     limits.inFlight++
     try {
       const paged = source ? pagedCall(channel, args) : null
-      const checked = paged ? paged.sourceArgs : await this.validate(channel, args)
+      const checked = paged ? paged.sourceArgs : await this.validate(channel, args, entry)
       // Only a call that passed its checks spends an agent run.
       if (COSTLY_CHANNELS.has(channel) && !limits.costly.take(this.now())) throw this.limited(deviceId, channel, 'too many new agent runs')
       let result: unknown
@@ -288,7 +291,7 @@ export class RemoteHub {
     return { sender: sender as unknown as IpcMainEvent['sender'], senderFrame: null }
   }
 
-  private async validate(channel: string, args: unknown[]): Promise<unknown[]> {
+  private async validate(channel: string, args: unknown[], entry: { device: RemoteDevice; senderId: number }): Promise<unknown[]> {
     switch (channel) {
       case 'sessions:start':
         return [await this.checkedStart(args[0]), ...args.slice(1)]
@@ -297,9 +300,35 @@ export class RemoteHub {
         return [args[0], await this.checkedStart(args[1]), ...args.slice(2)]
       case 'history:search':
         return this.checkedHistorySearch(args[0], args[1])
+      case 'automations:runNow':
+        return [await this.checkedRunnable(args[0], entry)]
+      case 'automations:stop':
+        return [checkedAutomationId(args[0])]
+      case 'automations:setEnabled':
+        // Only off: an agent may have added or edited the automation, and only the desktop turns it on.
+        if (args[1] !== false) throw new RemoteRefused('an automation is turned on at the desktop')
+        return [checkedAutomationId(args[0]), false]
       default:
         return args
     }
+  }
+
+  /**
+   * "Run now" starts an agent, and ignores the window and limits: only for an automation that is on.
+   * One that is off may be an agent's unreviewed edit, and the person turns those on at the desktop.
+   */
+  private async checkedRunnable(value: unknown, entry: { device: RemoteDevice; senderId: number }): Promise<string> {
+    const id = checkedAutomationId(value)
+    const read = this.deps.handlers.invoke('automations:get')
+    let snapshot: AutomationsSnapshot | undefined
+    try {
+      snapshot = read ? ((await read(this.event(entry) as IpcMainInvokeEvent)) as AutomationsSnapshot | undefined) : undefined
+    } catch (err) {
+      this.deps.log?.warn(`remote: automations:get failed: ${err instanceof Error ? err.message : String(err)}`)
+      throw new RemoteRefused(REMOTE_GENERIC_ERROR)
+    }
+    if (!snapshot?.automations?.some((s) => s.definition.id === id && s.definition.enabled === true)) throw new RemoteRefused('only an automation that is on can run from here')
+    return id
   }
 
   /** A session may only start in a folder the profile lists, never a path the device typed, and never in a mode that skips permissions. */
@@ -366,6 +395,10 @@ function pagedCall(channel: string, args: unknown[]): { sourceArgs: unknown[]; p
         if (list !== undefined && list !== 'mine' && list !== 'toReview') throw new RemoteRefused('the list is not valid')
         return { sourceArgs: [profileId], page: (r) => pullRequestsPage(r as CodeHostLists, request, list) }
       }
+      case 'remote:automations': {
+        const request = readPageRequest(args[0])
+        return { sourceArgs: [], page: (r) => pageOf(remoteAutomations(r as AutomationsSnapshot), request, (a) => a.id) }
+      }
       default:
         throw new RemoteRefused(`${channel} is not available remotely`)
     }
@@ -373,6 +406,12 @@ function pagedCall(channel: string, args: unknown[]): { sourceArgs: unknown[]; p
     if (err instanceof PageRequestError) throw new RemoteRefused(err.message)
     throw err
   }
+}
+
+function checkedAutomationId(value: unknown): string {
+  const id = readAutomationId(value)
+  if (id === null) throw new RemoteRefused('the automation is not valid')
+  return id
 }
 
 /** A session that does not fit a page on its own: enough for the list to name it. */
@@ -405,6 +444,8 @@ function pullRequestsPage(lists: CodeHostLists, request: PageRequest, only?: Rem
 function redactEvent(channel: string, args: unknown[]): unknown[] {
   if (channel === 'session:changed' && args[0] && typeof args[0] === 'object') return [remoteSessionView(args[0] as SessionView), ...args.slice(1)]
   if (channel === 'session:event' && args[0] && typeof args[0] === 'object') return [remoteAgentEvent(args[0] as AgentEvent), ...args.slice(1)]
+  // The snapshot holds every prompt and folder and may not fit a frame: the device only learns it changed and reads its page again.
+  if (channel === 'automations:changed') return []
   return args
 }
 
@@ -513,6 +554,8 @@ function redactResult(channel: string, result: unknown): unknown {
   if (channel === 'config:effectiveAgents' && Array.isArray(result)) return (result as EffectiveAgent[]).map(remoteEffectiveAgent)
   if (channel === 'sessions:subagent' && result && typeof result === 'object') return remoteSubagent(result as SubagentConversation)
   if (channel === 'history:search' && result && typeof result === 'object') return remoteHistorySearch(result as HistorySearchResult)
+  // The answer carries the whole config (connections, agents): the device learns only whether it worked.
+  if (channel === 'automations:setEnabled') return { ok: (result as { ok?: unknown } | null)?.ok === true }
   return result
 }
 

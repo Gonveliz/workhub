@@ -8,6 +8,7 @@ import { WebAppProvider, navigate, useClient, useClientStatus, useRoute, type We
 import { NOTIFY_ASKED_KEY } from './device'
 import { parseRoute, routeHash } from './routes'
 import { AlertsScreen } from './screens/AlertsScreen'
+import { AutomationsScreen } from './screens/AutomationsScreen'
 import { HistoryScreen } from './screens/HistoryScreen'
 import { HomeScreen } from './screens/HomeScreen'
 import { NewSessionScreen } from './screens/NewSessionScreen'
@@ -114,6 +115,9 @@ function Shell({ defaultName }: { defaultName: string }) {
       break
     case 'alerts':
       screen = capabilities.includes('health') ? <AlertsScreen /> : <NotAllowed what={t('web.capability.health')} />
+      break
+    case 'automations':
+      screen = capabilities.includes('automations') ? <AutomationsScreen /> : <NotAllowed what={t('web.capability.automations')} />
       break
     case 'plan':
       screen = capabilities.includes('plan') ? <PlanScreen tab={route.tab} /> : <NotAllowed what={t('web.capability.plan')} />
