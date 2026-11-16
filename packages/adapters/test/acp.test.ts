@@ -83,6 +83,20 @@ describe('AcpMonitor edge cases', () => {
     expect(m.endTurn('cancelled')?.toolCalls?.map((t) => t.status)).toEqual(['cancelled', 'completed'])
     expect(m.endTurn('cancelled')).toBeNull()
   })
+  it('keeps the newest 40 tool calls and still reports the status of the kept ones', () => {
+    const m = new AcpMonitor()
+    let last
+    for (let i = 1; i <= 45; i++) last = m.applyUpdate({ sessionUpdate: 'tool_call', toolCallId: `t${i}`, title: `Tool ${i}`, status: 'in_progress' })
+    expect(last?.toolCalls).toHaveLength(40)
+    expect(last?.toolCalls?.[0]?.id).toBe('t6')
+    expect(last?.toolCalls?.at(-1)?.id).toBe('t45')
+    const done = m.applyUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't45', status: 'completed' })
+    expect(done?.toolCalls).toHaveLength(40)
+    expect(done?.toolCalls?.at(-1)).toMatchObject({ id: 't45', title: 'Tool 45', status: 'completed' })
+    // A turn that ends badly cancels only what is still kept.
+    expect(m.endTurn('cancelled')?.toolCalls?.filter((t) => t.status === 'cancelled')).toHaveLength(39)
+  })
+
   it('sums credits and tokens over turns', () => {
     const m = new AcpMonitor()
     m.applyExtension('_kiro.dev/metadata', { meteringUsage: [{ value: 1, unit: 'credit' }] })

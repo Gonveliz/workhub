@@ -105,3 +105,73 @@ describe('SessionManager: open permission requests live in the view', () => {
     expect(changed.length).toBe(before)
   })
 })
+
+describe('SessionManager: transcript polling', () => {
+  function polling() {
+    let listener: AgentEventListener = () => {}
+    const runtime: AgentRuntime = {
+      adapter: 'native',
+      capabilities: () => ({ ...NO_CAPABILITIES, appMode: true }),
+      start: async (r: StartSessionRequest) => ({ agentName: 'Claude Code', permissionMode: null, agentSessionId: r.agentSessionId }),
+      prompt: async () => ({ stopReason: 'end_turn' }),
+      cancel: async () => {},
+      stop: async () => {},
+      stopAll: async () => {},
+      respondPermission: () => {},
+      subscribe: (l) => {
+        listener = l
+        return () => {}
+      }
+    }
+    const reads: string[] = []
+    const forgotten: string[] = []
+    const reader = {
+      id: 'claude',
+      read: async (q: { agentSessionId: string }) => {
+        reads.push(q.agentSessionId)
+        return null
+      },
+      exists: async () => true,
+      forget: (id: string) => forgotten.push(id)
+    }
+    const manager = new SessionManager({
+      config: { current: async () => emptyConfig(), replaceSessionIdentity: async () => undefined } as unknown as ConfigurationService,
+      runtimes: { native: runtime },
+      terminal: runtime,
+      transcripts: [reader],
+      history: {},
+      emitEvent: () => {},
+      emitChanged: () => {},
+      emitReplay: () => {},
+      pollMs: 10
+    })
+    return { manager, reads, forgotten, emit: (e: AgentEvent) => listener(e) }
+  }
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+  it('reads a stopped session once more, then leaves it alone until it starts again, and forgets it when removed', async () => {
+    const { manager, reads, forgotten, emit } = polling()
+    const v = await manager.start({ profileId: null, agentKey: 'claude', cwd: '/w/acme/api' })
+    await wait(50)
+    expect(reads.length).toBeGreaterThan(0)
+
+    emit({ sessionId: v.id, type: 'state', state: 'stopped' })
+    await wait(50)
+    const afterStop = reads.length
+    await wait(80)
+    expect(reads.length).toBe(afterStop)
+
+    emit({ sessionId: v.id, type: 'state', state: 'starting' })
+    await wait(50)
+    expect(reads.length).toBeGreaterThan(afterStop)
+
+    emit({ sessionId: v.id, type: 'state', state: 'stopped' })
+    await wait(50)
+    const again = reads.length
+    await wait(80)
+    expect(reads.length).toBe(again)
+
+    expect(manager.remove(v.id)).toBe(true)
+    expect(forgotten).toEqual([v.agentSessionId])
+  })
+})

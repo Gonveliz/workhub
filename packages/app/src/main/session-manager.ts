@@ -86,6 +86,8 @@ interface ManagedSession {
   reportsActiveTime: boolean
   /** The last transcript snapshot sent, to skip polls that found nothing new. */
   lastMonitor?: string
+  /** The transcript was read once after the session stopped; polling skips it until it starts again. */
+  finalRead?: boolean
   /** The folders the transcript says the session worked in, most recent last; unset until one says so. */
   workPaths?: string[]
   /** The folders among `workPaths` the session changed something in. */
@@ -157,6 +159,8 @@ export interface SessionManagerDeps {
   onAgentOptions?: (agentId: string, accountId: string | null, options: { models: ModelOption[]; modes: SessionModeOption[] }) => void
   /** Creates and removes the worktrees of sessions that ask for one; without it they start in the folder. */
   worktrees?: Worktrees
+  /** The main log: a session that failed to start or ended on its own, with the agent's last stderr lines (never prompt text). */
+  log?: (message: string) => void
 }
 
 /** What closing a session with its worktree did: `blocked` when the worktree has work removing it would lose (nothing was closed). */
@@ -226,6 +230,8 @@ export class SessionManager {
     // The agent may have exited on its own, which `stop()` never saw: its Shell and console
     // terminals would keep running with no session left to show them.
     if (stopTerminals) this.stopTerminals(id)
+    const reader = this.reader(s)
+    if (reader && s.view.agentSessionId) reader.forget(s.view.agentSessionId)
     this.deps.emitRemoved?.(id)
     return true
   }
@@ -406,9 +412,12 @@ export class SessionManager {
           : false
       return engine === 'app' ? this.startChat(session, { resume, model, effort: input.effort, modeId, cols: input.cols, rows: input.rows }) : this.startConsole(session, input.cols, input.rows, model)
     }
-    void starting().catch(
-      (err: unknown) => this.update(view.id, { state: 'error', error: err instanceof Error ? err.message : String(err) })
-    )
+    void starting().catch((err: unknown) => {
+      const error = err instanceof Error ? err.message : String(err)
+      // A runtime that reports its own failure as a state event has logged it already.
+      if (this.sessions.get(view.id)?.view.state !== 'error') this.logFailure(this.sessions.get(view.id), error)
+      this.update(view.id, { state: 'error', error })
+    })
     return view
   }
 
@@ -920,7 +929,11 @@ export class SessionManager {
     try {
       const prefixes = ticketPrefixes(await this.deps.config.current())
       for (const s of this.sessions.values()) {
+        // A stopped session cannot change: it gets one last read, then is left alone until it starts again.
+        const over = (s.view.state === 'stopped' || s.view.state === 'error') && !s.switching
+        if (over && s.finalRead) continue
         await this.pollOne(s, prefixes)
+        if (over) s.finalRead = true
         if (s.clock.isBusy()) this.emitDerivedActive(s)
       }
     } finally {
@@ -969,6 +982,7 @@ export class SessionManager {
       if (channel === 'shell') {
         if (e.state === 'stopped' || e.state === 'error') this.update(id, { shellRunning: false, ...(s.view.mode === 'shell' ? { mode: s.engine } : {}) })
       } else if ((channel === 'console') === (s.engine === 'console') && !s.switching) {
+        if (e.state === 'error') this.logFailure(s, e.error)
         this.update(id, { state: e.state, ...(e.error ? { error: e.error } : {}) })
       }
     }
@@ -1009,6 +1023,13 @@ export class SessionManager {
     }
   }
 
+  /** One line in the main log for a session that failed to start or ended on its own; `error` carries the agent's last stderr lines. */
+  private logFailure(s: ManagedSession | undefined, error: string | undefined): void {
+    if (!s || !this.deps.log) return
+    const what = s.view.state === 'starting' ? 'failed to start' : 'ended unexpectedly'
+    this.deps.log(`session ${s.view.id} (${s.view.agentId}) ${what}: ${error ?? 'no error reported'}`)
+  }
+
   private update(id: string, patch: Partial<SessionView>): void {
     const s = this.sessions.get(id)
     if (!s) return
@@ -1017,6 +1038,7 @@ export class SessionManager {
       if (patch.state !== 'stopped' && patch.state !== 'error' && patch.state !== 'starting') return
     }
     // When the state began, for the header's "Working 1:23" / "Idle 2 min".
+    if (patch.state && patch.state !== 'stopped' && patch.state !== 'error') s.finalRead = false
     const since = patch.state && patch.state !== s.view.state ? { stateSince: Date.now() } : {}
     // A console that stopped, failed or restarts no longer asks anything.
     const consoleGone = s.view.consoleAsking && patch.state && patch.state !== 'ready' && patch.state !== 'busy' ? { consoleAsking: false, consoleAskingSince: undefined } : {}

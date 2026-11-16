@@ -41,6 +41,9 @@ function serverState(status: string | undefined): McpServerState {
   }
 }
 
+/** Tool calls kept and sent, newest last: the same cap as Claude's transcript reader. */
+const TOOL_LIMIT = 40
+
 /** Accumulates one session's monitor data. Each `apply*` returns the changed fields, or null. */
 export class AcpMonitor {
   private snapshot: SessionMonitorSnapshot = {}
@@ -87,6 +90,11 @@ export class AcpMonitor {
           status: str(u['status']) ?? prev?.status
         }
         this.tools.set(id, next)
+        // Map keeps insertion order: the oldest calls go first.
+        for (const old of this.tools.keys()) {
+          if (this.tools.size <= TOOL_LIMIT) break
+          this.tools.delete(old)
+        }
         return this.patch({ toolCalls: [...this.tools.values()] })
       }
       default:
