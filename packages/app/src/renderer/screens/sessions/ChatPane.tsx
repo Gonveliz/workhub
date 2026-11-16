@@ -718,7 +718,8 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
           {replayAt < 0 && originLine}
           {data.items.map((i, n) => (
             <Fragment key={i.id}>
-              <ChatBlock item={i} onAnswer={answer} sessionId={v.id} cwd={v.cwd} hasShell={v.modes.includes('shell')} subagents={data.monitor.subagents} />
+              {/* Only tool calls show sub-agents: a monitor patch replaces the list, and passing it to every block would render them all again. */}
+              <ChatBlock item={i} onAnswer={answer} sessionId={v.id} cwd={v.cwd} hasShell={v.modes.includes('shell')} subagents={i.kind === 'tool' ? data.monitor.subagents : undefined} />
               {n === replayAt && originLine}
             </Fragment>
           ))}

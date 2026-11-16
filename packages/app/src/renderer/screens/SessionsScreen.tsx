@@ -8,7 +8,7 @@ import { BrandMark } from '../components/organisms'
 import { useI18n } from '../i18n/I18nProvider'
 import { usePrefs } from '../lib/prefs'
 import { cn } from '../lib/cn'
-import type { SessionData } from '../store'
+import { useSession, type SessionData } from '../store'
 import { AiReviewAside } from './sessions/AiReviewPanel'
 import { ChatPane } from './sessions/ChatPane'
 import { MonitorPanel } from './sessions/MonitorPanel'
@@ -33,7 +33,7 @@ export function SessionsScreen({ sessions, selectedId, visible, theme, onNewSess
       {sessions.map((s) => (
         <div key={s.view.id} className={cn('flex min-h-0 flex-1 flex-col', s.view.id !== current?.view.id && 'hidden')}>
           <ErrorBoundary where="session" variant="session">
-            <SessionPane data={s} visible={visible && s.view.id === current?.view.id} theme={theme} />
+            <DockedSessionPane row={s} visible={visible && s.view.id === current?.view.id} theme={theme} />
           </ErrorBoundary>
         </div>
       ))}
@@ -54,6 +54,15 @@ export function SessionsScreen({ sessions, selectedId, visible, theme, onNewSess
     </div>
   )
 }
+
+/**
+ * A session's pane in the main window. It follows its own session in the store: the rows it gets
+ * hold an older chat while a reply streams, and only this pane renders for each flush.
+ */
+const DockedSessionPane = memo(function DockedSessionPane({ row, visible, theme }: { row: SessionData; visible: boolean; theme: 'light' | 'dark' }) {
+  const data = useSession(row.view.id) ?? row
+  return <SessionPane data={data} visible={visible} theme={theme} />
+})
 
 /**
  * One session's header, chat or terminals and side panel. Rendered again only when that session

@@ -1,9 +1,10 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, Fragment, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Play } from 'lucide-react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { filePathIn, isShellLanguage, shellCommandOf } from '../../lib/chatLinks'
 import { cn } from '../../lib/cn'
+import { markdownBlocks } from '../../lib/markdownBlocks'
 import { useI18n } from '../../i18n/I18nProvider'
 import { IconButton } from '../atoms'
 import { CopyButton } from './CopyButton'
@@ -170,15 +171,35 @@ export function hardBreaks(text: string): string {
     .join('\n')
 }
 
-export function Markdown({ text, className, profileId, breaks, actions }: { text: string; className?: string; profileId?: string | null; breaks?: boolean; actions?: MarkdownActions }) {
+const REMARK_PLUGINS = [remarkGfm]
+
+/** One top-level block of a text, parsed again only when its own text changes. */
+const MarkdownBlock = memo(function MarkdownBlock({ text, components }: { text: string; components: Components }) {
+  return (
+    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} skipHtml components={components}>
+      {text}
+    </ReactMarkdown>
+  )
+})
+
+/**
+ * The text renders block by block (see `markdownBlocks`), with the line break the whole text would
+ * have between them: while a reply streams, the blocks it already finished keep their parse.
+ */
+export const Markdown = memo(function Markdown({ text, className, profileId, breaks, actions }: { text: string; className?: string; profileId?: string | null; breaks?: boolean; actions?: MarkdownActions }) {
   const components = useMemo(() => (profileId ? componentsFor(profileId) : COMPONENTS), [profileId])
+  const source = breaks ? hardBreaks(text) : text
+  const blocks = useMemo(() => markdownBlocks(source), [source])
   return (
     <ActionsContext.Provider value={actions ?? null}>
       <div className={cn('markdown min-w-0 break-words', className)}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml components={components}>
-          {breaks ? hardBreaks(text) : text}
-        </ReactMarkdown>
+        {blocks.map((block, i) => (
+          <Fragment key={i}>
+            {i > 0 && '\n'}
+            <MarkdownBlock text={block} components={components} />
+          </Fragment>
+        ))}
       </div>
     </ActionsContext.Provider>
   )
-}
+})

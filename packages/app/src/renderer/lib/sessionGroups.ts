@@ -19,7 +19,7 @@ import {
   type SessionGroups
 } from '@workhub/core'
 import { refreshConfig } from '../configStore'
-import { awaitingAnswer, type SessionData } from '../store'
+import { awaitingAnswer, useSessionsSelector, type SessionData } from '../store'
 import { folderName } from './home'
 
 /** A session as the sidebar lists it, with the identity groups know it by. */
@@ -88,6 +88,25 @@ export function sameRows(a: readonly SessionData[], b: readonly SessionData[]): 
     if (s === o) return true
     return s.view === o.view && s.unseen === o.unseen && awaitingAnswer(s) === awaitingAnswer(o) && (s.items === o.items || namingOf(s.items) === namingOf(o.items))
   })
+}
+
+/** The open sessions, newest first: the order of the sidebar and the screens that list them. */
+export function sessionRows(all: Record<string, SessionData>): SessionData[] {
+  return Object.values(all).sort((a, b) => b.view.startedAt - a.view.startedAt)
+}
+
+/** Like `sameRows`, and the same monitor too: rows show its sub-agents, background tasks and plan usage. */
+export function sameSidebarRows(a: readonly SessionData[], b: readonly SessionData[]): boolean {
+  return sameRows(a, b) && a.every((s, i) => s.monitor === b[i]!.monitor)
+}
+
+/**
+ * The sessions as rows, a new array only when a row changes: the window shell, the sidebar and the
+ * screens that only list sessions skip the flushes of a streaming reply. Their chat items may be
+ * older than the store's; read a session's chat with `useSession`.
+ */
+export function useSessionRows(): SessionData[] {
+  return useSessionsSelector(sessionRows, sameSidebarRows)
 }
 
 export function sessionName(s: Pick<SessionData, 'items' | 'view'>): string {

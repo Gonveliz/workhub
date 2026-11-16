@@ -9,7 +9,7 @@ import { Dialog, EmptyState, useToast, RefreshButton } from '../components/molec
 import { TagsEditor } from '../components/molecules/TagsEditor'
 import { HistoryIndexingNote, HistorySnippet, titleSnippetFits } from '../components/molecules/HistorySnippet'
 import { useI18n } from '../i18n/I18nProvider'
-import { useSessions } from '../store'
+import { useSessionRows } from '../lib/sessionGroups'
 import { folderName } from '../lib/home'
 import { resumeInput } from '../lib/links'
 import { readPrefs } from '../lib/prefs'
@@ -82,8 +82,9 @@ const ALL = '*'
 export function HistoryScreen({ profileId, profiles = [], onOpened, visible = true, focus }: HistoryScreenProps) {
   const { t, tn, formatDate } = useI18n()
   const toast = useToast()
-  const sessionMap = useSessions()
-  const open = useMemo(() => openSessionsByHistory(Object.values(sessionMap).map((s) => s.view)), [sessionMap])
+  // The rows, not every session: History stays mounted, hidden, and must not render for each streamed chunk.
+  const rows = useSessionRows()
+  const open = useMemo(() => openSessionsByHistory(rows.map((s) => s.view)), [rows])
   // Workhub 1 lists the active profile's sessions unless "All profiles" is picked.
   const [profileFilter, setProfileFilter] = useState(profileId ?? ALL)
   useEffect(() => setProfileFilter(profileId ?? ALL), [profileId])

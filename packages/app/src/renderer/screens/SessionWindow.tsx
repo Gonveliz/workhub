@@ -15,7 +15,7 @@ import { folderName } from '../lib/home'
 import { usePlatform } from '../lib/platform'
 import { closeSubagent } from '../lib/subagentView'
 import { sessionTitle } from '../lib/windows'
-import { pushTurnEnd, pushUser, seedSession, setViewing, startStore, useSessions } from '../store'
+import { pushTurnEnd, pushUser, seedSession, setViewing, startStore, useSession } from '../store'
 import { startPromptQueue } from '../promptQueue'
 import { SessionPane } from './SessionsScreen'
 import { SubagentBody } from './sessions/SubagentView'
@@ -101,8 +101,7 @@ function SessionWindow({ sessionId }: { sessionId: string }) {
   const { t } = useI18n()
   const toast = useToast()
   const theme = useAppearance()
-  const sessions = useSessions()
-  const data = sessions[sessionId]
+  const data = useSession(sessionId)
   const [loaded, setLoaded] = useState(false)
   const [closing, setClosing] = useState(false)
   const seen = useRef(false)

@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { useRef, useSyncExternalStore } from 'react'
 import {
   attentionFromTransition,
   mergeMonitor,
@@ -590,12 +590,47 @@ export function getSessions(): Record<string, SessionData> {
   return sessions
 }
 
+function subscribe(l: () => void): () => void {
+  listeners.add(l)
+  return () => listeners.delete(l)
+}
+
+/** Every session, rendered again on each change of any of them (a streamed chunk included). Prefer the narrower hooks below. */
 export function useSessions(): Record<string, SessionData> {
-  return useSyncExternalStore(
-    (l) => {
-      listeners.add(l)
-      return () => listeners.delete(l)
-    },
-    () => sessions
-  )
+  return useSyncExternalStore(subscribe, () => sessions)
+}
+
+/** One session: the same object until that session changes, so another session's stream leaves it alone. */
+export function selectSession(all: Record<string, SessionData>, id: string | null | undefined): SessionData | undefined {
+  return id ? all[id] : undefined
+}
+
+export function useSession(id: string | null | undefined): SessionData | undefined {
+  return useSyncExternalStore(subscribe, () => selectSession(sessions, id))
+}
+
+/** Whether a session is open: it renders again only when that changes. */
+export function useSessionOpen(id: string | null | undefined): boolean {
+  return useSyncExternalStore(subscribe, () => selectSession(sessions, id) !== undefined)
+}
+
+/**
+ * The value `select` reads from the sessions, kept (the previous one returned) while `same` says it
+ * did not change: a component that reads only part of the sessions skips the flushes of a stream.
+ */
+export function selectKept<T>(prev: T | undefined, all: Record<string, SessionData>, select: (all: Record<string, SessionData>) => T, same: (a: T, b: T) => boolean): T {
+  const next = select(all)
+  return prev !== undefined && same(prev, next) ? prev : next
+}
+
+export function useSessionsSelector<T>(select: (all: Record<string, SessionData>) => T, same: (a: T, b: T) => boolean = Object.is): T {
+  // useSyncExternalStore needs the same value back while the sessions have not changed.
+  const cache = useRef<{ source: Record<string, SessionData>; select: typeof select; value: T } | null>(null)
+  return useSyncExternalStore(subscribe, () => {
+    const c = cache.current
+    if (c && c.source === sessions && c.select === select) return c.value
+    const value = selectKept(c?.value, sessions, select, same)
+    cache.current = { source: sessions, select, value }
+    return value
+  })
 }
