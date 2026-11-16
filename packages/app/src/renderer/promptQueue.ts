@@ -18,14 +18,14 @@ function recover(sessionId: string, prompts: RecoveredPrompt[]): void {
 }
 
 /** Prompts handed to main that wait to hear they went out, by session and token. */
-const goingOut = new Map<string, () => void>()
+const goingOut = new Map<string, (journalSeq?: number) => void>()
 /** Prompts whose answer came back, waiting for the turn's last events (see `SettleWaits`). */
 const settles = new SettleWaits()
 let followingStarts = false
 function followStarts(): void {
   if (followingStarts) return
   followingStarts = true
-  window.hub.sessions.onPromptStarted((id, token) => goingOut.get(`${id}:${token}`)?.())
+  window.hub.sessions.onPromptStarted((id, token, seq) => goingOut.get(`${id}:${token}`)?.(seq))
   window.hub.sessions.onPromptSettled((id, token) => settles.notify(`${id}:${token}`))
 }
 
@@ -41,12 +41,13 @@ async function deliver(sessionId: string, prompt: QueuedPrompt, started: () => v
   followStarts()
   const key = `${sessionId}:${prompt.id}`
   let shown = false
-  const show = () => {
+  // `journalSeq`: the prompt's number in main's chat journal, which main broadcasts to every window right after.
+  const show = (journalSeq?: number) => {
     if (shown) return
     shown = true
     goingOut.delete(key)
     started()
-    pushUser(sessionId, prompt.text, prompt.images)
+    pushUser(sessionId, prompt.text, prompt.images, journalSeq)
   }
   goingOut.set(key, show)
   const inputs = prompt.images.map(imageInputFromDataUrl).filter((i): i is ImageInput => i !== null)

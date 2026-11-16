@@ -294,6 +294,36 @@ replaces the built-in one. Sessions start with the login shell's `PATH`, since a
 the Finder or a desktop launcher inherits a bare one; the main process also puts it in its own
 environment, so `gh`, `glab` and `git` run under the same `PATH`.
 
+### Chat journal
+
+Each window's renderer builds a session's chat from the events main sends it (`renderer/store.ts`).
+So that a window that loads later has the chat too (the main window after a reload or a renderer
+crash, a session window when it opens, the main window when a session is docked back), main keeps
+a bounded journal per live session (`main/chat-journal.ts`, types in `shared/chat-journal.ts`):
+
+- It records the messages the chat is built from as main sends them: agent events that show in the
+  chat (messages, tool calls and their results, permission requests and their withdrawal, notices,
+  compactions, the exit; the monitor is merged into one snapshot), every prompt that went out
+  (`automations:prompted`, from any window, device, automation or review) and its turn's end
+  (`automations:turnEnded`), and a resumed session's replayed conversation, which starts the
+  journal over so the transcript's messages are never in it twice. Events, not chat items, are
+  kept, so the renderer's reducer stays the only code that makes items and a rebuilt chat equals
+  the live one.
+- Each recorded message goes out with a per-session sequence number as its last argument. A window
+  rebuilds a chat with `sessions.journal(id)` through the same reducers (`fromJournal`), then
+  applies only live messages numbered after the journal's `seq`; those that arrived while it waited
+  are applied again on top. A prompt's sender learns its number with `sessions:promptStarted`
+  before the broadcast, so it shows its own bubble (with its images) once.
+- Bounded by count (2,000 entries; a streamed reply's deltas are one entry) and by size (about
+  4 MB of JSON); the oldest entries go first and the rebuilt chat then starts with "Earlier
+  messages are not shown". Dropped when the session leaves the list. Answers to permission
+  requests are not recorded: the rebuilt chat marks them from the session view, like a request
+  answered in another window. Errors a window shows for its own failed prompt, and Workhub's own
+  slash-command notices, stay in that window.
+- A session window still takes its terminals' output from the main window (`windows:snapshot`):
+  main does not keep terminal output. Paired devices do not use the journal; they page the stored
+  conversation (`main/remote/history.ts`).
+
 ## Testing
 
 - Vitest, one project per package (`vitest.config.mts` at the root), all in the Node environment,

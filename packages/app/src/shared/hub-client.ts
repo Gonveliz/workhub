@@ -64,12 +64,13 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
     },
     sessions: {
       list: () => invoke('sessions:list'),
+      journal: (id) => invoke('sessions:journal', id),
       ready: () => send('sessions:ready'),
       start: (input) => invoke('sessions:start', input),
       reopen: (identity, input) => invoke('sessions:reopen', identity, input),
       prompt: (id, text, images, token) => invoke('sessions:prompt', id, text, images, token),
       withdrawPrompt: (id, token) => invoke('sessions:withdrawPrompt', id, token),
-      onPromptStarted: (cb) => subscribe<[string, number]>('sessions:promptStarted', cb),
+      onPromptStarted: (cb) => subscribe<[string, number, number?]>('sessions:promptStarted', cb),
       onPromptSettled: (cb) => subscribe<[string, number]>('sessions:promptSettled', cb),
       setMode: (id, mode, options) => invoke('sessions:setMode', id, mode, options),
       close: (id) => invoke('sessions:close', id),
@@ -87,10 +88,10 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       respondPermission: (id, requestId, optionId, answers) => send('sessions:permission', id, requestId, optionId, answers),
       write: (id, data) => send('sessions:write', id, data),
       resize: (id, cols, rows) => send('sessions:resize', id, cols, rows),
-      onEvent: (cb) => subscribe<[AgentEvent]>('session:event', cb),
+      onEvent: (cb) => subscribe<[AgentEvent, number?]>('session:event', cb),
       onChanged: (cb) => subscribe<[SessionView]>('session:changed', cb),
       onRemoved: (cb) => subscribe<[string]>('session:removed', cb),
-      onReplay: (cb) => subscribe<[string, HistoryMessage[]]>('session:replay', cb)
+      onReplay: (cb) => subscribe<[string, HistoryMessage[], number?]>('session:replay', cb)
     },
     history: {
       list: () => invoke('history:list'),
@@ -245,8 +246,8 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       openSession: (id) => invoke('automations:openSession', id),
       setViewing: (id) => send('automations:setViewing', id),
       onChanged: (cb) => subscribe<[AutomationsSnapshot]>('automations:changed', cb),
-      onPrompted: (cb) => subscribe<[string, string]>('automations:prompted', cb),
-      onTurnEnded: (cb) => subscribe<[string, string]>('automations:turnEnded', cb),
+      onPrompted: (cb) => subscribe<[string, string, number?]>('automations:prompted', cb),
+      onTurnEnded: (cb) => subscribe<[string, string, number?]>('automations:turnEnded', cb),
       onConfigChanged: (cb) => subscribe<[]>('config:changed', cb)
     },
     aiReview: {

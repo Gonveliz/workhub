@@ -1,5 +1,6 @@
 // Types of the preload bridge (window.hub), shared by main, preload and renderer.
 import type { AnalyticsApi } from './analytics-api'
+import type { ChatJournal } from './chat-journal'
 import type { ChromeProfile, GroupChoice, SessionWorktree, WorktreeStatus } from '@workhub/core'
 import type { NotificationKind, TrayApi, TrayRoute } from './tray-api'
 import type { ProfileEnvApi, SetupApi, SystemNotificationsApi } from './setup-api'
@@ -322,6 +323,11 @@ export const PROMPT_WITHDRAWN = 'workhub:prompt-withdrawn'
 
 export interface SessionsApi {
   list(): Promise<SessionView[]>
+  /**
+   * The chat main keeps for a live session (bounded), so a window that loads later rebuilds it:
+   * live messages numbered at or below its `seq` are already in it. Desktop windows only.
+   */
+  journal(id: string): Promise<ChatJournal | null>
   /** The main window follows session events now: the sessions open at the last quit are reopened then. */
   ready(): void
   /** Returns at once with the session in `starting`; progress arrives through onChanged. */
@@ -339,8 +345,11 @@ export interface SessionsApi {
   prompt(id: string, text: string, images?: ImageInput[], token?: number): Promise<string>
   /** Takes back a prompt sent with `token` that still waits for its turn; false once it went out. */
   withdrawPrompt(id: string, token: number): Promise<boolean>
-  /** A prompt sent from this window with a token went out to the agent. */
-  onPromptStarted(cb: (id: string, token: number) => void): () => void
+  /**
+   * A prompt sent from this window with a token went out to the agent. `seq`: the number main's
+   * chat journal gives it, so the broadcast of the same prompt is not shown again here.
+   */
+  onPromptStarted(cb: (id: string, token: number, seq?: number) => void): () => void
   /**
    * A prompt sent from this window with a token settled. It travels with the session's events, so
    * it arrives after the turn's last message; `prompt()`'s own answer can overtake them.
@@ -385,12 +394,13 @@ export interface SessionsApi {
   localChanges(id: string): Promise<LocalChanges | null>
   /** Names the session (empty or null: back to its agent's name); stored by the session's identity. */
   rename(id: string, name: string | null): Promise<void>
-  onEvent(cb: (e: AgentEvent) => void): () => void
+  /** `seq`: the event's number in main's chat journal, when it belongs to the chat (see `journal`). */
+  onEvent(cb: (e: AgentEvent, seq?: number) => void): () => void
   onChanged(cb: (s: SessionView) => void): () => void
   /** A finished session left the list (an automation replaced it). */
   onRemoved(cb: (id: string) => void): () => void
   /** Earlier messages of a resumed session, to show before the new turns. */
-  onReplay(cb: (id: string, messages: HistoryMessage[]) => void): () => void
+  onReplay(cb: (id: string, messages: HistoryMessage[], seq?: number) => void): () => void
 }
 
 export interface HistoryApi {

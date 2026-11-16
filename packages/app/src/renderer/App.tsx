@@ -49,7 +49,7 @@ import { PullRequestsScreen } from './screens/PullRequestsScreen'
 import { SessionsScreen } from './screens/SessionsScreen'
 import { SubagentSheet } from './screens/sessions/SubagentView'
 import { TicketsScreen } from './screens/TicketsScreen'
-import { getSessions, onAttention, sessionSnapshot, setExternalViewing, setViewing, startStore, useSessions, type SessionData } from './store'
+import { getSessions, hydrateFromMain, onAttention, sessionSnapshot, setExternalViewing, setViewing, startStore, useSessions, type SessionData } from './store'
 import { errorText } from './lib/errorText'
 import { quickSessionPlan } from './lib/quickSession'
 import { createQuickSessionGate } from './lib/quickSessionGate'
@@ -97,6 +97,8 @@ function Shell() {
 
   useEffect(() => {
     startStore()
+    // A reloaded window (after a crash, or "Reload window") gets its chats back from main.
+    void hydrateFromMain()
     // Listening now: main reopens the sessions of the last run, whose resumed chats replay here.
     window.hub.sessions.ready()
     startPromptQueue()
@@ -172,6 +174,8 @@ function Shell() {
   // Session windows: "Move to Main Window" selects the session here; a focused one counts as seen;
   // a new one starts from the chat this window holds.
   useEffect(() => window.hub.windows.onShowSession(openSession), [openSession])
+  // Docked back: the chat followed the session's events meanwhile, but main's journal is the whole of it.
+  useEffect(() => window.hub.windows.onShowSession((id) => void hydrateFromMain(id)), [])
   useEffect(() => window.hub.windows.onFocusedSession(setExternalViewing), [])
   useEffect(() => window.hub.windows.onSnapshotRequest((requestId, id) => window.hub.windows.replySnapshot(requestId, sessionSnapshot(id))), [])
 

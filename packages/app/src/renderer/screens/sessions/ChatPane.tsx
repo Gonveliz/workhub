@@ -339,6 +339,15 @@ const ChatBlock = memo(function ChatBlock({ item, onAnswer, sessionId, cwd, hasS
           <span className="h-px flex-1 bg-border" />
         </div>
       )
+    case 'truncated':
+      return (
+        <div className="flex items-center gap-3 text-2xs tracking-wide text-subtle uppercase">
+          <span className="h-px flex-1 bg-border" />
+          <History className="size-3" aria-hidden />
+          {t('chat.truncated')}
+          <span className="h-px flex-1 bg-border" />
+        </div>
+      )
     case 'turnEnd':
       return (
         <div className="flex items-center gap-3 text-2xs tracking-wide text-subtle uppercase" aria-label={turnEndLabel(t, item.stopReason)}>

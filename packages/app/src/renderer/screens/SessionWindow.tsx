@@ -15,7 +15,7 @@ import { folderName } from '../lib/home'
 import { usePlatform } from '../lib/platform'
 import { closeSubagent } from '../lib/subagentView'
 import { sessionTitle } from '../lib/windows'
-import { pushTurnEnd, pushUser, seedSession, setViewing, startStore, useSession } from '../store'
+import { hydrateFromMain, pushTurnEnd, pushUser, seedTerminals, setViewing, startStore, useSession } from '../store'
 import { startPromptQueue } from '../promptQueue'
 import { SessionPane } from './SessionsScreen'
 import { SubagentBody } from './sessions/SubagentView'
@@ -115,13 +115,15 @@ function SessionWindow({ sessionId }: { sessionId: string }) {
     // The close dialog reads the profiles (whether a worktree is kept or removed on close).
     void refreshConfig().catch(() => undefined)
     const offConfig = window.hub.config.onChanged(() => void refreshConfig().catch(() => undefined))
-    // The chat so far comes from the main window; the live events follow it (main orders the two).
+    // The chat so far comes from main's journal; the terminals' output, which main does not keep,
+    // from the main window. The live messages follow both (numbered, or held by main until the snapshot is in).
+    void hydrateFromMain(sessionId)
     void window.hub.windows.snapshot(sessionId).then((snapshot) => {
-      if (snapshot) seedSession(sessionId, snapshot)
+      if (snapshot?.terminals) seedTerminals(sessionId, snapshot.terminals)
     })
     setViewing(sessionId)
-    const offPrompted = window.hub.automations.onPrompted((id, text) => id === sessionId && pushUser(id, text))
-    const offTurnEnded = window.hub.automations.onTurnEnded((id, stopReason) => id === sessionId && pushTurnEnd(id, stopReason))
+    const offPrompted = window.hub.automations.onPrompted((id, text, seq) => id === sessionId && pushUser(id, text, undefined, seq))
+    const offTurnEnded = window.hub.automations.onTurnEnded((id, stopReason, seq) => id === sessionId && pushTurnEnd(id, stopReason, seq))
     const offMenu = window.hub.menu.onCommand((command) => {
       // ⌘⇧W asks like the main window does: a working session, or a worktree to keep or remove.
       const current = latest.current.data

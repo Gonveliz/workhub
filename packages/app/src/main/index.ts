@@ -107,6 +107,7 @@ import { rendererReporter, startDiagnostics } from './diagnostics'
 import { createDiagnosticsExporter } from './diagnostics-export-app'
 import { jobReports } from './job-reporter'
 import { ReloadGuard, watchRenderer } from './render-recovery'
+import { ChatJournals } from './chat-journal'
 import { permissionAllowed } from './permissions'
 import { HISTORY_LIST_DEPTH, historySearchOptions, listAllHistory, searchAllHistory } from './history'
 import { HistoryIndexer } from './history-indexer'
@@ -356,7 +357,10 @@ const calendar = new CalendarService({ configuration, secrets, source: new IcsCa
 let win: BrowserWindow | null = null
 /** What session and sub-agent windows follow too: the sessions' live state and what their screens show. */
 const SHARED_CHANNELS = new Set(['session:event', 'session:changed', 'session:removed', 'session:replay', 'automations:prompted', 'automations:turnEnded', 'aiReview:changed', 'agentReview:changed', 'usage:changed'])
-const send = (channel: string, ...args: unknown[]) => {
+// Every session's chat, so a window that loads later rebuilds it; chat messages go out numbered.
+const chatJournal = new ChatJournals()
+const send = (channel: string, ...message: unknown[]) => {
+  const args = chatJournal.tap(channel, message)
   if (win && !win.isDestroyed()) win.webContents.send(channel, ...args)
   if (SHARED_CHANNELS.has(channel)) sessionWindows.broadcastShared(channel, args)
   settingsWindow.send(channel, args)
@@ -1340,6 +1344,7 @@ function registerIpc(): void {
   }).openWindow
 
   ipc.handle('sessions:list', () => sessions.list())
+  ipc.handle('sessions:journal', (_e, id: unknown) => (typeof id === 'string' ? chatJournal.get(id) : null))
   ipc.on('sessions:ready', (e) => {
     if (!win || win.isDestroyed() || e.sender !== win.webContents) return
     sessionsWanted = true
@@ -1377,15 +1382,26 @@ function registerIpc(): void {
       )
     }
     if (typeof token !== 'number') return sessions.prompt(id, text, images)
+    let started = false
     const onStart = () => {
-      if (!e.sender.isDestroyed()) e.sender.send('sessions:promptStarted', id, token)
+      started = true
+      // The sender shows its own bubble (with its images) and learns its number first, so the
+      // broadcast that puts the prompt in the journal and every other window is not shown twice.
+      if (!e.sender.isDestroyed()) e.sender.send('sessions:promptStarted', id, token, chatJournal.nextSeq(id))
+      send('automations:prompted', id, text)
     }
     // Sent like the session's events (not with the invoke's answer, which can overtake them), so
     // the window ends the turn after its last message.
     const settled = () => {
       if (!e.sender.isDestroyed()) e.sender.send('sessions:promptSettled', id, token)
     }
-    return sessions.prompt(id, text, images, { key: `${e.sender.id}:${token}`, onStart }).finally(settled)
+    return sessions
+      .prompt(id, text, images, { key: `${e.sender.id}:${token}`, onStart })
+      .then((stopReason) => {
+        if (started) send('automations:turnEnded', id, stopReason)
+        return stopReason
+      })
+      .finally(settled)
   })
   ipc.handle('sessions:withdrawPrompt', (e, id: string, token: unknown) => typeof token === 'number' && sessions.withdrawPrompt(id, `${e.sender.id}:${token}`))
   ipc.handle('sessions:setMode', (_e, id: string, mode: SessionMode, options?: { now?: unknown }) => sessions.setMode(id, mode, { now: options?.now === true }))

@@ -186,6 +186,11 @@ a session to its own window. The main window shows "This session is in its own w
 Window**; closing that window, or **Move to Main Window** there, brings it back. Sub-agents can also
 be opened in a new window.
 
+Every window shows the whole chat of a running session, including messages sent from another
+window or a paired phone, and a window that reloads (by itself after a crash, or with **Reload**)
+gets its chats back. Workhub keeps the latest part of each chat for this; a very long chat starts
+with "Earlier messages are not shown", and the full conversation stays in History.
+
 ## The sidebar
 
 - Sessions are listed with the agent icon, the account, and the colour of their profile down the

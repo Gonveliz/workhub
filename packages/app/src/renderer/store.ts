@@ -16,6 +16,7 @@ import { containsBell } from './lib/attention'
 import { scrollbackChars, TerminalScrollback } from './lib/terminal-scrollback'
 import { readPrefs } from './lib/prefs'
 import type { SessionView } from '@shared/api'
+import type { ChatEntry, ChatJournal } from '@shared/chat-journal'
 
 /** `at`: epoch ms the item was sent (live) or written in the transcript (replayed); absent when unknown. */
 export type ChatItem =
@@ -39,6 +40,8 @@ export type ChatItem =
   | { id: number; at?: number; kind: 'compaction'; phase: 'running' | 'done' | 'failed'; trigger?: 'auto' | 'manual'; preTokens?: number; summary?: string; error?: string }
   /** Messages of a resumed session before this run. */
   | { id: number; kind: 'replayStart'; count: number }
+  /** On top of a chat rebuilt from main's journal that had to drop its oldest entries. */
+  | { id: number; kind: 'truncated' }
 
 export interface SessionData {
   view: SessionView
@@ -234,9 +237,10 @@ export function pushNotice(id: string, title: string, text: string): void {
   patch(id, (s) => ({ ...s, items: [...s.items, { id: ++seq, at: Date.now(), kind: 'notice', noticeKind: 'info', title, text }] }))
 }
 
-export function pushUser(id: string, text: string, images?: string[]): void {
+/** `journalSeq`: the prompt's number in main's chat journal; a prompt already shown under it is not shown again. */
+export function pushUser(id: string, text: string, images?: string[], journalSeq?: number): void {
   const itemId = ++seq
-  patch(id, (s) => ({ ...s, items: [...s.items, { id: itemId, at: Date.now(), kind: 'user', text, ...(images?.length ? { images } : {}) }] }))
+  if (!live(id, journalSeq, (s) => ({ ...s, items: [...s.items, { id: itemId, at: Date.now(), kind: 'user', text, ...(images?.length ? { images } : {}) }] }))) return
   // Each pasted image is written once to a file of its own, so its thumbnail opens in the file viewer.
   if (images?.length) void cacheImages(images).then((paths) => paths && setImagePaths(id, itemId, paths))
 }
@@ -279,12 +283,12 @@ export async function openChatImage(sessionId: string, item: Extract<ChatItem, {
   await window.hub.files.openWindow(path)
 }
 
-export function pushTurnEnd(id: string, stopReason: string): void {
-  patch(id, (s) => withTurnEnd(s, stopReason, () => ++seq))
+export function pushTurnEnd(id: string, stopReason: string, journalSeq?: number): void {
+  live(id, journalSeq, (s) => withTurnEnd(s, stopReason, () => ++seq))
 }
 
 /** A turn's end divider; one only when several prompts settle together (a message folded into the running turn). */
-export function withTurnEnd(s: SessionData, stopReason: string, next: () => number): SessionData {
+export function withTurnEnd(s: SessionData, stopReason: string, next: () => number, at = Date.now()): SessionData {
   const last = s.items[s.items.length - 1]
   if (last?.kind === 'turnEnd' && last.stopReason === stopReason) return s
   // A turn that did not end normally leaves its unfinished tool calls cancelled, not spinning forever.
@@ -295,7 +299,7 @@ export function withTurnEnd(s: SessionData, stopReason: string, next: () => numb
           i.kind === 'tool' && (i.status === 'pending' || i.status === 'in_progress') ? { ...i, status: 'cancelled' } : i.kind === 'compaction' && i.phase === 'running' ? { ...i, phase: 'failed' as const } : i
         )
   const turnEnd = next()
-  return { ...s, items: [...items, { id: turnEnd, at: Date.now(), kind: 'turnEnd', stopReason }], lastTurnEnd: turnEnd }
+  return { ...s, items: [...items, { id: turnEnd, at, kind: 'turnEnd', stopReason }], lastTurnEnd: turnEnd }
 }
 
 /**
@@ -303,17 +307,17 @@ export function withTurnEnd(s: SessionData, stopReason: string, next: () => numb
  * latest compaction that is running or just finished (the boundary and the summary arrive apart),
  * or add one when none is open.
  */
-export function withCompaction(s: SessionData, e: Extract<AgentEvent, { type: 'compaction' }>, next: () => number): SessionData {
+export function withCompaction(s: SessionData, e: Extract<AgentEvent, { type: 'compaction' }>, next: () => number, at = Date.now()): SessionData {
   const facts = { ...(e.trigger ? { trigger: e.trigger } : {}), ...(e.preTokens !== undefined ? { preTokens: e.preTokens } : {}), ...(e.summary ? { summary: e.summary } : {}), ...(e.error ? { error: e.error } : {}) }
   const last = [...s.items].reverse().find((i) => i.kind === 'compaction')
   const open = last?.kind === 'compaction' && (last.phase === 'running' || (e.phase === 'done' && last.phase === 'done' && !last.summary && s.items[s.items.length - 1] === last)) ? last : undefined
   if (e.phase === 'started') {
     if (open?.phase === 'running') return s
-    return { ...s, items: [...s.items, { id: next(), at: Date.now(), kind: 'compaction', phase: 'running' }] }
+    return { ...s, items: [...s.items, { id: next(), at, kind: 'compaction', phase: 'running' }] }
   }
   const phase = e.phase === 'failed' ? 'failed' : 'done'
   if (open) return { ...s, items: s.items.map((i) => (i === open ? { ...open, ...facts, phase } : i)) }
-  return { ...s, items: [...s.items, { id: next(), at: Date.now(), kind: 'compaction', phase, ...facts }] }
+  return { ...s, items: [...s.items, { id: next(), at, kind: 'compaction', phase, ...facts }] }
 }
 
 export function markPermission(id: string, requestId: string, answer: string): void {
@@ -411,8 +415,8 @@ export function loadEarlier(id: string, messages: HistoryMessage[]): void {
   patch(id, (s) => withEarlier(s, messages, () => ++seq))
 }
 
-function onReplay(id: string, messages: HistoryMessage[]): void {
-  patch(id, (s) => withReplay(s, messages, () => ++seq))
+function onReplay(id: string, messages: HistoryMessage[], journalSeq?: number): void {
+  live(id, journalSeq, (s) => withReplay(s, messages, () => ++seq))
 }
 
 /**
@@ -454,6 +458,7 @@ function applyView(view: SessionView): void {
 export function onRemoved(id: string): void {
   pushedDuringStartup?.add(id)
   scrollback.dropSession(id)
+  applied.delete(id)
   if (!sessions[id]) return
   const { [id]: _gone, ...rest } = sessions
   set(rest)
@@ -477,7 +482,8 @@ export function orphanToolTitle(items: readonly ChatItem[]): string {
   return UNTITLED_TOOL
 }
 
-export function applyEvent(s: SessionData, e: AgentEvent, next: () => number): SessionData {
+/** `at`: when the event happened (now when live, main's time when rebuilt from its journal). */
+export function applyEvent(s: SessionData, e: AgentEvent, next: () => number, at = Date.now()): SessionData {
   switch (e.type) {
     case 'message': {
       const kind = e.role
@@ -485,7 +491,7 @@ export function applyEvent(s: SessionData, e: AgentEvent, next: () => number): S
       const items =
         last && last.kind === kind
           ? [...s.items.slice(0, -1), { ...last, text: last.text + e.text }]
-          : [...s.items, { id: next(), at: Date.now(), kind, text: e.text }]
+          : [...s.items, { id: next(), at, kind, text: e.text }]
       return { ...s, items }
     }
     case 'tool': {
@@ -506,32 +512,32 @@ export function applyEvent(s: SessionData, e: AgentEvent, next: () => number): S
           )
         : [
             ...s.items,
-            { id: next(), at: Date.now(), kind: 'tool' as const, toolCallId: e.toolCallId, title: e.title ?? orphanToolTitle(s.items), status: e.status ?? '', toolKind: e.kind, detail: e.detail, view: e.view, result: e.result }
+            { id: next(), at, kind: 'tool' as const, toolCallId: e.toolCallId, title: e.title ?? orphanToolTitle(s.items), status: e.status ?? '', toolKind: e.kind, detail: e.detail, view: e.view, result: e.result }
           ]
       return { ...s, items }
     }
     case 'permission':
       // The view's push may have brought the request first (see `reconcilePending`): one item per request.
       if (s.items.some((i) => i.kind === 'permission' && i.requestId === e.requestId)) return s
-      return { ...s, awaiting: true, items: [...s.items, { id: next(), at: Date.now(), kind: 'permission', requestId: e.requestId, title: e.title, detail: e.detail, options: e.options, questions: e.questions }] }
+      return { ...s, awaiting: true, items: [...s.items, { id: next(), at, kind: 'permission', requestId: e.requestId, title: e.title, detail: e.detail, options: e.options, questions: e.questions }] }
     case 'permissionCancelled': {
       const items = s.items.map((i) => (i.kind === 'permission' && i.requestId === e.requestId && !i.answer ? { ...i, answer: '—' } : i))
       return { ...s, items, awaiting: scanAwaiting(items) }
     }
     case 'notice':
-      return { ...s, items: [...s.items, { id: next(), at: Date.now(), kind: 'notice', noticeKind: e.kind, title: e.title, text: e.text, failed: e.failed }] }
+      return { ...s, items: [...s.items, { id: next(), at, kind: 'notice', noticeKind: e.kind, title: e.title, text: e.text, failed: e.failed }] }
     case 'compaction':
-      return withCompaction(s, e, next)
+      return withCompaction(s, e, next, at)
     case 'monitor':
       return { ...s, monitor: mergeMonitor(s.monitor, e.snapshot) }
     case 'exit':
-      return { ...s, items: [...s.items, { id: next(), at: Date.now(), kind: 'exit', code: e.code ?? null, ...(e.stderr?.length ? { stderr: e.stderr } : {}) }] }
+      return { ...s, items: [...s.items, { id: next(), at, kind: 'exit', code: e.code ?? null, ...(e.stderr?.length ? { stderr: e.stderr } : {}) }] }
     default:
       return s
   }
 }
 
-export function onEvent(e: AgentEvent): void {
+export function onEvent(e: AgentEvent, journalSeq?: number): void {
   // Terminal channels carry raw output only; their state reaches the session through `changed`.
   if (e.sessionId.includes(':')) {
     if (e.type !== 'output') return
@@ -541,12 +547,97 @@ export function onEvent(e: AgentEvent): void {
     outputListeners.get(e.sessionId)?.write(e.data)
     return
   }
-  const s = sessions[e.sessionId]
-  if (!s) return
-  const next = applyEvent(s, e, () => ++seq)
   // Text deltas are batched; anything else (a tool call, a permission, the end of a turn) shows at once.
-  if (next !== s) (e.type === 'message' ? setStreamed : set)({ ...sessions, [e.sessionId]: next })
-  if (e.type === 'permission') raise(e.sessionId, 'needsAnswer')
+  if (live(e.sessionId, journalSeq, (s) => applyEvent(s, e, () => ++seq), e.type === 'message') && e.type === 'permission') raise(e.sessionId, 'needsAnswer')
+}
+
+/**
+ * The last number of main's chat journal each session's chat holds: a message numbered at or
+ * below it is in the chat already (a window rebuilt from the journal, a prompt shown by its sender).
+ */
+const applied = new Map<string, number>()
+/** Sessions being rebuilt from main's journal, with the live changes applied meanwhile, to apply again on top. */
+const hydrating = new Map<string, { seq: number; apply: (s: SessionData) => SessionData }[]>()
+
+/**
+ * Applies a live chat message to its session, once: one numbered at or below what the chat holds
+ * already is skipped. False when nothing was applied (no such session, or already shown).
+ */
+function live(id: string, journalSeq: number | undefined, apply: (s: SessionData) => SessionData, streamed = false): boolean {
+  const s = sessions[id]
+  if (!s) return false
+  if (typeof journalSeq === 'number') {
+    if (journalSeq <= (applied.get(id) ?? 0)) return false
+    applied.set(id, journalSeq)
+    hydrating.get(id)?.push({ seq: journalSeq, apply })
+  }
+  const next = apply(s)
+  if (next !== s) (streamed ? setStreamed : set)({ ...sessions, [id]: next })
+  return true
+}
+
+/** One entry of main's chat journal on a chat: the same reducers as the live messages it was recorded from. */
+export function applyEntry(s: SessionData, entry: ChatEntry, next: () => number, at = Date.now()): SessionData {
+  switch (entry.kind) {
+    case 'event':
+      return applyEvent(s, entry.event, next, at)
+    case 'prompt':
+      return { ...s, items: [...s.items, { id: next(), at, kind: 'user', text: entry.text }] }
+    case 'turnEnd':
+      return withTurnEnd(s, entry.stopReason, next, at)
+    case 'replay':
+      return withReplay(s, entry.messages, next)
+  }
+}
+
+/**
+ * A session's chat rebuilt from main's journal: its entries replace the items and the monitor,
+ * with a marker on top when the oldest were dropped, and the requests main still holds open.
+ */
+export function fromJournal(s: SessionData, journal: ChatJournal, next: () => number): SessionData {
+  let out: SessionData = { ...s, items: [], monitor: journal.monitor ?? {} }
+  for (const entry of journal.entries) out = applyEntry(out, entry, next, entry.at)
+  // On top of a replay too, which replaces everything before it.
+  if (journal.truncated) out = { ...out, items: [{ id: next(), kind: 'truncated' }, ...out.items] }
+  return withDerived(out)
+}
+
+/**
+ * Rebuilds a session's chat from main's journal (a window that loaded after the chat began). Live
+ * messages that arrive meanwhile are applied as usual and again on top of the rebuilt chat when
+ * the journal does not hold them yet; a message the journal holds is never applied twice.
+ */
+export function hydrateSession(id: string, journal: (id: string) => Promise<ChatJournal | null>): Promise<void> {
+  if (hydrating.has(id)) return Promise.resolve()
+  const meanwhile: { seq: number; apply: (s: SessionData) => SessionData }[] = []
+  hydrating.set(id, meanwhile)
+  const done = () => {
+    if (hydrating.get(id) === meanwhile) hydrating.delete(id)
+  }
+  return journal(id).then(
+    (j) => {
+      done()
+      const s = sessions[id]
+      if (!j || !s) return
+      let out = fromJournal(s, j, () => ++seq)
+      for (const m of meanwhile) if (m.seq > j.seq) out = m.apply(out)
+      out = reconcilePending(out, s.view.pendingPermissions, s.view.answeredPermissions)
+      applied.set(id, Math.max(j.seq, applied.get(id) ?? 0))
+      set({ ...sessions, [id]: out })
+    },
+    done
+  )
+}
+
+/** Resolves once the store applied the sessions main had when it started. */
+let storeReady: Promise<void> = Promise.resolve()
+
+/**
+ * Rebuilds the chats from main's journal, the given session's or every one the store has (desktop
+ * windows only: a paired device pages the stored conversation instead).
+ */
+export function hydrateFromMain(id?: string): Promise<void> {
+  return storeReady.then(() => Promise.all((id ? [id] : Object.keys(sessions)).map((sid) => hydrateSession(sid, (x) => window.hub.sessions.journal(x)))).then(() => undefined))
 }
 
 let started = false
@@ -564,7 +655,7 @@ export function startStore(): void {
   window.hub.sessions.onRemoved(onRemoved)
   window.hub.sessions.onEvent(onEvent)
   window.hub.sessions.onReplay(onReplay)
-  void startupList(() => window.hub.sessions.list())
+  storeReady = startupList(() => window.hub.sessions.list())
 }
 
 /**
