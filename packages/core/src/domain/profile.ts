@@ -72,6 +72,8 @@ export interface Profile {
   health?: HealthSettings
   /** Tracked Slack threads quiet for this many minutes are shown archived (default 15; see `threadArchiveMinutes`). */
   slackArchiveMinutes?: number
+  /** Slack users (id or display name, case ignored) whose replies may wake this profile's sessions; empty or absent: anyone (see `mayWake`). */
+  slackWakeFrom?: string[]
   /** AI review before a pull request (see `aiReviewSettings` for the defaults). */
   aiReview?: AiReviewSettings
   /** Worktree per session (see `worktreeSettings` for the defaults). */

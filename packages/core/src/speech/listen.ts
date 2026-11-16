@@ -4,6 +4,7 @@
  * into a few spoken sentences. Pure on purpose: the renderer decides with these, main builds the
  * model's prompt with them.
  */
+import type { RunUsage } from '../usage/background'
 import { speechText } from './text'
 
 /** A message whose speakable text is shorter than this is read directly, with no model call. */
@@ -78,5 +79,5 @@ export const fallbackSpeech = (markdown: string): string => speechText(markdown,
 
 /** What a summary request answers (main → renderer). */
 export type ListenSummaryResult =
-  | { ok: true; summary: string; costUsd?: number }
-  | { ok: false; failure: 'timeout' | 'rateLimited' | 'cancelled' | 'noAccount' | 'failed'; error: string; costUsd?: number }
+  | { ok: true; summary: string; costUsd?: number; usage?: RunUsage }
+  | { ok: false; failure: 'timeout' | 'rateLimited' | 'cancelled' | 'noAccount' | 'failed'; error: string; costUsd?: number; usage?: RunUsage }

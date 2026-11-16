@@ -150,5 +150,6 @@ export const usageReportsEs: Record<keyof typeof usageReportsEn, string> = {
   'tags.error.invalid': 'No se pudieron guardar las etiquetas: cada una tiene que ser texto y una sesión guarda una cantidad limitada.',
   'tags.error.noSession': 'Esta sesión todavía no tiene id, así que no se pueden guardar sus etiquetas.',
   'tags.error.failed': 'No se pudieron guardar las etiquetas. Probá de nuevo.',
-  'copy.failed': 'No se pudo copiar'
+  'copy.failed': 'No se pudo copiar',
+  'reports.workhubBackground': 'Segundo plano de Workhub'
 }

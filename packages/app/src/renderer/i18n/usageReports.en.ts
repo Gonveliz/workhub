@@ -148,5 +148,6 @@ export const usageReportsEn = {
   'tags.error.invalid': 'These tags could not be saved: each one must be text, and a session keeps a limited number.',
   'tags.error.noSession': 'This session has no id yet, so its tags cannot be saved.',
   'tags.error.failed': 'The tags could not be saved. Try again.',
-  'copy.failed': 'Could not copy'
+  'copy.failed': 'Could not copy',
+  'reports.workhubBackground': 'Workhub background'
 } as const

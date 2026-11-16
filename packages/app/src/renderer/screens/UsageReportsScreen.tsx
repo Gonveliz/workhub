@@ -1,6 +1,6 @@
 import { ChartColumn, CircleAlert, Download } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Profile } from '@workhub/core'
+import { BACKGROUND_AGENT, type Profile } from '@workhub/core'
 import type { ReportFilterValues, ReportFilters, ReportSession, SpendPoint, SpendTotals, UsageCsvExport, UsageCsvResult, WeeklyReport } from '@shared/analytics-api'
 import { Button, Spinner } from '../components/atoms'
 import { Card, CardBody, CardHeader, EmptyState, HelpTip, RefreshButton, StatTile } from '../components/molecules'
@@ -67,13 +67,15 @@ const FILTER_OF: Record<GroupBy, keyof ReportFilters> = { project: 'project', ag
 
 function useNames(): Names {
   const snap = useConfig()
+  const { t } = useI18n()
   return useMemo(
     () => ({
       accounts: new Map((snap?.config.accounts ?? []).map((a) => [a.id, a.name])),
-      agents: new Map((snap?.agents ?? []).map((a) => [a.id, a.name])),
+      // The model runs Workhub starts by itself (Slack reads, Listen summaries) are an "agent" of their own.
+      agents: new Map([[BACKGROUND_AGENT, t('reports.workhubBackground')], ...(snap?.agents ?? []).map((a): [string, string] => [a.id, a.name])]),
       profiles: new Map((snap?.config.profiles ?? []).map((p) => [p.id, p.name]))
     }),
-    [snap]
+    [snap, t]
   )
 }
 

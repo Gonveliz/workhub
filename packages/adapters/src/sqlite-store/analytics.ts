@@ -690,7 +690,7 @@ export function schemaDescription(): SchemaTable[] {
       writer: 'The transcript scan (TurnIngest) and the session recorder in the main process.',
       columns: [
         c('id', 'TEXT', "The agent's session id (Workhub's own id for a plain terminal)."),
-        c('agent', 'TEXT', 'The agent family: claude, codex, kiro or another agent id (accounts of one agent share it).'),
+        c('agent', 'TEXT', "The agent family: claude, codex, kiro or another agent id (accounts of one agent share it); 'workhub-background' for the model runs Workhub starts by itself (Slack watcher reads, Listen summaries), one session per kind and account."),
         c('account_id', 'TEXT', "The Workhub account it ran under; 'unknown' when its config folder matches no account.", { nullable: 'the default account, or an agent without accounts' }),
         c('profile_id', 'TEXT', 'The Workhub profile it belongs to (by folder for transcript-only sessions).', { nullable: 'no profile owns its folder' }),
         c('cwd', 'TEXT', 'The folder it started in (its first line).', { nullable: 'not known yet' }),
@@ -708,7 +708,7 @@ export function schemaDescription(): SchemaTable[] {
     {
       name: 'turns',
       description: 'One assistant message with usage (Codex: one token report; Kiro: one turn), read from transcripts on this computer, for the last 12 months (older ones are summed per day in turns_daily). No message text.',
-      writer: 'The transcript scan (TurnIngest), after each token spend scan.',
+      writer: "The transcript scan (TurnIngest), after each token spend scan; the main process writes one row per Workhub background run (agent 'workhub-background', no folder).",
       columns: [
         c('id', 'INTEGER', 'Row id.'),
         c('session_id', 'TEXT', 'The session (sessions.id); a sub-agent counts for its parent.'),

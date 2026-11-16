@@ -11,7 +11,8 @@ const NOT_WOKEN: Record<string, MessageKey> = {
   noReplies: 'slack.notice.notWoken.noReplies',
   openElsewhere: 'slack.notice.notWoken.openElsewhere',
   budget: 'slack.notice.notWoken.budget',
-  openFailed: 'slack.notice.notWoken.openFailed'
+  openFailed: 'slack.notice.notWoken.openFailed',
+  notAllowed: 'slack.notice.notWoken.notAllowed'
 }
 
 /**

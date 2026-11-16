@@ -11,7 +11,10 @@
 // `bare: true` (the chat's Listen summaries): no settings, plugins, MCP servers or connectors at all,
 // so the run is the prompt alone; with no tools of any kind, nothing can be called.
 // stdout (one JSON line, last line):
-//   {"ok","result","isError","subtype","errorMessage"?,"rateLimited","resetsAt"?,"costUsd"?,"durationMs","slackTools":[string],"deniedTools":[string]}
+//   {"ok","result","isError","subtype","errorMessage"?,"rateLimited","resetsAt"?,"costUsd"?,"usage"?,"model"?,"readMode"?,"durationMs","slackTools":[string],"deniedTools":[string]}
+// `usage` is the run's tokens ({input,output,cacheWrite,cacheRead}) and `model` the model that
+// answered: the run leaves no transcript (persistSession: false), so Workhub records them itself.
+// `readMode` is "light" (only the Slack plugin), "full" (the user's settings) or "bare".
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -188,6 +191,7 @@ async function run(request) {
   // (~120k tokens of context per run, measured). When the account has the official Slack plugin,
   // load only that plugin: it reuses the account's Slack login and costs ~4k tokens per run.
   const slackPlugin = request.bare ? undefined : findSlackPlugin(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"));
+  outcome.readMode = request.bare ? "bare" : slackPlugin ? "light" : "full";
   if (request.bare) {
     // Only the prompt: no user settings (MCP servers, plugins, skills, CLAUDE.md) and no claude.ai connectors.
     options.settingSources = [];
@@ -219,6 +223,18 @@ async function run(request) {
         outcome.isError = Boolean(message.is_error) || message.subtype !== "success";
         outcome.result = typeof message.result === "string" ? message.result : "";
         outcome.costUsd = message.total_cost_usd;
+        const usage = message.usage;
+        if (usage) {
+          outcome.usage = {
+            input: Number(usage.input_tokens) || 0,
+            output: Number(usage.output_tokens) || 0,
+            cacheWrite: Number(usage.cache_creation_input_tokens) || 0,
+            cacheRead: Number(usage.cache_read_input_tokens) || 0,
+          };
+        }
+        // The model that spent the most, when several answered (the main one).
+        const models = Object.entries(message.modelUsage ?? {}).sort((a, b) => (Number(b[1]?.costUSD) || 0) - (Number(a[1]?.costUSD) || 0));
+        if (models.length) outcome.model = models[0][0];
         for (const denial of message.permission_denials ?? []) noteDenied(denial?.tool_name);
         if (outcome.isError) {
           const detail = outcome.result || (message.errors ?? []).join("; ") || message.subtype;

@@ -1,6 +1,6 @@
 import { Check, Ear, EarOff, GitPullRequest, Hash, History, Inbox, Link2, MessagesSquare, Play, Plus, Settings, TriangleAlert } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { hasUnread, plainText, sessionIdentity, threadArchiveMinutes, type ChatMessage, type Profile, type TrackedThread } from '@workhub/core'
+import { hasUnread, MIN_WATCH_INTERVAL_MINUTES, plainText, sessionIdentity, threadArchiveMinutes, type ChatMessage, type Profile, type TrackedThread } from '@workhub/core'
 import type { SlackSnapshot } from '@shared/chat-api'
 import { Avatar, Badge, Button, Input, Spinner } from '../components/atoms'
 import { EmptyState, useToast } from '../components/molecules'
@@ -9,6 +9,8 @@ import { useI18n } from '../i18n/I18nProvider'
 import { useAsyncAction } from '../lib/useAsyncAction'
 import { cn } from '../lib/cn'
 import { relativeTime } from '../lib/pullRequests'
+import { formatTokens } from '../lib/home'
+import { formatUsd } from '../lib/usageReports'
 import type { SessionData } from '../store'
 import { LinkChip, shortPr, ThreadGroup } from './slack/ThreadList'
 import { TrackThreadDialog } from './slack/TrackThreadDialog'
@@ -175,6 +177,7 @@ function StatusHeader({ snap, now, onOpenSettings }: { snap: SlackSnapshot; now:
         {hooked.length ? <Ear className="size-3.5 shrink-0" aria-hidden /> : <EarOff className="size-3.5 shrink-0" aria-hidden />}
         {hooked.length ? `${t('slack.autoTrackOn', { accounts: hooked.join(', ') })} · ${tn('slack.listening', listening)}` : t('slack.autoTrackOff')}
       </p>
+      {!snap.demo && <WatchCost snap={snap} />}
       {snap.lastError && (
         <p className="flex items-center gap-1.5 text-sm text-warning" role="alert">
           <TriangleAlert className="size-3.5 shrink-0" aria-hidden />
@@ -352,6 +355,31 @@ function MessageRow({ message: m, now, tracked, onTracked }: { message: ChatMess
         </div>
       </div>
     </li>
+  )
+}
+
+/**
+ * What watching costs: every read is a model run on the Claude account. Reads and spend today and
+ * over 7 days (the same runs Usage counts as "Workhub background"), how the last read reached Slack,
+ * and how often it reads.
+ */
+function WatchCost({ snap }: { snap: SlackSnapshot }) {
+  const { t, tn, locale } = useI18n()
+  const cost = snap.cost
+  const mode = snap.runs.find((r) => r.readMode)?.readMode
+  const spend = (s: { tokens: number; usd: number }) => t('slack.cost.spend', { tokens: formatTokens(s.tokens, locale), usd: formatUsd(s.usd, locale) })
+  const parts = [
+    ...(cost ? [tn('slack.cost.readsToday', cost.today.runs), `${t('slack.cost.today')} ${spend(cost.today)}`, `${t('slack.cost.week')} ${spend(cost.week)}`] : []),
+    t('slack.cost.interval', { minutes: Math.max(snap.settings.intervalMinutes, MIN_WATCH_INTERVAL_MINUTES) })
+  ]
+  return (
+    <div className="flex flex-col gap-0.5 text-sm text-subtle" data-testid="slack-watch-cost">
+      <span className="tabular-nums">{parts.join(' · ')}</span>
+      <span className={cn(mode === 'full' && 'text-warning')}>
+        <span className="font-medium">{t(mode ? `slack.cost.mode.${mode}` : 'slack.cost.mode.unknown')}</span>
+        {mode && ` · ${t(`slack.cost.mode.${mode}Hint`)}`}
+      </span>
+    </div>
   )
 }
 

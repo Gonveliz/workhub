@@ -12,18 +12,19 @@ import { HealthKindsGroup, MetricsGroup, QuietHoursGroup } from '../AlertsSettin
 import { FlowMapsSettings } from '../FlowMapsSettings'
 import { HealthSettings } from '../HealthSettings'
 import { PlanSettings } from '../PlanSettings'
-import { SlackArchiveField, SlackSettings } from '../SlackSettings'
+import { SlackArchiveField, SlackSettings, SlackWakeFromField } from '../SlackSettings'
 import { TrackerSettings } from '../TrackerSettings'
 import { SCREEN_ROWS, type ScreenRow } from './profileSummary'
 import { PullRequestsFilterFields } from './PullRequestsFilter'
 import type { ProfileScreen } from './sections'
 import { Disclosure, saveProfilePatch, type SectionProps } from './shared'
 
-type Picks = Pick<Profile, 'modules' | 'connections' | 'slackArchiveMinutes' | 'pullRequests'>
+type Picks = Pick<Profile, 'modules' | 'connections' | 'slackArchiveMinutes' | 'slackWakeFrom' | 'pullRequests'>
 const picksOf = (p: Profile): Picks => ({
   modules: { ...p.modules },
   connections: { ...p.connections },
   ...(p.slackArchiveMinutes !== undefined ? { slackArchiveMinutes: p.slackArchiveMinutes } : {}),
+  ...(p.slackWakeFrom?.length ? { slackWakeFrom: [...p.slackWakeFrom] } : {}),
   ...(p.pullRequests ? { pullRequests: p.pullRequests } : {})
 })
 
@@ -58,6 +59,8 @@ export function ProfileScreensTab({ snap, run, profileId, openScreen, focusHealt
       const out: Profile = { ...p, modules: form.modules, connections: form.connections }
       if (form.slackArchiveMinutes !== undefined) out.slackArchiveMinutes = form.slackArchiveMinutes
       else delete out.slackArchiveMinutes
+      if (form.slackWakeFrom?.length) out.slackWakeFrom = form.slackWakeFrom
+      else delete out.slackWakeFrom
       if (form.pullRequests) out.pullRequests = form.pullRequests
       else delete out.pullRequests
       return out
@@ -93,6 +96,13 @@ export function ProfileScreensTab({ snap, run, profileId, openScreen, focusHealt
         return (
           <div className="flex flex-col gap-4">
             <SlackArchiveField value={form.slackArchiveMinutes} onChange={(minutes) => setForm({ ...form, slackArchiveMinutes: minutes })} />
+            <SlackWakeFromField
+              value={form.slackWakeFrom}
+              onChange={(users) => {
+                const { slackWakeFrom: _old, ...rest } = form
+                setForm(users ? { ...rest, slackWakeFrom: users } : rest)
+              }}
+            />
             <p className="text-sm text-muted">{t('settings.slackAppWide')}</p>
             <SlackSettings snap={snap} run={run} />
           </div>

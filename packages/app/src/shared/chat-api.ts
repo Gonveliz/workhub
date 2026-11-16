@@ -4,6 +4,7 @@ import type {
   AutomationDefinition,
   AutomationHealth,
   AutomationRun,
+  BackgroundSummary,
   ChatMessage,
   ChatNotice,
   ChatRun,
@@ -42,6 +43,8 @@ export interface SlackSnapshot {
   runs: ChatRun[]
   me: string
   hooks: SlackHookAccount[]
+  /** What the reads cost: runs, tokens and dollars today and over 7 days (absent in demo mode). */
+  cost?: BackgroundSummary
 }
 
 export type SlackResult = { ok: true } | { ok: false; error: string }

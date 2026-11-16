@@ -74,6 +74,27 @@ export function planWake(thread: Pick<TrackedThread, 'owner' | 'ownerAgentKey' |
   return { kind: 'reopen', identity: thread.owner, cwd: ctx.transcriptCwd, ...(thread.ownerAgentKey ? { agentKey: thread.ownerAgentKey } : {}) }
 }
 
+/** A Slack user as the wake list compares it: trimmed, without a leading `@`, case ignored. */
+const wakerKey = (user: string) => user.trim().replace(/^@/, '').toLowerCase()
+
+/**
+ * Whether a reply's author may wake the session that owns the thread. An empty (or absent) list
+ * lets anyone in the channel wake it; otherwise only the listed Slack users do, matched by user id
+ * or display name, whichever the read reported, without regard to case.
+ */
+export function mayWake(user: string, allowed: readonly string[] | undefined): boolean {
+  const list = (allowed ?? []).map(wakerKey).filter(Boolean)
+  return list.length === 0 || list.includes(wakerKey(user))
+}
+
+/** The waiting replies split by `mayWake`: the ones that wake the owner, and the ones only notified. */
+export function splitByWaker(replies: readonly ChatReply[], allowed: readonly string[] | undefined): { wake: ChatReply[]; notify: ChatReply[] } {
+  const wake: ChatReply[] = []
+  const notify: ChatReply[] = []
+  for (const r of replies) (mayWake(r.user, allowed) ? wake : notify).push(r)
+  return { wake, notify }
+}
+
 /** Characters of one reply, and of the thread title, typed into the session. */
 export const WAKE_REPLY_CHARS = 4000
 export const WAKE_TITLE_CHARS = 300

@@ -30,7 +30,7 @@ const NO_LOGIN = /not logged in|please run \/login|invalid api key|authenticatio
 export function toSummaryResult(outcome: OneshotOutcome | null, cancelled = false): ListenSummaryResult {
   if (cancelled) return { ok: false, failure: 'cancelled', error: 'Cancelled.' }
   if (!outcome) return { ok: false, failure: 'failed', error: 'The summary helper returned no answer.' }
-  const cost = outcome.costUsd !== undefined ? { costUsd: outcome.costUsd } : {}
+  const cost = { ...(outcome.costUsd !== undefined ? { costUsd: outcome.costUsd } : {}), ...(outcome.usage ? { usage: outcome.usage } : {}) }
   if (!outcome.ok) {
     const error = outcome.errorMessage ?? 'The summary failed.'
     const failure = outcome.rateLimited ? 'rateLimited' : /timed out/i.test(error) ? 'timeout' : NO_LOGIN.test(error) ? 'noAccount' : 'failed'

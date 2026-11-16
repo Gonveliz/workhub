@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { join, normalize, resolve } from 'node:path'
 import { emptySpendCache, repoRootOf, TokenSpendScanner, worktreeAliases, type SpendCache, type SpendFileEntry, type SpendSources, type WorktreeLink } from '@workhub/adapters/token-spend'
 import { UNKNOWN_ACCOUNT, type ProjectResolver } from '@workhub/adapters/sqlite-store'
-import { aliasPath, attributeFolder, folderSpend, owningProfile, ownsFolder, parseSpendKey, profileFolderPaths, SPEND_DAYS, spendWindowStart, startOfLocalDay, type SpendBuckets, type WorkhubConfig } from '@workhub/core'
+import { aliasPath, attributeFolder, type BackgroundSpend, folderSpend, owningProfile, ownsFolder, parseSpendKey, profileFolderPaths, SPEND_DAYS, spendWindowStart, startOfLocalDay, type SpendBuckets, type WorkhubConfig } from '@workhub/core'
 import type { FolderSpendResult } from '../shared/api'
 import { usageAccounts } from './agent-usage'
 import { profileProjectChildren } from './workspaces'
@@ -32,6 +32,8 @@ export interface TokenSpendDeps {
    * leaves Home's figures alone.
    */
   turns?: (sources: SpendSources) => Promise<unknown>
+  /** The model runs Workhub started by itself over the last 7 days ("Workhub background"); they leave no transcript. */
+  background?: () => BackgroundSpend
 }
 
 /**
@@ -155,7 +157,18 @@ export class TokenSpendService {
     for (const [folder, kids] of Object.entries(children)) for (const kid of kids) paths.add(join(folder, kid))
     const aliases = hasFolders ? await worktreeAliases(paths, this.worktrees) : {}
     const entries = folderSpend(this.buckets, folders, { sinceDay, children, owns, aliases, cacheReads: this.reads })
-    return { entries, days: SPEND_DAYS, scannedAt: this.scannedAt, scanning: this.scanning, hasFolders }
+    const background = this.background()
+    return { entries, days: SPEND_DAYS, scannedAt: this.scannedAt, scanning: this.scanning, hasFolders, ...(background ? { background } : {}) }
+  }
+
+  /** Workhub's own runs, when there were any; a read that fails leaves the card as it was. */
+  private background(): BackgroundSpend | null {
+    try {
+      const spend = this.deps.background?.()
+      return spend && spend.runs > 0 ? spend : null
+    } catch {
+      return null
+    }
   }
 }
 

@@ -482,6 +482,7 @@ const profile = z.object({
   pullRequests: z.object({ owners: z.array(z.string().trim().min(1).max(200)).max(50).optional(), excludeRepos: z.array(z.string().trim().min(1).max(200)).max(200).optional() }).optional(),
   health: healthSettings.optional(),
   slackArchiveMinutes: z.number().int().min(1).optional(),
+  slackWakeFrom: z.array(z.string().trim().min(1).max(200)).max(200).optional(),
   aiReview: aiReview.optional(),
   worktrees: worktrees.optional(),
   accountFailover: z.enum(['ask', 'automatic', 'off']).optional(),

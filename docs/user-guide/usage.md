@@ -72,7 +72,18 @@ Codex and Kiro in the profile's folders over the last 7 days: the bar and main n
 weighs on your plan. Cache reads, which are re-reads of context and would dwarf everything else but
 cost much less, appear apart on each row as "+ cache". The session monitor splits the same way:
 **Spent (fresh)** and **Cache reads** are separate boxes, and the detail rows keep **Context re-read
-from cache**.
+from cache**. Below the folders, **Workhub background** shows the tokens and cost of Workhub's own
+model runs over the same days, every profile together (see below).
+
+### Workhub background
+
+Some model runs are started by Workhub itself, outside any session: each read of the
+[Slack watcher](slack.md#what-watching-costs) and each summary of the chat's **Listen** button.
+They leave no transcript, so Workhub records each one as it ends: one row with its tokens, model and
+cost (as Claude reported it). In **Usage and reports** they are the agent **Workhub background**,
+one session per kind (Slack watcher reads, Listen summaries) and Claude account, with no folder or
+profile; a profile filter leaves them out. On Home they are a line of their own under **Token
+spend by folder**.
 
 ## Usage and reports
 
@@ -149,7 +160,7 @@ line on what agent time and list prices mean.
 
 What these numbers are not: cost is at list prices, not what a plan subscription bills; agent time
 is the agent working, not your own time at the keyboard; only Claude, Codex and Kiro transcripts
-on this computer are read, so other agents and other computers do not appear. Links to tickets
+on this computer are read (plus Workhub's own background runs), so other agents and other computers do not appear. Links to tickets
 and pull requests exist only for sessions Workhub ran (it records what their monitor found).
 Usage and reports is not offered to a paired phone.
 

@@ -155,5 +155,19 @@ export const slackEs: Record<keyof typeof slackEn, string> = {
   'slack.trackSheet.wake': 'Despertar la sesión cuando alguien responda',
   'slack.trackSheet.wakeHint': 'Las respuestas nuevas se escriben en la sesión cuando está libre.',
   'slack.trackSheet.wakeNeedsSession': 'Elige una sesión primero.',
-  'slack.trackSheet.submit': 'Seguir'
+  'slack.trackSheet.submit': 'Seguir',
+  'slack.cost.readsToday.one': '1 lectura hoy',
+  'slack.cost.readsToday.other': '{count} lecturas hoy',
+  'slack.cost.today': 'Hoy:',
+  'slack.cost.week': '7 días:',
+  'slack.cost.spend': '{tokens} tokens, {usd}',
+  'slack.cost.interval': 'lee cada {minutes} min',
+  'slack.cost.mode.light': 'Lecturas livianas',
+  'slack.cost.mode.lightHint': 'solo se carga el plugin de Slack de la cuenta, unos 4k tokens por lectura.',
+  'slack.cost.mode.full': 'Lecturas completas',
+  'slack.cost.mode.fullHint': 'la cuenta no tiene el plugin de Slack, así que cada lectura carga su configuración, servidores MCP, plugins y skills, unos 120k tokens. Instala el plugin de Slack en esa cuenta de Claude para que las lecturas sean livianas.',
+  'slack.cost.mode.unknown': 'El modo de lectura se muestra tras la primera lectura',
+  'slack.notice.notWoken.notAllowed': 'su autor no está en la lista del perfil de quién puede despertar una sesión',
+  'slack.wakeFrom': 'Quién puede despertar una sesión',
+  'slack.wakeFromHint': 'Usuarios de Slack cuyas respuestas despiertan las sesiones de este perfil, uno por línea: un ID de usuario o un nombre visible, sin distinguir mayúsculas. Vacío: cualquiera en un canal vigilado puede despertar la sesión dueña de un hilo. Las respuestas de los demás se siguen notificando.'
 }

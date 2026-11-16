@@ -51,6 +51,18 @@ describe('TokenSpendService', () => {
     expect((await svc.forProfile('one')).entries).toMatchObject([{ name: 'api', path: main.replaceAll('\\', '/'), tokens: 7 }])
   })
 
+  it('adds Workhub\'s own background runs, when there were any', async () => {
+    const config: WorkhubConfig = { ...emptyConfig(), profiles: [profile('one', [root])], activeProfileId: 'one' }
+    const deps = { config: async () => config, store: memoryStore(), sources: async () => ({ claudeDirs: [], codexHomes: [], kiroDirs: [] }), emit: () => {} }
+    const week = { runs: 3, tokens: 12_000, usd: 0.012 }
+    expect((await new TokenSpendService({ ...deps, background: () => week }).forProfile('one')).background).toEqual(week)
+    expect(await new TokenSpendService({ ...deps, background: () => ({ runs: 0, tokens: 0, usd: 0 }) }).forProfile('one')).not.toHaveProperty('background')
+    const broken = () => {
+      throw new Error('database closed')
+    }
+    expect(await new TokenSpendService({ ...deps, background: broken }).forProfile('one')).not.toHaveProperty('background')
+  })
+
   it('scanNow never runs two scans at once: a call during a scan waits for it and one more', async () => {
     let running = 0
     let most = 0

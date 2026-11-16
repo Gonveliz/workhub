@@ -153,5 +153,19 @@ export const slackEn = {
   'slack.trackSheet.wake': 'Wake the session when someone replies',
   'slack.trackSheet.wakeHint': 'New replies are typed into the session when it is idle.',
   'slack.trackSheet.wakeNeedsSession': 'Pick a session first.',
-  'slack.trackSheet.submit': 'Track'
+  'slack.trackSheet.submit': 'Track',
+  'slack.cost.readsToday.one': '1 read today',
+  'slack.cost.readsToday.other': '{count} reads today',
+  'slack.cost.today': 'Today:',
+  'slack.cost.week': '7 days:',
+  'slack.cost.spend': '{tokens} tokens, {usd}',
+  'slack.cost.interval': 'reads every {minutes} min',
+  'slack.cost.mode.light': 'Light reads',
+  'slack.cost.mode.lightHint': 'only the Slack plugin of the account is loaded, about 4k tokens per read.',
+  'slack.cost.mode.full': 'Full reads',
+  'slack.cost.mode.fullHint': 'the account has no Slack plugin, so each read loads its settings, MCP servers, plugins and skills, about 120k tokens. Install the Slack plugin in that Claude account to make reads light.',
+  'slack.cost.mode.unknown': 'Read mode shown after the first read',
+  'slack.notice.notWoken.notAllowed': 'its author is not on the profile\'s list of who may wake a session',
+  'slack.wakeFrom': 'Who may wake a session',
+  'slack.wakeFromHint': 'Slack users whose replies wake this profile\'s sessions, one per line: a user ID or a display name, case ignored. Empty: anyone in a watched channel can wake the session that owns a thread. Replies from anyone else are still notified.'
 }

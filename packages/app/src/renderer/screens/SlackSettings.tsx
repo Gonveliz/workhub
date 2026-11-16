@@ -8,7 +8,7 @@ import {
   type ChatWatcherSettings
 } from '@workhub/core'
 import type { ConfigSnapshot } from '@shared/api'
-import { Badge, Button, IconButton, Input, Select, Switch } from '../components/atoms'
+import { Badge, Button, IconButton, Input, Select, Switch, Textarea } from '../components/atoms'
 import { Card, CardBody, CardHeader, Field, HelpTip, OptionOrCustom, SwitchRow, useToast } from '../components/molecules'
 import { idOptions } from '../lib/optionOrCustom'
 import { reloadSlack, useSlack } from '../chatStore'
@@ -33,6 +33,32 @@ export function SlackArchiveField({ value, onChange }: { value: number | undefin
         onChange={(e) => {
           const n = Math.floor(Number(e.target.value))
           onChange(Number.isFinite(n) ? Math.max(MIN_THREAD_ARCHIVE_MINUTES, n) : undefined)
+        }}
+      />
+    </Field>
+  )
+}
+
+/**
+ * Settings → Profiles › Slack: who may wake this profile's sessions with a reply, one Slack user
+ * (id or display name) per line. Empty means anyone in a watched channel.
+ */
+export function SlackWakeFromField({ value, onChange }: { value: readonly string[] | undefined; onChange: (users: string[] | undefined) => void }) {
+  const { t } = useI18n()
+  // The text as typed (blank lines and all) while editing; the list keeps only the names.
+  const [text, setText] = useState(() => (value ?? []).join('\n'))
+  return (
+    <Field label={t('slack.wakeFrom')} hint={t('slack.wakeFromHint')}>
+      <Textarea
+        rows={3}
+        className="max-w-md"
+        placeholder="U0123456789"
+        aria-label={t('slack.wakeFrom')}
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value)
+          const users = [...new Set(e.target.value.split(/[\n,]/).map((u) => u.trim()).filter(Boolean))]
+          onChange(users.length ? users : undefined)
         }}
       />
     </Field>

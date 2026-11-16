@@ -1,7 +1,7 @@
 // Types of the preload bridge (window.hub), shared by main, preload and renderer.
 import type { AnalyticsApi } from './analytics-api'
 import type { ChatJournal } from './chat-journal'
-import type { ChromeProfile, GroupChoice, SessionWorktree, WorktreeStatus } from '@workhub/core'
+import type { BackgroundSpend, ChromeProfile, GroupChoice, SessionWorktree, WorktreeStatus } from '@workhub/core'
 import type { NotificationKind, TrayApi, TrayRoute } from './tray-api'
 import type { ProfileEnvApi, SetupApi, SystemNotificationsApi } from './setup-api'
 import type { AgentToolsApi } from './agent-tools-api'
@@ -474,6 +474,8 @@ export interface FolderSpendResult {
   scanning: boolean
   /** False when the profile has no folders: there is nothing to attribute spend to. */
   hasFolders: boolean
+  /** The model runs Workhub started by itself over the same days (Slack reads, Listen summaries), every profile together. */
+  background?: BackgroundSpend
 }
 
 export interface UsageApi {

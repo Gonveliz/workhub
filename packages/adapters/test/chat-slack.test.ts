@@ -31,6 +31,14 @@ describe('the agent-connector source', () => {
     expect(toReadResult({ ok: true, result: 'prose', rateLimited: false, slackTools: ['s'], deniedTools: [] })).toMatchObject({ failure: 'invalidAnswer' })
   })
 
+  it('carries the tokens, model and read mode of a run, whatever its outcome', () => {
+    const line = '{"ok":false,"result":"","errorMessage":"boom","rateLimited":false,"costUsd":0.01,"usage":{"input":1200,"output":80,"cacheWrite":-5,"cacheRead":"x"},"model":"claude-haiku-4-5","readMode":"light","slackTools":[],"deniedTools":[]}'
+    const outcome = parseOneshotOutput(line)
+    expect(outcome?.usage).toEqual({ model: 'claude-haiku-4-5', inputTokens: 1200, outputTokens: 80, cacheWriteTokens: 0, cacheReadTokens: 0 })
+    expect(toReadResult(outcome)).toMatchObject({ ok: false, costUsd: 0.01, readMode: 'light', usage: { inputTokens: 1200 } })
+    expect(parseOneshotOutput('{"ok":true,"result":"","rateLimited":false,"readMode":"odd","slackTools":[],"deniedTools":[]}')).not.toHaveProperty('readMode')
+  })
+
   it('runs the helper with the account folder and parses the digest', async () => {
     const source = new SlackAgentChatSource({ bridgeDir: join(fixtures, 'fake-oneshot'), nodeCommand: process.execPath, cwd: tmpdir(), timeoutSeconds: 20 })
     const r = await source.read({ channels: [{ id: 'C01', name: 'reviews', purpose: '' }], cursors: {}, threads: [], configDir: '/tmp/claude-work', model: 'haiku', now: NOW })

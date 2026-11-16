@@ -102,12 +102,21 @@ export interface TrackedThread {
 export type AutoCloseReason = 'prMerged' | 'prClosed' | 'idle'
 
 /** One watcher cycle, for the run log. */
+/**
+ * How a read reached Slack: `light` loads only the account's Slack plugin (about 4k tokens of
+ * context per read); `full` has no plugin and loads the account's settings, every MCP server,
+ * plugin and skill with them (about 120k tokens per read).
+ */
+export type ChatReadMode = 'light' | 'full'
+
 export interface ChatRun {
   id: string
   /** Epoch milliseconds. */
   at: number
   durationMs: number
   costUsd?: number
+  /** How this read reached Slack, when the source said. */
+  readMode?: ChatReadMode
   ok: boolean
   /** "ok", "nothing new" or the failure text. */
   outcome: string

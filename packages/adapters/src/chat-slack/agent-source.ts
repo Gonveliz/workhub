@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
-import { parseDigest, watchPrompt, type ChatReadRequest, type ChatReadResult, type ChatSource } from '@workhub/core'
+import { parseDigest, watchPrompt, type ChatReadMode, type ChatReadRequest, type ChatReadResult, type ChatSource, type RunUsage } from '@workhub/core'
 
 export interface SlackAgentSourceOptions {
   /** Folder holding `oneshot.mjs` (Workhub 1's headless read-only query on the Claude Agent SDK). */
@@ -22,8 +22,26 @@ export interface OneshotOutcome {
   rateLimited: boolean
   resetsAt?: string
   costUsd?: number
+  /** The run's tokens and the model that answered; absent when it ended before a result. */
+  usage?: RunUsage
+  /** `light`: only the Slack plugin was loaded; `full`: the user's settings; `bare`: nothing at all. */
+  readMode?: ChatReadMode | 'bare'
   slackTools: string[]
   deniedTools: string[]
+}
+
+/** The `usage` and `model` the helper printed, as a `RunUsage`; undefined when it printed none. */
+function parseUsage(usage: unknown, model: unknown): RunUsage | undefined {
+  if (!usage || typeof usage !== 'object') return undefined
+  const u = usage as Record<string, unknown>
+  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v) : 0)
+  return {
+    ...(typeof model === 'string' && model ? { model } : {}),
+    inputTokens: n(u['input']),
+    outputTokens: n(u['output']),
+    cacheWriteTokens: n(u['cacheWrite']),
+    cacheReadTokens: n(u['cacheRead'])
+  }
 }
 
 /** The helper's answer is its last JSON line; anything printed before it is ignored. */
@@ -35,6 +53,7 @@ export function parseOneshotOutput(stdout: string): OneshotOutcome | null {
     try {
       const raw = JSON.parse(line.slice(start)) as Record<string, unknown>
       const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+      const usage = parseUsage(raw['usage'], raw['model'])
       return {
         ok: raw['ok'] === true,
         result: typeof raw['result'] === 'string' ? raw['result'] : '',
@@ -42,6 +61,8 @@ export function parseOneshotOutput(stdout: string): OneshotOutcome | null {
         rateLimited: raw['rateLimited'] === true,
         ...(typeof raw['resetsAt'] === 'string' ? { resetsAt: raw['resetsAt'] } : {}),
         ...(typeof raw['costUsd'] === 'number' ? { costUsd: raw['costUsd'] } : {}),
+        ...(usage ? { usage } : {}),
+        ...(raw['readMode'] === 'light' || raw['readMode'] === 'full' || raw['readMode'] === 'bare' ? { readMode: raw['readMode'] } : {}),
         slackTools: strings(raw['slackTools']),
         deniedTools: strings(raw['deniedTools'])
       }
@@ -55,7 +76,12 @@ export function parseOneshotOutput(stdout: string): OneshotOutcome | null {
 /** The read result for an outcome: failures by kind, else the parsed digest. */
 export function toReadResult(outcome: OneshotOutcome | null): ChatReadResult {
   if (!outcome) return { ok: false, failure: 'failed', error: 'The Slack helper returned no answer.', deniedTools: [] }
-  const base = { deniedTools: outcome.deniedTools, ...(outcome.costUsd !== undefined ? { costUsd: outcome.costUsd } : {}) }
+  const base = {
+    deniedTools: outcome.deniedTools,
+    ...(outcome.costUsd !== undefined ? { costUsd: outcome.costUsd } : {}),
+    ...(outcome.usage ? { usage: outcome.usage } : {}),
+    ...(outcome.readMode === 'light' || outcome.readMode === 'full' ? { readMode: outcome.readMode } : {})
+  }
   if (!outcome.ok) {
     const resetsAt = outcome.resetsAt ? Date.parse(outcome.resetsAt) : NaN
     return {

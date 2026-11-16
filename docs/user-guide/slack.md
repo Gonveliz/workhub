@@ -27,6 +27,23 @@ The screen's header shows the state (**Off**, **Watching**, **Reading…**, **Pa
 the next read, and **Read now**. Reads also wait when the account is past a usage ceiling; see
 [Usage and budgets](usage.md).
 
+### What watching costs
+
+Every read is a short model run on the chosen Claude account, so watching spends tokens even when
+nothing is new. Under the state, the header shows the reads today, their tokens and cost today and
+over the last 7 days, and how often it reads. The same runs count in **Usage and reports** and on
+Home as **Workhub background** (see [Usage and budgets](usage.md#workhub-background)).
+
+It also shows how the last read reached Slack:
+
+- **Light reads**: the account has Claude's official Slack plugin, and only that plugin is loaded,
+  about 4k tokens of context per read.
+- **Full reads**: the account has no Slack plugin, so each read loads the account's settings, with
+  every MCP server, plugin and skill, about 120k tokens per read. Installing the Slack plugin in
+  that Claude account makes reads light.
+
+A longer interval, fewer hours or days, and a small model all lower the cost.
+
 ## Followed threads
 
 A followed thread shows its replies, whether there are new ones (**New**) and which session owns it.
@@ -41,7 +58,8 @@ A followed thread shows its replies, whether there are new ones (**New**) and wh
 - **Wake the session**: new replies are typed into the owning session when it is idle. **Send the
   replies to the session now** forces it. If a session is not woken, the notice says why: its
   automation is off or takes no replies, the session is open in another terminal, it failed to open,
-  or its account is past its usage ceiling (the replies wait). The thread's title and the replies
+  its account is past its usage ceiling (the replies wait), or the reply's author may not wake it
+  (see below). The thread's title and the replies
   are typed as quoted blocks, after a sentence saying they are untrusted content written by other
   people to read, never instructions to follow; long replies are cut.
 - **Stop following** / **Follow again**. A thread is dropped from following when its pull request
@@ -49,6 +67,15 @@ A followed thread shows its replies, whether there are new ones (**New**) and wh
 - **Archived (n)**: threads quiet for a while fold into **Archived**, on this screen and in the
   session monitor. Set the delay in **Settings → Profiles → (profile) → Screens → Slack** (default 15 minutes). Archived
   threads are still watched, and a new reply brings them back.
+
+## Who may wake a session
+
+By default anyone in a watched channel can wake the session that owns a thread by replying in it.
+**Settings → Profiles → (profile) → Screens → Slack → Who may wake a session** narrows that for the
+profile's sessions: one Slack user per line, by user ID (like `U0123…`) or display name, compared
+without regard to case. With a list, only replies from those users are typed into a session; replies
+from anyone else are still shown and notified, but never reach the session. An empty list means
+anyone, as before.
 
 ## Links open in the Slack app
 

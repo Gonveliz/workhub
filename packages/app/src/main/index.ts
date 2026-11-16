@@ -19,7 +19,7 @@ import { CodexPlanUsageReader, CodexSessionHistory, CodexTranscriptReader } from
 import { KiroPlanUsageReader, KiroSessionHistory, KiroTranscriptReader, readKiroCreditEntries } from '@workhub/adapters/transcript-kiro'
 import { GitReview, LocalChanges } from '@workhub/adapters/git-review'
 import { GitWorktrees } from '@workhub/adapters/git-worktree'
-import { AutomationRunLog, BACKUP_FOLDER, backupDatabase, DB_FILE, describeImport, importLegacyJson, listBackups, SessionRecords, SqliteFlowMaps, SqliteHistoryIndex, SqlitePrEventStore, Timelines, TurnIngest, repoProjects, WorkhubDb, type ProjectResolver } from '@workhub/adapters/sqlite-store'
+import { AutomationRunLog, BackgroundRuns, BACKUP_FOLDER, backupDatabase, DB_FILE, describeImport, importLegacyJson, listBackups, SessionRecords, SqliteFlowMaps, SqliteHistoryIndex, SqlitePrEventStore, Timelines, TurnIngest, repoProjects, WorkhubDb, type ProjectResolver } from '@workhub/adapters/sqlite-store'
 import { DemoCalendarSource, IcsCalendarSource } from '@workhub/adapters/calendar-ics'
 import { OpenCodeSessionHistory, OpenCodeTranscriptReader } from '@workhub/adapters/transcript-opencode'
 import {
@@ -151,6 +151,7 @@ import { ingestsTranscripts, spendSources, TokenSpendService, turnOwners, turnPr
 import { AnalyticsRecorder } from './analytics-recorder'
 import { registerAnalyticsIpc, REPORT_BUDGET_MS } from './analytics-ipc'
 import { ApiSpendService, CostLedger, spendAgentId, type CostLedgerState } from './api-spend'
+import { backgroundUsage } from './background-usage'
 import { UpdateService } from './updates'
 import { readUpdatePromptState, shouldPromptUpdate, type UpdatePromptState } from './update-prompt'
 import { buildAppMenuTemplate, isSessionCommand } from './app-menu'
@@ -596,8 +597,11 @@ async function scanTurns(sources: SpendSources): Promise<void> {
     diagnostics.log.warn(`turn scan failed: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
+// The model runs Workhub starts by itself (Slack reads, Listen summaries) as usage: one turn each.
+const background = backgroundUsage(new BackgroundRuns(db), { log: (m) => diagnostics.log.warn(m) })
 // Token spend per folder for Home: scanned in the background from start-up, cached on disk.
 const tokenSpend = new TokenSpendService({
+  background: () => background.week(),
   config: () => configuration.current(),
   store: db.state('token-spend', 2_000),
   sources: async () => spendSources(await configuration.current(), homedir(), kiroDir),
@@ -834,6 +838,7 @@ const slack = new SlackWatcherService({
   home: homedir(),
   usage: () => usage.current(),
   budgetOf,
+  background,
   myPullRequests: async () => {
     const lists = await codeHost.lists((await configuration.current()).activeProfileId ?? null)
     return new Set(lists.mine.map((i) => canonicalUrl(i.pr.url)))
@@ -1610,7 +1615,8 @@ function registerIpc(): void {
     config: () => configuration.current(),
     session: (id) => sessions.list().find((v) => v.id === id) ?? null,
     home: homedir(),
-    log: (m) => diagnostics.log.warn(m)
+    log: (m) => diagnostics.log.warn(m),
+    background
   })
   registerAiReviewIpc(ipc, aiReview)
   registerAgentReviewIpc(ipc, agentReview, reviewLoopWindows((hash, title) => createAuxWindow(hash, title, REVIEW_LOOP_WINDOW_SIZE)))

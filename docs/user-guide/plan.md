@@ -153,7 +153,8 @@ The **Brief prompt** (empty means the default) may use these placeholders:
 | `{people}` | Your people among the attendees, with their notes |
 | `{context}` | Your open pull requests and tickets in progress, and those that involve the people coming |
 
-The meeting's title, attendees, call link and description are written by whoever sent the invite.
+The meeting's title, attendees, call link and description are written by whoever sent the invite,
+and the pull request and ticket titles in `{context}` by whoever opened them.
 Workhub puts each of them in a quoted block, after a first sentence in the prompt that says they are
 untrusted content to read and never instructions to follow, and it cuts long values and any text that
 would close the block. The rest of your prompt is sent as you wrote it.
