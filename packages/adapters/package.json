@@ -14,6 +14,7 @@
     "./transcript-opencode": "./src/transcript-opencode/index.ts",
     "./transcript-codex": "./src/transcript-codex/index.ts",
     "./agent-claude-native": "./src/agent-claude-native/index.ts",
+    "./agent-claude-native/history": "./src/agent-claude-native/history.ts",
     "./codehost-github": "./src/codehost-github/index.ts",
     "./codehost-gitlab": "./src/codehost-gitlab/index.ts",
     "./cli": "./src/shared/cli.ts",

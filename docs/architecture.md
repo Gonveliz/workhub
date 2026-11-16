@@ -266,7 +266,7 @@ agents' own files can rebuild. It is about twice the size of the text it holds.
 `HistoryIndexer` (`main/history-indexer.ts`) runs at start, every 5 minutes and 5 s after a session
 stops (then with a listing at most 3 s old): it reads again only the sessions whose stamp changed
 (a session with neither time nor size every round), through each agent's
-`SessionHistorySource.messages`, writes at most about 1 MB of text per transaction with a macrotask
+`SessionHistorySource.messages` (Claude: the transcript worker below, in bounded requests), writes at most about 1 MB of text per transaction with a macrotask
 between transactions, skips a session it could not read until its stamp changes, drops the sessions
 of fully listed accounts that are gone and of accounts no longer configured, and reports
 `indexed/total` on `history:indexProgress`. The listing (`listAllHistory`) asks each source for
@@ -290,6 +290,37 @@ endpoint turns them into `<mark>`. Measured on synthetic transcripts (300 sessio
 stays on the main process. The History screen, paired devices (`history:search`, limited to the
 profile's folders, trimmed to 200 KB with a cursor to the first match left out) and
 `GET /v1/history?q=` all go through it.
+
+### Transcript worker
+
+Claude transcripts are never parsed on the main process: a 50 MB file took about 150–200 ms of
+`JSON.parse` there (measured on a synthetic one; far longer on slower machines and on files of
+many small lines), and every window and terminal stalled for it, on each resume, each page a phone
+asked for and each indexing round of a live session (a growing file changes its stamp).
+`ClaudeSessionHistory.messages` finds the file (`transcriptPath`) and hands it to a reader; in the
+app that is `TranscriptReader` (`main/transcript-reader.ts`), which sends requests one at a time to
+`transcript-worker.ts` in a utility process ("Workhub transcripts", started on the first request,
+closed on quit). Each request parses at most 8 MB more of the file (`TRANSCRIPT_REQUEST_BYTES`) and
+answers the offset reached; the one that reaches the end answers the messages, so a first parse is a
+series of short requests and a replay asked for meanwhile goes between two of them. A request past
+30 s (`TRANSCRIPT_BUDGET_MS`) gets the process killed and is rejected, and the conversation is read
+through the Agent SDK instead (the bridge's `sessions.mjs`, its own process too).
+
+The worker keeps a parse per file (`ClaudeTranscriptCache`, `adapters/agent-claude-native/transcript.ts`),
+keyed by size and modification time, up to 256 MB of files, least recently read dropped first: an
+unchanged file is not read, a grown one is parsed from the byte offset where the last parse ended
+(an unfinished last line waits for the next read), and one that shrank or whose first 4 KB changed
+is parsed again from the start. It keeps only what the chain walk and the replay need (links for
+every line, content for main-thread user and assistant lines). A resume replays the last
+`JOURNAL_MAX_ENTRIES` (2000) messages (`SessionManagerDeps.replayLast`; `HistoryMessagesOptions.last`
+on the port, and the session manager cuts a source that returns more); a phone's pages and History's
+index still get the whole conversation. Measured on a synthetic 51 MB
+transcript (36,000 messages): the main process's longest stall went from about 155 ms to about
+35 ms for a whole conversation (receiving the answer) and 3 ms for a replay; a first parse in the
+worker takes about 300 ms in seven requests of 25–80 ms, and a read after the file grew by two turns
+about 40 ms. Without `spawn` (tests) the reader parses in its own process. The hand-off brief
+(`transcript-claude/handoff.ts`) and OpenCode's spend scan (`transcript-opencode/spend.ts`) still
+read their files whole.
 
 ## Data folder
 

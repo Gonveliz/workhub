@@ -47,6 +47,7 @@ import {
   redactText
 } from '@workhub/core'
 import { terminalChannel, type PendingPermission, type SessionMode, type SessionView, type SetModeOptions, type StartSessionInput } from '../shared/api'
+import { JOURNAL_MAX_ENTRIES } from './chat-journal'
 import { ConsoleActivity } from './console-activity'
 import { NO_CONTROL_ENV } from './control-server'
 import { pathInsideFolder } from './reveal'
@@ -164,6 +165,8 @@ export interface SessionManagerDeps {
   settleMs?: number
   /** Longest wait for the earlier conversation before a resumed chat opens without it. */
   replayWaitMs?: number
+  /** Most messages a resume replays (the chat journal keeps no more): the conversation's last ones. */
+  replayLast?: number
   /** The names the user gave sessions (Rename…), by identity; without it renaming keeps the name for this run only. */
   names?: SessionNameStore
   /** A session reported its models and modes: remembered so the next session can offer them before it starts. */
@@ -937,7 +940,7 @@ export class SessionManager {
   }
 
   /**
-   * Starts the chat; a resumed one shows its whole conversation first. The SDK resumes a session
+   * Starts the chat; a resumed one shows its conversation first (its last `replayLast` messages). The SDK resumes a session
    * without replaying it, so the stored messages are read (in parallel with the start) and sent
    * before any live event of the new chat, and the chat turns ready only after them: the
    * renderer replaces what it showed with the full conversation, the console's turns included.
@@ -956,7 +959,7 @@ export class SessionManager {
     const agentSessionId = s.view.agentSessionId
     let timer: ReturnType<typeof setTimeout> | undefined
     const replayed = Promise.race([
-      this.readHistory(source, agentSessionId, s).then((messages) => {
+      this.readHistory(source, agentSessionId, s, this.deps.replayLast ?? JOURNAL_MAX_ENTRIES).then((messages) => {
         if (s.held === held && messages.length) this.deps.emitReplay(s.view.id, messages)
       }),
       new Promise<void>((resolve) => (timer = setTimeout(resolve, this.deps.replayWaitMs ?? 10_000)))
@@ -979,9 +982,11 @@ export class SessionManager {
     return this.readHistory(source, s.view.agentSessionId, s)
   }
 
-  private async readHistory(source: SessionHistorySource, agentSessionId: string, s: ManagedSession): Promise<HistoryMessage[]> {
+  private async readHistory(source: SessionHistorySource, agentSessionId: string, s: ManagedSession, last?: number): Promise<HistoryMessage[]> {
     try {
-      return await source.messages(agentSessionId, s.view.cwd, s.account?.configDir)
+      const messages = await source.messages(agentSessionId, s.view.cwd, s.account?.configDir, last ? { last } : undefined)
+      // A source that cannot cut the conversation itself returns all of it.
+      return last && messages.length > last ? messages.slice(-last) : messages
     } catch {
       // A conversation that cannot be read back still resumes; only the earlier messages are missing.
       return []

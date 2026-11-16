@@ -115,6 +115,7 @@ import { ChatJournals } from './chat-journal'
 import { permissionAllowed } from './permissions'
 import { HISTORY_LIST_DEPTH, historySearchOptions, listAllHistory, searchAllHistory } from './history'
 import { HistoryIndexer } from './history-indexer'
+import { createTranscriptReader } from './transcript-worker-electron'
 import { RecentCall } from './recent-call'
 import { PrEventService, registerPrEventsIpc } from './pr-events-service'
 import { OutputCoalescer } from './output-coalescer'
@@ -530,7 +531,9 @@ const runtimes = {
   }),
   terminal
 }
-const claudeHistory = new ClaudeSessionHistory({ bridgeDir })
+// Claude transcripts are parsed in a utility process, never on this one (a 50 MB file froze every window).
+const transcriptReader = createTranscriptReader((m) => diagnostics.log.warn(m))
+const claudeHistory = new ClaudeSessionHistory({ bridgeDir, transcripts: transcriptReader.read })
 // Kiro's data folder (~/.kiro); WORKHUB_KIRO_DIR points the readers elsewhere (smoke runs, demos).
 const kiroDir = process.env['WORKHUB_KIRO_DIR'] ? resolve(process.env['WORKHUB_KIRO_DIR']) : undefined
 // Past sessions per agent id; the readers behind them are kiro, opencode and codex (PLAN D9).
@@ -2419,6 +2422,7 @@ app.on('before-quit', (event) => {
 let dbClosed = false
 app.on('will-quit', (event) => {
   historyIndexer.stop()
+  transcriptReader.close()
   if (dbClosed) return
   event.preventDefault()
   const closeDb = () => {

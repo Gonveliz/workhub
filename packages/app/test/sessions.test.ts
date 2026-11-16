@@ -15,6 +15,7 @@ import {
   type WorkhubConfig,
   type Worktrees
 } from '@workhub/core'
+import { JOURNAL_MAX_ENTRIES } from '../src/main/chat-journal'
 import { claudeAccounts } from '../src/main/claude-accounts'
 import { resolveChoice, SessionManager, ticketPrefixes, type SessionManagerDeps } from '../src/main/session-manager'
 import type { SessionView } from '../src/shared/api'
@@ -249,6 +250,24 @@ describe('SessionManager', () => {
     ;(acp as unknown as { caps: AgentCapabilities }).caps.imageInput = false
     await manager.prompt(other.id, 'look', [{ mediaType: 'image/png', data: 'AAAA' }])
     expect(acp.prompts[0]!.images).toBeUndefined()
+  })
+
+  it('asks a resume replay for the last messages only (the chat journal cap by default) and cuts a source that returns more', async () => {
+    const asked: (number | undefined)[] = []
+    const many: HistoryMessage[] = Array.from({ length: 5 }, (_, i) => ({ kind: 'user', text: `m${i}` }))
+    const history = { claude: { list: async () => [], messages: async (_id: string, _cwd: string, _dir?: string, o?: { last?: number }) => (asked.push(o?.last), many) } }
+    const capped = setup(emptyConfig(), true, { history, replayLast: 2 })
+    const view = await capped.manager.start({ profileId: null, agentKey: 'claude', cwd: '/tmp/demo', resumeAgentSessionId: 'abc' })
+    await flush()
+    await flush()
+    expect(capped.replays).toEqual([[view.id, many.slice(-2)]])
+    // The open session's whole conversation (a phone's pages) is not cut.
+    expect(await capped.manager.history(view.id)).toHaveLength(5)
+
+    const plain = setup(emptyConfig(), true, { history })
+    await plain.manager.start({ profileId: null, agentKey: 'claude', cwd: '/tmp/demo', resumeAgentSessionId: 'abc' })
+    await flush()
+    expect(asked).toEqual([2, undefined, JOURNAL_MAX_ENTRIES])
   })
 
   it('reopens a stored session resuming its conversation only when it still exists, and never prompts', async () => {

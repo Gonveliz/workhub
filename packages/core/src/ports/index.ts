@@ -69,6 +69,11 @@ export interface HistoryListOptions {
   limit?: number
 }
 
+export interface HistoryMessagesOptions {
+  /** Only the conversation's last messages (a resume's replay); a source that cannot cut it returns them all. */
+  last?: number
+}
+
 /** Lists and reads past sessions of one agent account (Claude: the Agent SDK's session store). */
 export interface SessionHistorySource {
   /** The account's sessions, newest first, at most `limit` (the source's own default when absent). */
@@ -78,7 +83,7 @@ export interface SessionHistorySource {
    * limit uses it to tell a session that is gone from one that is only older.
    */
   sessionIds?(account: { agentId: string; accountId: string | null; configDir?: string }): Promise<ReadonlySet<string>>
-  messages(agentSessionId: string, cwd: string, configDir?: string): Promise<HistoryMessage[]>
+  messages(agentSessionId: string, cwd: string, configDir?: string, options?: HistoryMessagesOptions): Promise<HistoryMessage[]>
   /** Gives a session the title its agent shows (Claude: `/rename`'s custom title in the transcript). */
   rename?(agentSessionId: string, cwd: string, title: string, configDir?: string): Promise<void>
 }
