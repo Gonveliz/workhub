@@ -4,6 +4,27 @@ All notable changes to Workhub 2 are listed here. Entries from 2.0.0-alpha.2 on 
 [release-please](https://github.com/googleapis/release-please) from the Conventional Commits on
 `main`; see the release process in [CONTRIBUTING.md](CONTRIBUTING.md#releases).
 
+## [2.0.0-alpha.37](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.36...v2.0.0-alpha.37) (2026-11-16)
+
+
+### Features
+
+* **setup:** install the Codex command line from the app and say when Codex is not signed in ([949e90a](https://github.com/SoldierIced/workhub/commit/949e90ab8724309c2d305a07c9a2e72725b363c5))
+
+
+### Bug Fixes
+
+* **build:** install dependencies on Windows when Node.js is under "Program Files" ([949e90a](https://github.com/SoldierIced/workhub/commit/949e90ab8724309c2d305a07c9a2e72725b363c5))
+* **home:** clear the setup banner once the problem is solved ([949e90a](https://github.com/SoldierIced/workhub/commit/949e90ab8724309c2d305a07c9a2e72725b363c5))
+* **setup:** detect tools in a folder with a space on Windows ([949e90a](https://github.com/SoldierIced/workhub/commit/949e90ab8724309c2d305a07c9a2e72725b363c5))
+* **setup:** keep the result of an install on screen, with a closing line ([949e90a](https://github.com/SoldierIced/workhub/commit/949e90ab8724309c2d305a07c9a2e72725b363c5))
+* **setup:** onboarding fixes from a hands-on run on a clean Windows machine ([774a722](https://github.com/SoldierIced/workhub/commit/774a7221c157c03bad31daa1b337c5d7ec6d9ac4))
+* **setup:** show the download and the installed size of large tools ([949e90a](https://github.com/SoldierIced/workhub/commit/949e90ab8724309c2d305a07c9a2e72725b363c5))
+* **setup:** show the saved goal in the setup check ([949e90a](https://github.com/SoldierIced/workhub/commit/949e90ab8724309c2d305a07c9a2e72725b363c5))
+* **sign-in:** answer the first question of the GitHub and GitLab sign-in ([949e90a](https://github.com/SoldierIced/workhub/commit/949e90ab8724309c2d305a07c9a2e72725b363c5))
+* **sign-in:** keep the GitLab sign-in available when GitLab does not answer ([949e90a](https://github.com/SoldierIced/workhub/commit/949e90ab8724309c2d305a07c9a2e72725b363c5))
+* **sign-in:** show the GitHub one-time code in its new wording ([949e90a](https://github.com/SoldierIced/workhub/commit/949e90ab8724309c2d305a07c9a2e72725b363c5))
+
 ## [2.0.0-alpha.36](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.35...v2.0.0-alpha.36) (2026-11-16)
 
 
