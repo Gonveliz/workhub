@@ -89,6 +89,36 @@ describe('MetricAlertService', () => {
     expect(t.source.collect).toHaveBeenCalledTimes(2)
   })
 
+  it('loads a state saved before coverage: days without any point are unknown, not zeros', async () => {
+    // A week of 40s, then the app was closed Monday to Thursday.
+    const week = ['2026-10-19', '2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23']
+    const key = 'acme|orders.errors|checkout-api|'
+    const old = { profiles: { acme: { series: { [key]: { key, source: 'acme', metric: DEF.id, subject: 'checkout-api', points: week.map((day) => ({ day, value: 40 })) } }, alerts: [] } } } as MetricAlertsState
+    const run = async (covered?: { source: string; day: string }[]) => {
+      let saved = JSON.parse(JSON.stringify(old)) as MetricAlertsState
+      const today = [{ metric: DEF.id, subject: 'checkout-api', day: FRI, value: 45, source: 'acme' }]
+      const notify = vi.fn()
+      const service = new MetricAlertService({
+        profiles: async () => [{ id: 'acme', rules: DEFAULT_ALERT_RULES }],
+        sources: () => [{ id: 'acme', definitions: () => [DEF], collect: async () => (covered ? { samples: today, covered } : today) }],
+        store: { load: () => saved, save: (v) => void (saved = JSON.parse(JSON.stringify(v))) },
+        notify,
+        changed: vi.fn(),
+        now: () => at(FRI)
+      })
+      await service.tick()
+      return { notify, alerts: (await service.list('acme')).alerts, coverage: saved.profiles.acme!.coverage }
+    }
+    const closed = await run()
+    expect(closed.alerts).toEqual([])
+    expect(closed.notify).not.toHaveBeenCalled()
+    // The old days with points are kept as read, and today is recorded.
+    expect(closed.coverage).toEqual({ 'acme||': [...week, FRI] })
+    // Read every day with nothing reported Monday to Thursday: those zeros make Friday a jump.
+    const quiet = await run(['2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29', FRI].map((day) => ({ source: 'acme', day })))
+    expect(quiet.alerts).toMatchObject([{ kind: 'jump', severity: 'high' }])
+  })
+
   it('a failing source keeps the stored history; a profile without Health is not enabled', async () => {
     const t = setup({ failing: true })
     await t.service.tick()
@@ -101,8 +131,12 @@ describe('metric sources of the app', () => {
   it('maps the Health view only when it is live or demo', async () => {
     const snapshot = { environmentId: 'prod', state: 'degraded', podVisibility: 'visible', reasons: [], blindSpots: [], errorServices: [{ service: 'checkout-api', stats: { recent: 50, typicalDay: 1, streakDays: 1, streakTruncated: false, daysWithData: 1, state: 'new' } }], pods: [], events: [], silentServices: [], reportingServiceCount: 1, slow: [], containerStderr: [] }
     const view = (state: HealthView['state']) => ({ state, refreshMinutes: 15, environments: [{ id: 'prod', name: 'Production', snapshot, errorUrls: {}, serviceUrls: {} }] }) as unknown as HealthView
-    expect(await new HealthMetricSource(async () => view('ready')).collect('acme', at(FRI))).toMatchObject([{ metric: 'health.errors', subject: 'checkout-api', value: 50, segment: 'Production' }])
-    expect(await new HealthMetricSource(async () => view('noConnection')).collect('acme', at(FRI))).toEqual([])
+    expect(await new HealthMetricSource(async () => view('ready')).collect('acme', at(FRI))).toMatchObject({
+      samples: [{ metric: 'health.errors', subject: 'checkout-api', value: 50, segment: 'Production' }],
+      covered: [{ source: 'health', metric: 'health.errors', segment: 'Production', day: FRI }, { metric: 'health.stderr' }, { metric: 'health.slowCalls' }, { metric: 'health.slowFailureRate' }]
+    })
+    // Not read: nothing reported and nothing covered, so the day is unknown rather than zero.
+    expect(await new HealthMetricSource(async () => view('noConnection')).collect('acme', at(FRI))).toEqual({ samples: [], covered: [] })
     expect((await new DemoMetricSource(async () => [1, 2, 3, 4, 5]).collect('acme', at(FRI))).length).toBeGreaterThan(100)
   })
 })

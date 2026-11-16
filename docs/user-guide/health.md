@@ -58,6 +58,11 @@ updated while the problem lasts instead of a new notification every hour. The en
 care where a number comes from; today the source is Health itself (no extra queries): errors per
 service, stderr lines per container, calls to the slow endpoints per service and their failure
 rate, one value per day (the last read of the day, a rolling 24 h figure). Series keep 45 days.
+The engine also records which days each source was actually read. A count that only lists what
+happened (errors, stderr lines, slow calls) counts as zero on a day it was read with nothing for
+that subject; a day it was not read (the app closed, the environment unreachable, a signal that
+could not be read) is left out of the baseline and the sparkline, so coming back after a week away
+does not turn a normal day into a jump.
 
 **Rules.** Each metric is compared with its own previous 7 business days. Every limit is a
 default in **Settings → Profiles → (profile) → Screens → Health → Alert rules** and can be overridden per metric id.

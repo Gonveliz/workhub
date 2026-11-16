@@ -5,15 +5,19 @@ import {
   applyAlertAction,
   availableAlertActions,
   businessDaysAfter,
+  coverageFromSeries,
+  coveredDays,
   CLOSED_ALERT_LIFETIME_MS,
   DEFAULT_ALERT_RULES,
   demoMetricSamples,
   detectMetricAlerts,
   detectSeries,
+  healthMetricCoverage,
   healthMetricSamples,
   isAlertAction,
   lastBusinessDay,
   localDay,
+  mergeCoverage,
   mergeSamples,
   reconcileAlerts,
   seriesKey,
@@ -69,6 +73,17 @@ describe('days', () => {
     expect(lastBusinessDay(SAT, [6])).toBe(SAT)
     expect(businessDaysAfter(FRI, '2026-11-04', [1, 2, 3, 4, 5])).toBe(3)
     expect(localDay(at(FRI, 23))).toBe(FRI)
+  })
+})
+
+describe('coverage', () => {
+  it('keeps the days read per scope, drops old, future and malformed days, and derives old states from the points', () => {
+    const coverage = mergeCoverage({ 'acme||': ['2026-01-01', '2026-10-29'] }, [{ source: 'acme', day: FRI }, { source: 'acme', metric: 'm', segment: 'eu', day: FRI }, { source: 'acme', day: SAT }, { source: 'acme', day: 'nope' }, { source: '', day: FRI }], at(FRI))
+    expect(coverage).toEqual({ 'acme||': ['2026-10-29', FRI], 'acme|m|eu': [FRI] })
+    expect([...coveredDays(coverage, { source: 'acme', metric: 'm', segment: 'eu' })].sort()).toEqual(['2026-10-29', FRI])
+    expect([...coveredDays(mergeCoverage({}, [{ source: 'acme', metric: 'm', segment: 'eu', day: FRI }], at(FRI)), { source: 'acme', metric: 'm', segment: 'us' })]).toEqual([])
+    const s = (subject: string, day: string): MetricSample => ({ metric: 'm', subject, day, value: 1, source: 'acme' })
+    expect(coverageFromSeries(mergeSamples({}, [s('a', '2026-10-28'), s('b', FRI)], at(FRI)))).toEqual({ 'acme||': ['2026-10-28', FRI] })
   })
 })
 
@@ -181,6 +196,32 @@ describe('rules', () => {
     expect(detectSeries(sparse, COUNT, rules(), at(FRI))).toMatchObject({ kind: 'jump', severity: 'high' })
     // Not zero-filled: a single earlier day is too little baseline.
     expect(detectSeries({ ...sparse }, { ...COUNT, absentIsZero: false }, rules(), at(FRI))).toBeNull()
+  })
+
+  it('days the source was not read are skipped, not counted as zero', () => {
+    // A week of 40s, then the app was closed Monday to Thursday; Friday is 45 again.
+    const samples = [...businessSamples(COUNT, 'a', flat(5), '2026-10-23', { segment: 'Production' }), ...businessSamples(COUNT, 'a', [45], FRI, { segment: 'Production' })]
+    const store = mergeSamples({}, samples, at(FRI))
+    // Coverage derived from the points: the closed days are unknown, so the baseline stays at 40.
+    expect(detectMetricAlerts(store, [COUNT], rules(), at(FRI))).toEqual([])
+    const read = mergeCoverage({}, [...samples.map((x) => ({ source: 'acme', day: x.day }))], at(FRI))
+    expect(detectMetricAlerts(store, [COUNT], rules(), at(FRI), read)).toEqual([])
+    const series = Object.values(store)[0]!
+    expect(detectSeries(series, COUNT, rules(), at(FRI), undefined, coveredDays(read, series))).toBeNull()
+  })
+
+  it('days the source was read without a sample still count as zero', () => {
+    const samples = [...businessSamples(COUNT, 'a', flat(5), '2026-10-23', { segment: 'Production' }), ...businessSamples(COUNT, 'a', [45], FRI, { segment: 'Production' })]
+    const store = mergeSamples({}, samples, at(FRI))
+    const quiet = ['2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29']
+    // Read Monday to Thursday for this metric and environment, and nothing was reported: real zeros.
+    const read = mergeCoverage(coverageFromSeries(store), quiet.map((day) => ({ source: 'acme', metric: COUNT.id, segment: 'Production', day })), at(FRI))
+    const found = detectMetricAlerts(store, [COUNT], rules(), at(FRI), read)
+    expect(found).toMatchObject([{ kind: 'jump', severity: 'high', value: 45 }])
+    expect(found[0]!.history.map((h) => h.day)).toContain('2026-10-26')
+    // Reading another environment says nothing about this one.
+    const other = mergeCoverage(coverageFromSeries(store), quiet.map((day) => ({ source: 'acme', metric: COUNT.id, segment: 'Staging', day })), at(FRI))
+    expect(detectMetricAlerts(store, [COUNT], rules(), at(FRI), other)).toEqual([])
   })
 
   it('missing data: an expected series without a sample for 24 h on a business day', () => {
@@ -366,6 +407,23 @@ describe('sources', () => {
       ['health.slowFailureRate', 'checkout-api', 20, 400]
     ])
     expect(samples[0]).toMatchObject({ day: FRI, segment: 'Production', source: 'health', link: 'https://kibana.example.test/errors' })
+  })
+
+  it('says which Health metrics were read, per environment', () => {
+    const empty = { errorServices: [], containerStderr: [], slow: [] }
+    const covered = healthMetricCoverage(
+      [
+        { name: 'Production', snapshot: { state: 'healthy', blindSpots: [{ code: 'unread', signal: 'stderr' }], ...empty } },
+        { name: 'Staging', snapshot: { state: 'blind', blindSpots: [{ code: 'notReadYet' }], ...empty } },
+        { name: 'Sandbox', snapshot: { state: 'unreachable', blindSpots: [], ...empty } }
+      ] as Parameters<typeof healthMetricCoverage>[0],
+      at(FRI)
+    )
+    expect(covered.map((c) => [c.metric, c.segment, c.day])).toEqual([
+      ['health.errors', 'Production', FRI],
+      ['health.slowCalls', 'Production', FRI],
+      ['health.slowFailureRate', 'Production', FRI]
+    ])
   })
 
   it('the demo history shows each rule', () => {
