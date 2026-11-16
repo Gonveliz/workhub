@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generateIdentity, makeAuth, makeChallenge, parseChannelMessage, parseClientMessage, parsePushPayload, parseRelayMessage, reconnectDelayMs, signPushPayload, verifyAuth, verifyPushPayload } from '../src'
+import { generateIdentity, makeAuth, makeChallenge, parseChannelMessage, parseClientMessage, parsePermissionAnswer, parsePushPayload, parseRelayMessage, reconnectDelayMs, signPermissionAnswer, signPushAsk, signPushPayload, verifyAuth, verifyPermissionAnswer, verifyPushAsk, verifyPushPayload } from '../src'
 
 describe('relay auth', () => {
   const me = generateIdentity()
@@ -40,6 +40,36 @@ describe('push payload signature', () => {
     expect(verifyPushPayload({ ...signed, route: '#settings' }, desktop.public, NOW)).toBe(false)
     expect(verifyPushPayload(signed, desktop.public, NOW + 11 * 60_000)).toBe(false)
     expect(verifyPushPayload({ ...signed, sig: '!!' }, desktop.public, NOW)).toBe(false)
+  })
+})
+
+describe('a notification that can answer a permission request', () => {
+  const desktop = generateIdentity()
+  const phone = generateIdentity()
+  const NOW = 1_800_000_000_000
+  const signed = signPushPayload(desktop, { v: 1, kind: 'needsAnswer', title: 'Claude asks', body: 'npm test', ts: NOW, desktop: desktop.id })
+  const ask = { session: 's1', request: 'r1', ticket: 'T'.repeat(43), answers: ['deny' as const] }
+
+  it('signs the ask apart: the payload verifies as before, the ask only for its device', () => {
+    const withAsk = signPushAsk(desktop, signed, phone.id, ask)
+    expect(parsePushPayload(withAsk)).toEqual(withAsk)
+    expect(verifyPushPayload(withAsk, desktop.public, NOW)).toBe(true)
+    expect(verifyPushAsk(withAsk, desktop.public, phone.id)).toBe(true)
+    expect(verifyPushAsk(withAsk, desktop.public, generateIdentity().id)).toBe(false)
+    expect(verifyPushAsk(withAsk, generateIdentity().public, phone.id)).toBe(false)
+    expect(verifyPushAsk({ ...withAsk, ask: { ...withAsk.ask!, answers: ['allow', 'deny'] } }, desktop.public, phone.id)).toBe(false)
+    expect(verifyPushAsk({ ...withAsk, ts: NOW + 1 }, desktop.public, phone.id)).toBe(false)
+    expect(verifyPushAsk(signed, desktop.public, phone.id)).toBe(false)
+  })
+
+  it('verifies a device answer that is signed and recent', () => {
+    const answer = signPermissionAnswer(phone, { t: 'permission-answer', v: 1, desktop: desktop.id, device: phone.id, session: 's1', request: 'r1', ticket: 'T'.repeat(43), answer: 'deny', ts: NOW })
+    expect(parsePermissionAnswer(answer)).toEqual(answer)
+    expect(verifyPermissionAnswer(answer, phone.public, NOW + 1000)).toBe(true)
+    expect(verifyPermissionAnswer(answer, phone.public, NOW + 11 * 60_000)).toBe(false)
+    expect(verifyPermissionAnswer({ ...answer, answer: 'allow' }, phone.public, NOW)).toBe(false)
+    expect(verifyPermissionAnswer(answer, desktop.public, NOW)).toBe(false)
+    expect(parsePermissionAnswer({ ...answer, answer: 'approve' })).toBeNull()
   })
 })
 

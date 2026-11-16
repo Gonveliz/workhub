@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowRightLeft, ArrowUp, Brain, ChevronRight, FoldVertical, CircleAlert, Clock, History, ImagePlus, Info, LoaderCircle, Pause, Play, Square, TriangleAlert, Volume2, Webhook, X, type LucideIcon } from 'lucide-react'
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
-import { appOptions, filterSlashCommands, gatePrompt, isApiWindow, sessionIdentity, setApiCeiling, setCeiling, setSessionCeiling, slashQuery, type SlashCommandInfo, type SubagentSummary } from '@workhub/core'
+import { appOptions, filterSlashCommands, gatePrompt, insertMention, isApiWindow, mentionTrigger, rankFiles, sessionIdentity, setApiCeiling, setCeiling, setSessionCeiling, slashQuery, type SlashCommandInfo, type SubagentSummary } from '@workhub/core'
 import { Button, IconButton } from '../../components/atoms'
 import { CopyButton, Markdown, type MarkdownActions } from '../../components/molecules'
 import { useToast } from '../../components/molecules/Toast'
@@ -19,6 +19,7 @@ import { interruptSession, onRecoveredPrompts, removeQueuedPrompt, submitPrompt,
 import { markPermission, openChatImage, pushItem, pushNotice, type ChatItem, type SessionData } from '../../store'
 import { runWorkhubCommand, sessionSlashCommands } from '../../lib/chatCommands'
 import { SlashCommandMenu, slashOptionId } from './SlashCommandMenu'
+import { FileMentionMenu, mentionOptionId } from './FileMentionMenu'
 import { followLog, isAtBottom, lastPromptId, type FollowMark } from '../../lib/chatScroll'
 import { onRevealChatItem, revealEarlier, revealItemStart, showJumpToLatest, windowAfterScroll, windowStart } from '../../lib/chatWindow'
 import { refreshConfig, useConfig } from '../../configStore'
@@ -620,6 +621,44 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
     composer.current?.focus()
   }
 
+  // The `@` menu: the session's files that match the word the caret is in. It never opens with the
+  // `/` menu; Esc closes it for the draft and caret it was open on.
+  const [caret, setCaret] = useState(0)
+  const [mentionFiles, setMentionFiles] = useState<string[]>([])
+  const [mentionSelected, setMentionSelected] = useState(0)
+  const [mentionDismissedFor, setMentionDismissedFor] = useState<string | null>(null)
+  const trigger = menu.length === 0 ? mentionTrigger(text, caret) : null
+  const mentionOpen = trigger !== null
+  const mentionWord = trigger?.query ?? null
+  const mentionMenu = useMemo(
+    () => (mentionWord === null || mentionDismissedFor === `${caret}:${text}` ? [] : rankFiles(mentionFiles, mentionWord)),
+    [mentionFiles, mentionWord, mentionDismissedFor, caret, text]
+  )
+  const mentionIndex = Math.min(mentionSelected, Math.max(0, mentionMenu.length - 1))
+  useEffect(() => setMentionSelected(0), [mentionWord])
+  // The main process lists the folder (cached for a few seconds), by session id, when a mention starts.
+  useEffect(() => {
+    if (!mentionOpen) return
+    let live = true
+    window.hub.sessions.files(v.id).then(
+      (r) => live && setMentionFiles(r.files),
+      () => live && setMentionFiles([])
+    )
+    return () => {
+      live = false
+    }
+  }, [mentionOpen, v.id])
+  const pickMention = (path: string) => {
+    if (!trigger) return
+    const next = insertMention(text, caret, trigger, path)
+    setText(next.text)
+    setCaret(next.caret)
+    requestAnimationFrame(() => {
+      composer.current?.focus()
+      composer.current?.setSelectionRange(next.caret, next.caret)
+    })
+  }
+
   const send = async (override = false) => {
     const value = text.trim()
     if ((!value && images.length === 0) || !open) return
@@ -706,6 +745,24 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
 
   // Workhub 1 keys: Return sends, Shift-Return adds a line, Esc interrupts.
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionMenu.length > 0 && !e.nativeEvent.isComposing) {
+      const pick = mentionMenu[mentionIndex]!
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setMentionSelected((mentionIndex + (e.key === 'ArrowDown' ? 1 : mentionMenu.length - 1)) % mentionMenu.length)
+        return
+      }
+      if ((e.key === 'Tab' || e.key === 'Enter') && !e.shiftKey) {
+        e.preventDefault()
+        pickMention(pick)
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setMentionDismissedFor(`${caret}:${text}`)
+        return
+      }
+    }
     if (menu.length > 0 && !e.nativeEvent.isComposing) {
       const pick = menu[menuIndex]!
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -730,7 +787,7 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
         return
       }
     }
-    if (menu.length === 0 && recall(e)) return
+    if (menu.length === 0 && mentionMenu.length === 0 && recall(e)) return
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       history.current = null
@@ -968,6 +1025,7 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
           {menu.length > 0 && (
             <SlashCommandMenu sessionId={v.id} agentName={v.agentName} commands={menu} selected={menuIndex} onPick={pickCommand} onHover={setMenuSelected} />
           )}
+          {mentionMenu.length > 0 && <FileMentionMenu sessionId={v.id} paths={mentionMenu} selected={mentionIndex} onPick={pickMention} onHover={setMentionSelected} />}
           <div className="relative">
             {/* The keys, where the text will go, while there is none: gone as soon as typing starts, and on a narrow pane. */}
             {text === '' && v.state === 'ready' && (
@@ -975,6 +1033,7 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
                 <KeyHint keys="↵">{t('chat.keyEnter')}</KeyHint>
                 <KeyHint keys="⇧↵">{t('chat.keyNewLine')}</KeyHint>
                 <KeyHint keys="/">{t('chat.keyCommands')}</KeyHint>
+                <KeyHint keys="@">{t('chat.keyFiles')}</KeyHint>
               </span>
             )}
             <textarea
@@ -982,9 +1041,9 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
               aria-label={t('chat.prompt')}
               role="combobox"
               aria-autocomplete="list"
-              aria-expanded={menu.length > 0}
-              aria-controls={menu.length > 0 ? `slash-${v.id}` : undefined}
-              aria-activedescendant={menu.length > 0 ? slashOptionId(v.id, menuIndex) : undefined}
+              aria-expanded={menu.length > 0 || mentionMenu.length > 0}
+              aria-controls={menu.length > 0 ? `slash-${v.id}` : mentionMenu.length > 0 ? `mention-${v.id}` : undefined}
+              aria-activedescendant={menu.length > 0 ? slashOptionId(v.id, menuIndex) : mentionMenu.length > 0 ? mentionOptionId(v.id, mentionIndex) : undefined}
               rows={1}
               value={text}
               disabled={!open}
@@ -993,7 +1052,9 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
                 // Editing a recalled prompt makes it the draft.
                 history.current = null
                 setText(e.target.value)
+                setCaret(e.target.selectionStart)
               }}
+              onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
               onKeyDown={onKeyDown}
               onPaste={onPaste}
               className="block max-h-48 min-h-9 w-full resize-none overflow-y-auto bg-transparent px-3.5 pt-2.5 pb-1 text-base leading-normal text-text placeholder:text-subtle focus:outline-none disabled:opacity-60"

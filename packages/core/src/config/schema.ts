@@ -14,6 +14,7 @@ import { DEFAULT_AI_REVIEW_SETTINGS as AI_REVIEW, MAX_REVIEW_IDLE_SECONDS, MAX_R
 import { REVIEW_LANGUAGES, REVIEWER_SESSION_MODES } from '../ai-review/types'
 import { validUsdCeiling } from '../usage/api-budget'
 import { DEFAULT_USAGE_BUDGET, type UsageBudgetOptions } from '../usage/budget'
+import { cleanProjectBudgets, type ProjectBudgets } from '../usage/project-budget'
 import { AGENT_MILESTONE_MODES, MILESTONE_MARGIN_RANGE } from '../milestones'
 import { INBOX_LIMITS } from '../inbox/types'
 import { DEFAULT_WORKTREE_SETTINGS, WORKTREE_CLOSE_MODES } from '../worktrees/settings'
@@ -145,6 +146,12 @@ export interface AppOptions {
    * approval preset), Kiro's agent. Unset: the agent's own default.
    */
   agentDefaultModes?: Record<string, string>
+  /**
+   * Monthly budget per project (Usage and reports), by the project key the Usage screen groups by.
+   * Optional with no default, so it needs no config version bump. Progress and notifications only:
+   * it never blocks a send.
+   */
+  projectBudgets?: ProjectBudgets
 }
 
 /** The blocks of the menu bar popover that can be hidden, and how many meetings "Today" lists. */
@@ -663,7 +670,9 @@ export const configSchema = z.object({
       workhubMcp: z.boolean().default(true),
       protectedBranches: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
       notificationsPausedUntil: z.number().int().nonnegative().optional(),
-      agentDefaultModes: z.record(z.string().min(1).max(64), z.string().trim().min(1).max(200)).optional()
+      agentDefaultModes: z.record(z.string().min(1).max(64), z.string().trim().min(1).max(200)).optional(),
+      // An entry that is no usable budget is dropped instead of keeping the config from loading.
+      projectBudgets: z.unknown().transform(cleanProjectBudgets).optional()
     })
     .optional(),
   sessionGroups: sessionGroups.optional(),

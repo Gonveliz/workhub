@@ -87,6 +87,7 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       subagent: (id, subagentId) => invoke('sessions:subagent', id, subagentId),
       revealFile: (id, path) => invoke('sessions:revealFile', id, path),
       localChanges: (id) => invoke('sessions:localChanges', id),
+      files: (id) => invoke('sessions:files', id),
       rename: (id, name) => invoke('sessions:rename', id, name),
       cancel: (id) => invoke('sessions:cancel', id),
       stop: (id) => invoke('sessions:stop', id),

@@ -412,6 +412,12 @@ export interface SessionsApi {
    * a folder of repositories. Null when the session is unknown or the folder holds no repository.
    */
   localChanges(id: string): Promise<LocalChanges | null>
+  /**
+   * The files of the session's folder (relative paths) for the composer's `@` menu: its repository's
+   * tracked and not-ignored files, or a bounded walk outside a repository. `truncated`: cut at the cap.
+   * Not available to paired phones.
+   */
+  files(id: string): Promise<{ files: string[]; truncated: boolean }>
   /** Names the session (empty or null: back to its agent's name); stored by the session's identity. */
   rename(id: string, name: string | null): Promise<void>
   /** Saves a conversation as a Markdown file the user picks in a save dialog (desktop windows only). */

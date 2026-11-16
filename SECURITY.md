@@ -61,6 +61,12 @@ contacts the following; see [Remote access](docs/user-guide/remote-access.md) an
   accounts; the only thing it stores is where to send push notifications.
 - **Push.** Notifications reach a phone that is offline through Web Push (the browsers' own push
   services). The body is sealed to the device's key, so the push service carries ciphertext.
+  A notification about one waiting permission request can carry a **Deny** button, never
+  **Allow**. Its push holds a one-time ticket for that device and that request, valid ten
+  minutes; the phone's service worker sends the answer back through the relay sealed to the
+  computer and signed with the device's key. The computer applies it only for that device, while
+  it still has the sessions capability, and only while that request still waits; a used or old
+  ticket, another device, or any other answer is refused.
 - **Pairing.** The QR code (or its link) carries a one-time secret, valid for five minutes. Since
   anyone who sees the QR knows the secret, the phone also shows a 6-digit code made from the
   secret, both identities and a nonce the desktop signs after the phone answered; you type it on

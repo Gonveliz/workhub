@@ -158,6 +158,24 @@ seen Workhub: projects by folder name (with the parent folder when two share a n
 path), pull request links, ticket keys, and a
 line on what agent time and list prices mean.
 
+**Monthly project budgets.** A card under the filters sets an optional budget per project for
+the calendar month, in dollars, in tokens or both (type tokens as `20000000`, `20M` or `800k`). Pick
+the project from the list the reports know: a budget is kept under the project exactly as the
+table groups it (the project folder, or the working folder when none was resolved), so a name typed
+by hand that does not match never fills. The card counts from the 1st of the current month, over
+every profile, whatever period the report above shows. Each project has a bar: normal, a warning
+from 80 % and a red state from 100 % (of whichever of dollars and tokens is further along). Dollars
+are list prices and leave out tokens of models with no price; when a project has some, the card says
+how many, so read the dollars as at least that much.
+
+Workhub also notifies when a project crosses 80 % and 100 %, once per month per threshold (a jump
+from 70 % to 120 % announces only 100 %; raising a budget or a lower spend later does not announce
+it again; a new month starts over). The notification follows the notification settings: the master
+switch, **Pause notifications**, quiet hours, and the usage alerts switch in
+[Settings → Notifications and alerts](settings.md#notifications-and-alerts). It is checked after
+each transcript scan, every ten minutes or on **Refresh**. A budget never blocks anything: prompts
+and automations run as usual.
+
 What these numbers are not: cost is at list prices, not what a plan subscription bills; agent time
 is the agent working, not your own time at the keyboard; only Claude, Codex and Kiro transcripts
 on this computer are read (plus Workhub's own background runs), so other agents and other computers do not appear. Links to tickets

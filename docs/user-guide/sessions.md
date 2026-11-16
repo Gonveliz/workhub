@@ -66,6 +66,14 @@ terminal's output to the screen in batches of about one frame, so a command that
   back the session's previous prompt; keep pressing for older ones (up to the last 50). **↓** comes
   forward and, past the newest, puts back what you were typing; so does **Esc**. Editing a recalled
   prompt makes it your draft.
+- **Mention files with `@`**: type `@` at the start of a word (not inside an email address) and a
+  few letters; a menu lists the session's files that match, by name or by letters of the path in
+  order (`cpane` finds `ChatPane.tsx`). **↑** / **↓** choose, **Return** or **Tab** inserts the path
+  relative to the session's folder (in backticks if it has spaces), **Esc** closes the menu. The
+  list is the repository's tracked files plus untracked ones that are not ignored, from the
+  session's folder or worktree, up to 20,000 files; a folder that is not a repository is walked
+  instead (up to 5,000 files, skipping hidden folders and `node_modules`). The list is kept for a
+  few seconds. Paired phones do not have it.
 - Under the input, two small menus show the session's **Model** and **Mode** (permission mode, or
   the agent for Kiro and OpenCode). Change them live. When the agent does not let a session switch
   one, it is shown without a chevron. The mode is tinted when tools run unattended, such as

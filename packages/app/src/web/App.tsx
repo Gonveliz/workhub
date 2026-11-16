@@ -6,6 +6,7 @@ import { refreshActivity } from './activity'
 import type { PushPayload } from '@workhub/protocol'
 import { WebAppProvider, navigate, useClient, useClientStatus, useRoute, type WebApp } from './app-context'
 import { NOTIFY_ASKED_KEY } from './device'
+import { kvSet, LOCALE_KEY } from './kv'
 import { parseRoute, routeHash } from './routes'
 import { AlertsScreen } from './screens/AlertsScreen'
 import { AutomationsScreen } from './screens/AutomationsScreen'
@@ -61,7 +62,7 @@ function Toasts({ toasts, dismiss }: { toasts: Toast[]; dismiss: (id: number) =>
 }
 
 function Shell({ defaultName }: { defaultName: string }) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const client = useClient()
   const status = useClientStatus()
   const route = useRoute()
@@ -69,6 +70,8 @@ function Shell({ defaultName }: { defaultName: string }) {
   const [askNotify, setAskNotify] = useState(() => !localStorage.getItem(NOTIFY_ASKED_KEY))
   const capabilities = status.desktop?.capabilities ?? []
   useAppearance()
+  // The service worker words a notification's buttons in the phone's language; it cannot read the page's settings.
+  useEffect(() => void kvSet(LOCALE_KEY, locale).catch(() => {}), [locale])
 
   // Each time the desktop comes back: take its session list, dropping sessions closed meanwhile.
   useEffect(() => {

@@ -117,6 +117,28 @@ export type ChannelMessage = z.infer<typeof channelMessageSchema>
 
 // ---- Push payload (the plaintext of the sealed box a push carries)
 
+/** What a notification may answer for the person, as buttons on it ("Allow", "Deny"). */
+export const notificationAnswers = ['allow', 'deny'] as const
+export type NotificationAnswer = (typeof notificationAnswers)[number]
+
+/** An id the desktop gave (a session, a permission request): the characters ids are made of. */
+const requestToken = z.string().min(1).max(200)
+
+/**
+ * The permission request a pushed notification is about, when it may be answered from the
+ * notification: the session, the request, the answers offered, and a one-time ticket the desktop
+ * made for this device and this request. Signed apart from the payload (see `signPushAsk`): a
+ * phone that does not know this field still verifies the rest.
+ */
+export const pushAskSchema = z.object({
+  session: requestToken,
+  request: requestToken,
+  ticket: base64url.length(43),
+  answers: z.array(z.enum(notificationAnswers)).min(1).max(2),
+  sig: signature
+})
+export type PushAsk = z.infer<typeof pushAskSchema>
+
 export const pushPayloadSchema = z.object({
   v: z.literal(1),
   /** What kind of notification, as the desktop names them (permission, finished, pr, alert...). */
@@ -131,10 +153,47 @@ export const pushPayloadSchema = z.object({
   /** The desktop that sent it: a phone paired with several switches to it on tap. */
   desktop: fingerprint,
   /** The desktop's Ed25519 signature over the other fields (see `signPushPayload`): a relay cannot forge one. */
-  sig: signature
+  sig: signature,
+  /** A permission request this notification can answer; only in a push to one device. */
+  ask: pushAskSchema.optional()
 })
 export type PushPayload = z.infer<typeof pushPayloadSchema>
-export type UnsignedPushPayload = Omit<PushPayload, 'sig'>
+export type UnsignedPushPayload = Omit<PushPayload, 'sig' | 'ask'>
+
+// ---- Answering a permission request from a notification (a sealed box, outside the channel)
+
+/**
+ * A device answers the request a notification named, without a channel: its service worker seals
+ * this to the desktop's key and signs it with the device's own, so neither the relay nor anyone
+ * holding only the ticket can answer.
+ */
+export const permissionAnswerSchema = z.object({
+  t: z.literal('permission-answer'),
+  v: z.literal(1),
+  desktop: fingerprint,
+  device: fingerprint,
+  session: requestToken,
+  request: requestToken,
+  ticket: base64url.length(43),
+  answer: z.enum(notificationAnswers),
+  ts: z.number().int(),
+  sig: signature
+})
+export type PermissionAnswer = z.infer<typeof permissionAnswerSchema>
+export type UnsignedPermissionAnswer = Omit<PermissionAnswer, 'sig'>
+
+/** Why the desktop did not apply an answer: the request is no longer waiting, the ticket is used or old, or the answer is not allowed. */
+export const permissionAnswerRefusals = ['gone', 'expired', 'refused'] as const
+export type PermissionAnswerRefusal = (typeof permissionAnswerRefusals)[number]
+
+/** The desktop's reply, sealed to the device; the ticket (known only to the two ends) says which answer it is about. */
+export const permissionAnsweredSchema = z.object({
+  t: z.literal('permission-answered'),
+  ticket: base64url.length(43),
+  ok: z.boolean(),
+  reason: z.enum(permissionAnswerRefusals).optional()
+})
+export type PermissionAnswered = z.infer<typeof permissionAnsweredSchema>
 
 export function parseClientMessage(value: unknown): ClientMessage | null {
   const r = clientMessageSchema.safeParse(value)
@@ -153,5 +212,15 @@ export function parseChannelMessage(value: unknown): ChannelMessage | null {
 
 export function parsePushPayload(value: unknown): PushPayload | null {
   const r = pushPayloadSchema.safeParse(value)
+  return r.success ? r.data : null
+}
+
+export function parsePermissionAnswer(value: unknown): PermissionAnswer | null {
+  const r = permissionAnswerSchema.safeParse(value)
+  return r.success ? r.data : null
+}
+
+export function parsePermissionAnswered(value: unknown): PermissionAnswered | null {
+  const r = permissionAnsweredSchema.safeParse(value)
   return r.success ? r.data : null
 }

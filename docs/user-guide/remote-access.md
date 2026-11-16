@@ -92,6 +92,18 @@ The phone opens the relay's address in its browser: the relay serves the phone a
    the app is open. On iPhone add the app to the Home Screen first (Share → Add to Home Screen):
    Safari only delivers web notifications to installed apps. Settings on the phone turns them on
    or off later.
+   A notification that a session waits on one permission request can show a **Deny** button where
+   the browser draws buttons on notifications: Chrome and Edge on Android, Windows, macOS and
+   Linux (on macOS, Chrome may put them under *Options*). A tap on **Deny** answers that request
+   without opening the app; a tap on the notification itself opens the session as before. There is
+   no **Allow** button: Workhub cannot tell a harmless request from a dangerous one, so allowing
+   stays in the app, where you see the whole request. No button is shown when several requests
+   wait in the session, for a question with choices, or when the agent offers no way to deny.
+   Safari (on iPhone and on the Mac) and Firefox do not draw notification buttons, so their
+   notifications behave as before; this was not checked on every device. The answer is refused,
+   and the phone says so in a new notification you can tap to open the session, when the request
+   was already answered or withdrawn, the notification is more than ten minutes old, its button was
+   already used, or the computer cannot be reached.
 3. **Sessions.** The sessions as the desktop's sidebar lists them: the same order, groups and
    sub-groups (a group collapsed on the desktop starts collapsed; a tap opens or closes it on the
    phone only), and the same rows: the agent's icon with its state dot, the profile's colour bar,
@@ -246,6 +258,10 @@ never bodies.
   a few dozen.
 - Pushed notifications are signed by the desktop: the phone shows one only when it comes from a
   computer it paired with, and only while it is recent.
+- A **Deny** tapped on a notification reaches the computer over a short connection the phone's
+  service worker opens with the phone's identity: one answer sealed to the computer and signed by
+  the phone, naming the request and a one-time ticket from the push. The relay sees a short
+  connection and one message, not the answer.
 - The relay sees fingerprints, which room (desktop) a device talks to, message sizes and timing,
   the IP addresses, and push endpoints. It never sees message contents, session names, folders,
   prompts or notifications: those are ciphertext between the desktop and the device.
