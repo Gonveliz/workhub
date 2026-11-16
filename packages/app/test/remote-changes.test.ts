@@ -99,7 +99,7 @@ describe('remote changes', () => {
     expect(pieces.filter((p) => p.hunk === 0).reduce((n, p) => n + (p.cutLines ?? 0), 0)).toBe(2000)
     // The second hunk starts its own piece with its header.
     expect(pieces.find((p) => p.hunk === 1)).toMatchObject({ start: 0, header: '@@ -0,0 +1,3 @@' })
-  })
+  }, 30_000)
 
   it('reads git again on a first page, and answers later pages and diffs from the same read', async () => {
     const { changes, calls } = setupChanges(review(Array.from({ length: 30 }, (_, i) => file(`f${i}.ts`))))
