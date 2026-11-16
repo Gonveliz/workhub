@@ -20,7 +20,8 @@ import type { MenuCommand } from '@shared/windows-api'
 import { currentConfig, refreshConfig, useConfig } from './configStore'
 import { I18nProvider, useI18n } from './i18n/I18nProvider'
 import { setComposerDraft } from './lib/drafts'
-import { runIntent, type IntentDeps } from './lib/links'
+import { runIntent, type IntentDeps, type IntentOutcome } from './lib/links'
+import { PrPromptOfferDialog, type PrPromptOffer } from './screens/pullRequests/PrPromptOfferDialog'
 import { keyProviders } from './lib/tickets'
 import type { SessionIntent } from '@shared/links-api'
 import { folderName, usageGroups } from './lib/home'
@@ -59,7 +60,7 @@ import { errorText } from './lib/errorText'
 import { quickSessionPlan } from './lib/quickSession'
 import { createQuickSessionGate } from './lib/quickSessionGate'
 import { abbreviateFolder } from './lib/sessionHeader'
-import { startPromptQueue } from './promptQueue'
+import { startPromptQueue, submitPrompt } from './promptQueue'
 
 /** Applies the appearance preferences to <html> and tells the main process (native chrome). */
 function useTheme(): 'light' | 'dark' {
@@ -453,29 +454,34 @@ function Shell() {
   useEffect(() => window.hub.flowMaps.onAsk((draft, folder) => void investigateRef.current(draft, folder)), [])
 
   // A pull request or ticket window (or screen) asked for a session: open it, or start one with a drafted, unsent prompt.
+  // "Fix CI" / "Address review comments" send theirs (the user clicked), asking first when a session would have to start.
   const linkDeps = useRef<Pick<IntentDeps, 'agents' | 'profile' | 'sessions' | 'locale'>>({ agents, profile, sessions, locale })
   linkDeps.current = { agents, profile, sessions, locale }
-  useEffect(
-    () =>
-      window.hub.links.onIntent((intent: SessionIntent) => {
-        const deps: IntentDeps = {
-          ...linkDeps.current,
-          checkouts: (profileId) => window.hub.links.checkouts(profileId),
-          providers: async (profileId) => keyProviders(await window.hub.tickets.status(profileId)),
-          defaultCwd: () => window.hub.getDefaultCwd(),
-          model: (agentKey) => readPrefs().models[agentKey],
-          start: (input) => window.hub.sessions.start(input),
-          setDraft: setComposerDraft
-        }
-        void runIntent(deps, intent).then((outcome) => {
-          const tr = latest.current.t
-          if (outcome.kind === 'error') return toast(tr(outcome.message, outcome.params), 'danger')
-          openSession(outcome.sessionId)
-          toast(outcome.kind === 'opened' ? tr('links.opened') : outcome.drafted ? tr('links.drafted') : tr('links.started', { folder: outcome.folder }))
-        })
-      }),
+  const [prOffer, setPrOffer] = useState<PrPromptOffer | null>(null)
+  const carryOut = useCallback(
+    (intent: SessionIntent) => {
+      const deps: IntentDeps = {
+        ...linkDeps.current,
+        checkouts: (profileId) => window.hub.links.checkouts(profileId),
+        providers: async (profileId) => keyProviders(await window.hub.tickets.status(profileId)),
+        defaultCwd: () => window.hub.getDefaultCwd(),
+        model: (agentKey) => readPrefs().models[agentKey],
+        start: (input) => window.hub.sessions.start(input),
+        setDraft: setComposerDraft,
+        send: (sessionId, text, state) => submitPrompt(sessionId, state, false, text) !== 'refused'
+      }
+      void runIntent(deps, intent).then((outcome: IntentOutcome) => {
+        const tr = latest.current.t
+        if (outcome.kind === 'error') return toast(tr(outcome.message, outcome.params), 'danger')
+        if (outcome.kind === 'offer') return setPrOffer(outcome)
+        openSession(outcome.sessionId)
+        if (outcome.kind === 'sent') return toast(outcome.started ? tr('prFeedback.startedSent', { folder: outcome.started.folder }) : tr('prFeedback.sent'))
+        toast(outcome.kind === 'opened' ? tr('links.opened') : outcome.drafted ? tr('links.drafted') : tr('links.started', { folder: outcome.folder }))
+      })
+    },
     [openSession, toast]
   )
+  useEffect(() => window.hub.links.onIntent(carryOut), [carryOut])
 
   const layout = usePrefs()
   const selectProfile = async (id: string) => {
@@ -605,6 +611,14 @@ function Shell() {
       <ReadAloud options={appOptions(snap?.config ?? { options: undefined })} platform={platform} />
       <RenameSessionDialog session={renaming} onClose={() => setRenaming(null)} />
       <UpdatePromptDialog />
+      <PrPromptOfferDialog
+        offer={prOffer}
+        onClose={() => setPrOffer(null)}
+        onStart={(offer) => {
+          setPrOffer(null)
+          carryOut({ ...offer.intent, start: true })
+        }}
+      />
       <ResumeSheet folder={resumeFolder} profileId={activeProfileId} onClose={() => setResumeFolder(null)} onOpened={openSession} />
       {closing && <CloseSessionDialog session={closing} working={isWorking(closing)} onDone={() => setClosing(null)} onError={(message) => toast(message, 'danger')} />}
     </div>

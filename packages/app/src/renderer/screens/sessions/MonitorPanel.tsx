@@ -18,6 +18,7 @@ import { usageWindowName } from '../../lib/usage-window'
 import { localizeToolTitle } from '../../lib/toolTitle'
 import { useCachedPullRequestLists } from '../../pullRequestsStore'
 import type { SessionData } from '../../store'
+import { MonitorPrFeedback } from '../pullRequests/PrFeedbackActions'
 import { AiReviewSection } from './AiReviewPanel'
 import { CreatePullRequestSection } from './CreatePullRequest'
 import { Legend, MetricBox, MetricRow, MonitorSection, SegmentBar } from './MonitorSection'
@@ -94,7 +95,7 @@ function useLocalChanges(id: string, visible: boolean, workKey: string): { chang
   return state
 }
 
-function PullRequestCard({ item, profileId }: { item: PullRequestItem; profileId: string | null }) {
+function PullRequestCard({ item, profileId, session }: { item: PullRequestItem; profileId: string | null; session: SessionData['view'] }) {
   const { t } = useI18n()
   const pr = item.pr
   const stateTone = pr.state === 'merged' ? 'accent' : pr.state === 'closed' ? 'danger' : 'success'
@@ -115,6 +116,7 @@ function PullRequestCard({ item, profileId }: { item: PullRequestItem; profileId
         </button>
         <IconButton size="sm" className="size-6" label={t('monitor.openOnHost')} icon={<ExternalLink className="size-3" />} onClick={() => void window.hub.codeHost.openExternal(profileId, pr.url)} />
       </div>
+      <MonitorPrFeedback pr={pr} profileId={profileId} session={session} />
     </li>
   )
 }
@@ -275,7 +277,7 @@ export function MonitorPanel({ data, visible }: { data: SessionData; visible: bo
           <MonitorSection id="pullRequests" title={tn('monitor.prsCount', prs.length)}>
             <ul className={cn('-mr-1.5 flex flex-col gap-3 divide-border pr-1.5 [&>li+li]:border-t [&>li+li]:pt-3', SECTION_SCROLL)} data-monitor-scroll="pullRequests">
               {prs.map((item) => (
-                <PullRequestCard key={item.pr.url} item={item} profileId={profileId} />
+                <PullRequestCard key={item.pr.url} item={item} profileId={profileId} session={v} />
               ))}
             </ul>
           </MonitorSection>

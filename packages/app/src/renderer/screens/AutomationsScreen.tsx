@@ -10,6 +10,7 @@ import { useI18n } from '../i18n/I18nProvider'
 import { useAsyncAction } from '../lib/useAsyncAction'
 import { readPrefs, setPrefs } from '../lib/prefs'
 import { relativeTime } from '../lib/pullRequests'
+import { PR_KIND_LABEL } from '../lib/prEvents'
 import { formatTokens } from '../lib/home'
 import { runUsageLabel } from '../lib/runUsage'
 import { shortDuration } from '../lib/subagentView'
@@ -156,6 +157,7 @@ function AutomationCard({ status: s, profileName, now, lastRun, channelName, onE
   const runNow = useAsyncAction(() => window.hub.automations.runNow(a.id))
   const triggers = [
     ...(a.triggers.chatChannelIds.length ? [t('automations.trigger.chat', { channels: a.triggers.chatChannelIds.map((id) => `#${channelName(id)}`).join(', ') })] : []),
+    ...(a.triggers.prEvents?.length ? [t('automations.trigger.prEvents', { events: a.triggers.prEvents.map((k) => t(PR_KIND_LABEL[k])).join(', ') })] : []),
     ...(a.triggers.intervalMinutes ? [t('automations.trigger.interval', { minutes: a.triggers.intervalMinutes })] : [])
   ]
   return (
@@ -230,9 +232,9 @@ function RunRow({ run: r, now, locale, removed, onOpen }: { run: AutomationRun; 
       <Badge tone={OUTCOME_TONE[r.outcome]}>{t(`automations.outcome.${r.outcome}`)}</Badge>
       <span className="font-medium">{r.automationName}</span>
       {removed && <span className="text-xs text-subtle">{t('automations.removed')}</span>}
-      {r.trigger === 'chat' && r.triggerLink && /^https?:\/\//.test(r.triggerLink) ? (
+      {(r.trigger === 'chat' || r.trigger === 'prEvent') && r.triggerLink && /^https?:\/\//.test(r.triggerLink) ? (
         <button type="button" className="text-accent hover:underline" onClick={() => window.hub.openExternal(r.triggerLink!)}>
-          {t('automations.slackMessage')}
+          {t(r.trigger === 'chat' ? 'automations.slackMessage' : 'automations.pullRequest')}
         </button>
       ) : (
         <span className="text-subtle">{t(`automations.triggerKind.${r.trigger}`)}</span>
@@ -257,4 +259,4 @@ function RunRow({ run: r, now, locale, removed, onOpen }: { run: AutomationRun; 
   )
 }
 
-const DETAIL_KEYS = new Set(['window.days', 'window.hours', 'limit.window', 'limit.day', 'mergedIntoPending', 'sessionClosed', 'neverIdle', 'clearFailed', 'stoppedByUser', 'moduleOff', 'paused', 'usage'])
+const DETAIL_KEYS = new Set(['window.days', 'window.hours', 'limit.window', 'limit.day', 'mergedIntoPending', 'sessionClosed', 'neverIdle', 'clearFailed', 'stoppedByUser', 'moduleOff', 'paused', 'usage', 'backlogFull'])

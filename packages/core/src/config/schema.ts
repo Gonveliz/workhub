@@ -558,7 +558,8 @@ export const automationSchema = z.object({
       chatChannelIds: z.array(z.string()).default([]),
       prOwner: z.string().default(''),
       intervalMinutes: atLeast(1).nullable().default(null),
-      pendingGate: z.object({ kind: z.literal('prReviewQueue'), stateFile: z.string() }).optional()
+      pendingGate: z.object({ kind: z.literal('prReviewQueue'), stateFile: z.string() }).optional(),
+      prEvents: z.array(z.enum(PR_EVENT_KINDS)).optional()
     })
     .default({ chatChannelIds: [], prOwner: '', intervalMinutes: null }),
   window: z.object({ days: weekdays, startHour: hour, endHour: hour }).default({ days: [1, 2, 3, 4, 5], startHour: 9, endHour: 19 }),

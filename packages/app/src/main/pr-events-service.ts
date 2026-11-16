@@ -26,6 +26,8 @@ export interface PrEventServiceDeps {
   config: () => Promise<WorkhubConfig>
   /** Delivers a batch to the renderer; called only once the renderer is listening. */
   emit: (batch: PrEventBatch) => void
+  /** Hands every batch to the automations as soon as it is found, whether or not the renderer listens. */
+  onEvents?: (batch: PrEventBatch) => void
   /**
    * Appends to the pull request timeline (once each; a failure is ignored): the events a sync
    * detected, `opened` the first time a PR of mine is seen open, and `reviewed` when a PR leaves
@@ -149,7 +151,14 @@ export class PrEventService {
         // The timeline is a record: the notification goes out anyway.
       }
     }
-    if (result.events.length) this.deliver({ profileId, events: result.events })
+    if (!result.events.length) return
+    const batch = { profileId, events: result.events }
+    try {
+      this.deps.onEvents?.(batch)
+    } catch {
+      // An automation that cannot start never keeps the notification from going out.
+    }
+    this.deliver(batch)
   }
 
   /** Demo mode: advance the demo and sync now. */

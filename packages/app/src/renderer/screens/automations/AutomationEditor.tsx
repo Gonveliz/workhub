@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AUTOMATION_EFFORTS, CLAUDE_PERMISSION_MODES, fillFromPreset, supportsClearContext, type AutomationDefinition, type AutomationNotify, type EffectiveAgent, type WatchedChannel } from '@workhub/core'
+import { AUTOMATION_EFFORTS, CLAUDE_PERMISSION_MODES, fillFromPreset, PR_EVENT_KINDS, supportsClearContext, type AutomationDefinition, type AutomationNotify, type EffectiveAgent, type WatchedChannel } from '@workhub/core'
 import { Button, Input, Kbd, Select, Switch, Textarea } from '../../components/atoms'
 import { Dialog, Field, SwitchRow } from '../../components/molecules'
 import { UnsavedPrompt, SAVE_SHORTCUT } from '../../components/organisms/UnsavedChanges'
@@ -7,6 +7,7 @@ import { useI18n } from '../../i18n/I18nProvider'
 import { matchesShortcut } from '../../lib/shortcuts'
 import { isDirty } from '../../lib/unsavedChanges'
 import { useAgentOptions, withCurrent } from '../../lib/agentOptions'
+import { PR_KIND_HINT, PR_KIND_LABEL } from '../../lib/prEvents'
 
 const DAYS = [1, 2, 3, 4, 5, 6, 0]
 
@@ -195,6 +196,19 @@ export function AutomationEditor({ automation, agents, channels, presets = [], o
           <Field label={t('automations.field.prOwner')} hint={t('automations.field.prOwnerHint')}>
             <Input value={triggers.prOwner} onChange={(e) => set({ triggers: { ...triggers, prOwner: e.target.value.trim() } })} />
           </Field>
+        </fieldset>
+
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-1 text-sm font-medium text-muted">{t('automations.field.prEvents')}</legend>
+          <p className="text-sm text-subtle">{t('automations.field.prEventsHint')}</p>
+          {PR_EVENT_KINDS.map((kind) => {
+            const chosen = triggers.prEvents ?? []
+            return (
+              <SwitchRow key={kind} label={t(PR_KIND_LABEL[kind])} hint={t(PR_KIND_HINT[kind])}>
+                <Switch checked={chosen.includes(kind)} onChange={(on) => set({ triggers: { ...triggers, prEvents: on ? [...chosen, kind] : chosen.filter((k) => k !== kind) } })} />
+              </SwitchRow>
+            )
+          })}
         </fieldset>
 
         <div className="grid gap-3 sm:grid-cols-3">

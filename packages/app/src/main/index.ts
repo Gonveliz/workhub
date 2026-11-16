@@ -361,6 +361,7 @@ const prEvents = new PrEventService({
   store: new SqlitePrEventStore(db),
   config: () => configuration.current(),
   emit: (batch) => send('prEvents:events', batch),
+  onEvents: (batch) => automations.onPrEvents(batch),
   record: (profileId, events) => void timelines.appendPrEvents(profileId, events),
   demo: process.env['WORKHUB_DEMO_CODEHOST'] === '1' ? { advance: () => ++demoPrStep } : undefined
 })

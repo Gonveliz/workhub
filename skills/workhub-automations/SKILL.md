@@ -71,7 +71,10 @@ Automation fields (everything but `id` and `profileId`, which Workhub sets):
 
 `agentKey` is `agentId` or `agentId:accountId` of an agent the profile offers (the first one when
 left out; copy one from an existing automation). `days` are 0 = Sunday to 6; `sessionPolicy` is
-`reuse` or `newEachRun`; `notify` is `failures`, `always` or `never`.
+`reuse` or `newEachRun`; `notify` is `failures`, `always` or `never`. `triggers.prEvents` runs it on
+pull request events of the profile's code host: any of `reviewRequested`, `approved`,
+`changesRequested`, `newComments`, `ciFailed`, `ciPassed`, `conflicts`, `newCommits`, `merged`,
+`closed`; such a run fills `{prUrl}`, `{prTitle}` (fenced as data) and `{prEvent}` in the prompt.
 
 ## Rules
 

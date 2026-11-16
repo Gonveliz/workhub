@@ -16,6 +16,7 @@ import {
   type BudgetStatus,
   type ConfigurationService,
   type DrivenSession,
+  type PrEvent,
   type Result,
   type WorkhubConfig,
   type StateStore
@@ -240,6 +241,11 @@ export class AutomationService {
     const a = this.defs.find((d) => d.id === id)
     if (!a) return { ok: false, issues: [{ path: 'automations', message: `unknown automation ${id}` }] }
     return this.save({ ...a, enabled })
+  }
+
+  /** New pull request events of a profile (the code host sync): the automations listening to them get a run. */
+  onPrEvents(batch: { profileId: string; events: readonly PrEvent[] }): void {
+    if (this.engine.onPrEvents(batch.profileId, batch.events)) void this.tick()
   }
 
   async runNow(id: string): Promise<void> {

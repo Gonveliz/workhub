@@ -29,7 +29,10 @@ reported by the agent**; a missing or unreadable transcript never breaks the ses
 | Slack | Threads that wake this session and messages about its tickets and pull requests. See [Slack](slack.md). |
 
 Pull requests and tickets from the monitor open in Workhub (**View in app**) or on the code host
-(**Open on the code host**).
+(**Open on the code host**). An open pull request whose CI failed shows **Fix CI**, and one whose
+reviewer asked for changes **Address review comments**: a click sends this session the failing
+checks or the review comments, quoted as data, with a request to fix them. See
+[Pull requests](pull-requests.md#the-pull-request-window).
 
 If a section says a tracker or the Slack watcher is not set up, its message links to the right
 Settings tab.

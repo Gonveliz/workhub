@@ -49,6 +49,7 @@ import { MergePullRequestDialog } from './MergePullRequestDialog'
 import { DiffView, ThreadBox } from './DiffView'
 import { PrActionsToolbar, type PrToolbarAction } from './PrActionsToolbar'
 import { PrStateBadges } from './PrBadges'
+import { prFeedbackToolbarActions } from './PrFeedbackActions'
 import { PrSlackTab } from './PrSlackTab'
 import { ReviewDialog } from './ReviewDialog'
 import { TicketChip } from './TicketChip'
@@ -382,6 +383,7 @@ export function PullRequestDetail({ profileId, url, seed, onOpenWindow, standalo
   const scroll = 'h-full overflow-y-auto px-5 py-4'
   // Asking for an AI review or a session folds into "More" first, then commenting, then requesting changes; closing always lives there.
   const toolbarActions: PrToolbarAction[] = [
+    ...(open ? prFeedbackToolbarActions(detail, target, profileId, t, locale) : []),
     { key: 'session', side: 'start', fold: 2, variant: 'secondary', icon: <SquareTerminal className="size-3.5" aria-hidden />, label: t('links.pr.openSession'), title: t('links.pr.openSessionHint'), onSelect: () => window.hub.links.request({ kind: 'pullRequestSession', profileId, pr: target }) },
     { key: 'aiReview', side: 'start', fold: 1, variant: 'secondary', icon: <Sparkles className="size-3.5" aria-hidden />, label: t('links.pr.review'), title: t('links.pr.reviewHint'), onSelect: () => window.hub.links.request({ kind: 'reviewPullRequest', profileId, pr: target }) },
     ...(capabilities && open

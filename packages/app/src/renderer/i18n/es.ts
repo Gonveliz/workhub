@@ -2,6 +2,7 @@ import { webEs } from './web.es'
 import { remoteEs } from './remote.es'
 import type { en } from './en'
 import { linksEs } from './links.es'
+import { prFeedbackEs } from './prFeedback.es'
 import { aiReviewEs } from './aiReview.es'
 import { sessionsUxEs } from './sessionsUx.es'
 import { sessionMonitorEs } from './sessionMonitor.es'
@@ -476,6 +477,7 @@ export const es: Record<keyof typeof en, string> = {
   ...healthPromptsEs,
   ...prEventsEs,
   ...linksEs,
+  ...prFeedbackEs,
   ...slackEs,
   ...automationsEs,
   ...usageEs,

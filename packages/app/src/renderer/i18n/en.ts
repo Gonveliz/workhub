@@ -1,6 +1,7 @@
 import { webEn } from './web.en'
 import { remoteEn } from './remote.en'
 import { linksEn } from './links.en'
+import { prFeedbackEn } from './prFeedback.en'
 import { aiReviewEn } from './aiReview.en'
 import { sessionsUxEn } from './sessionsUx.en'
 import { sessionMonitorEn } from './sessionMonitor.en'
@@ -477,6 +478,7 @@ export const en = {
   ...healthPromptsEn,
   ...prEventsEn,
   ...linksEn,
+  ...prFeedbackEn,
   ...slackEn,
   ...automationsEn,
   ...usageEn,

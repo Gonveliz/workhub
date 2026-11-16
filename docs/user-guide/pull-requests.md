@@ -64,6 +64,15 @@ Actions on the toolbar:
   folder.
 - **Ask Claude to review** starts a Claude session with a review prompt in the composer; nothing is
   sent until you press **Send**.
+- **Fix CI** (when CI failed) and **Address review comments** (when there are unresolved review
+  threads or a reviewer asked for changes) send a prompt to the session linked to the pull request:
+  the failing checks with their links, or the review comments with their file and line, quoted as
+  data written on the code host, and a request to fix or address them on the pull request's branch
+  without pushing until you agree. With no linked session, Workhub asks before it starts one in the
+  profile folder that holds the pull request's repository (preferably one already on its branch)
+  and sends the prompt there. Nothing is sent without your click. The same buttons show on the
+  pull request rows of a session's monitor, where they send to that session (there, **Address
+  review comments** shows when a reviewer asked for changes).
 - **Close PR…** closes it without merging, with an optional closing comment and an optional **Delete
   the branch**. Long-lived branches are never deleted: the list is **Protected branches** in
   **Settings → Connections → Code**, and `release…` branches are always kept. A closed pull
