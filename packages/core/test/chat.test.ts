@@ -121,6 +121,21 @@ describe('applying a read', () => {
     expect(again.replies).toBe(0)
     expect(again.state.threads[0]?.pendingWake).toHaveLength(1)
   })
+
+  it('delivers a reply that arrived before the session\'s own post and is read after it', () => {
+    const t = thread({ owner: 's-old', wake: true, seeded: true, lastSeenReplyTs: '1761566400.000100', sentTs: ['1761566400.000100'] })
+    const state: ChatWatcherState = { ...EMPTY_CHAT_STATE, seeded: true, threads: [t] }
+    // The reviewer replied at .000200 (not read yet); the session posts at .000400.
+    const posted = ingestRecord(state, { sessionId: 's-old', channelId: 'C01', ts: '1761566400.000400', threadTs: t.ts, text: 'on it' }, { now: NOW, newId })
+    expect(posted.state.threads[0]?.lastSeenReplyTs).toBe('1761566400.000100')
+    const digest = { channels: [], threads: [{ channelId: 'C01', ts: t.ts, replies: [{ ts: '1761566400.000200', user: 'ana', text: 'please fix' }, { ts: '1761566400.000400', user: 'me-bot', text: 'on it' }] }], me: '' }
+    const r = applyDigest(posted.state, digest, { channelIds: [] })
+    expect(r.replies).toBe(1)
+    expect(r.state.threads[0]?.pendingWake.map((x) => x.text)).toEqual(['please fix'])
+    expect(r.state.threads[0]?.lastSeenReplyTs).toBe('1761566400.000200')
+    // Read again: delivered exactly once.
+    expect(applyDigest(r.state, digest, { channelIds: [] }).replies).toBe(0)
+  })
 })
 
 describe('threads sessions start (the hook)', () => {

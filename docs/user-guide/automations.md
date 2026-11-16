@@ -25,7 +25,7 @@ ready-made one that runs on each pull request posted in your review channels.
 | **Runs in** | **The chat** or **The console**. |
 | **Session** | **Reuse its session** (one dedicated session, resumed when it was closed) or **New session each run** (the new one takes the old one's sidebar place and the Slack threads it listens to). |
 | **Run on pull request messages in** | Slack channels that trigger it, and **Only pull requests of (owner)**: a GitHub organization or user (empty accepts any). Channels must also be watched in **Settings → Profiles → (profile) → Screens → Slack**. |
-| **Also every (minutes)** | An optional schedule. Empty means no schedule. |
+| **Also every (minutes)** | An optional schedule. Empty means no schedule. The time of the last scheduled run survives restarts, and a new automation waits one full interval before its first run. A schedule that comes due outside the time window, or while a run is already waiting, stays due and runs once at the first moment it is allowed. |
 | **At most (runs)** in **In (minutes)**, **Per day** | Rate limits. |
 | **Wait above 5 h usage (%)** | Pauses while the account's usage is that high. |
 | **Run timeout (minutes)** | Gives up on a run that takes too long. |

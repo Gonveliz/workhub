@@ -292,7 +292,7 @@ export class AutomationService {
       if (s.pausedUntil && s.pausedUntil > now) status.pausedUntil = s.pausedUntil
       if (s.lastError) status.lastError = s.lastError
       if (s.lastCheck) status.lastCheck = s.lastCheck
-      if (a.triggers.intervalMinutes && s.lastIntervalAt) status.nextIntervalAt = s.lastIntervalAt + a.triggers.intervalMinutes * 60_000
+      if (a.triggers.intervalMinutes && state.intervals[a.id]) status.nextIntervalAt = state.intervals[a.id]! + a.triggers.intervalMinutes * 60_000
       if (state.sessions[a.id]) status.session = state.sessions[a.id]
       return status
     })

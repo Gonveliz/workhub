@@ -182,11 +182,13 @@ export interface AutomationsState {
   runs: AutomationRun[]
   /** Per automation: start times (epoch ms) of the last two days, for the limits. */
   starts: Record<string, number[]>
+  /** Per automation: when its interval last fired (or was first seen), so a restart keeps the count. */
+  intervals: Record<string, number>
   /** Chat events that already fired a run. */
   ledger: EventLedger
 }
 
-export const EMPTY_AUTOMATIONS_STATE: AutomationsState = { sessions: {}, owned: {}, retiring: [], runs: [], starts: {}, ledger: {} }
+export const EMPTY_AUTOMATIONS_STATE: AutomationsState = { sessions: {}, owned: {}, retiring: [], runs: [], starts: {}, intervals: {}, ledger: {} }
 
 export const RUN_LOG_LIMIT = 50
 

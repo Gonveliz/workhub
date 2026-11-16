@@ -118,7 +118,6 @@ export interface RunState {
   /** Why the pending run has not started yet (`window.days`, `limit.window`, `usage`…). */
   waitReason?: string
   waitUntil?: number
-  lastIntervalAt?: number
   lastCheck?: { at: number; verdict: GateVerdict; fired: boolean }
   /** The gate lets a missing state file through once, so the first run can create it. */
   missingFileFired: boolean
@@ -244,7 +243,8 @@ export class AutomationEngine {
   /** Resuming an automation clears a rate-limit pause and the failure backoff. */
   resumed(id: string): void {
     const s = this.runState(id)
-    this.runtime.set(id, { ...s, pausedUntil: undefined, pauseReason: undefined, failureStreak: 0, notified: false, lastIntervalAt: this.host.now() })
+    this.runtime.set(id, { ...s, pausedUntil: undefined, pauseReason: undefined, failureStreak: 0, notified: false })
+    this.save({ ...this.state, intervals: { ...this.state.intervals, [id]: this.host.now() } })
   }
 
   /** Forgets a removed automation's schedule (its log rows and sessions stay). */
@@ -253,7 +253,9 @@ export class AutomationEngine {
     this.owner.delete(id)
     const starts = { ...this.state.starts }
     delete starts[id]
-    this.save({ ...this.state, starts })
+    const intervals = { ...this.state.intervals }
+    delete intervals[id]
+    this.save({ ...this.state, starts, intervals })
   }
 
   /** A session got its real identity late (an ACP agent reports its id after starting): the records follow it. */
@@ -323,16 +325,18 @@ export class AutomationEngine {
     const minutes = a.triggers.intervalMinutes
     if (!minutes || minutes <= 0) return
     const now = this.host.now()
-    let s = this.runState(a.id)
-    if (s.lastIntervalAt === undefined) {
-      this.runtime.set(a.id, { ...s, lastIntervalAt: now })
+    const last = this.state.intervals[a.id]
+    if (last === undefined) {
+      // A new automation waits one full interval before its first run.
+      this.save({ ...this.state, intervals: { ...this.state.intervals, [a.id]: now } })
       return
     }
-    if (now - s.lastIntervalAt < minutes * 60_000) return
-    s = { ...s, lastIntervalAt: now }
-    this.runtime.set(a.id, s)
-    // Outside the window the interval simply does not fire; a run already queued or working covers it.
+    if (now - last < minutes * 60_000) return
+    // Outside the window, or with a run already queued, the interval stays due and fires once at the
+    // first moment it is allowed, instead of losing its turn.
+    const s = this.runState(a.id)
     if (windowReason(a.window, now) || s.pending || s.active) return
+    this.save({ ...this.state, intervals: { ...this.state.intervals, [a.id]: now } })
     const gate = a.triggers.pendingGate
     if (gate) {
       const verdict = evaluatePendingGate(await this.host.readGate(gate.stateFile).catch(() => undefined), now)
