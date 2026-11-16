@@ -6,6 +6,8 @@ export const PROMPT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'imag
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 /** The largest file that stays under `MAX_IMAGE_BYTES` once encoded (base64 adds a third). */
 export const MAX_IMAGE_FILE_BYTES = Math.floor((MAX_IMAGE_BYTES / 4) * 3)
+/** `MAX_IMAGE_FILE_BYTES` in MB, for the rejection message. */
+export const MAX_IMAGE_FILE_MB = MAX_IMAGE_FILE_BYTES / (1024 * 1024)
 
 /** A `data:` URL of an accepted image as a prompt image; null for anything else. */
 export function imageInputFromDataUrl(url: string): ImageInput | null {

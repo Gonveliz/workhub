@@ -68,8 +68,8 @@ stays in the current view.
   turn ends (**Queued: sent when the agent finishes**). With Claude Code the message joins the turn
   in progress instead. If you interrupt, queued messages come back into the composer, unsent. Each
   queued message has a **Remove queued message** button.
-- **Pasted images**: paste or drag images into the composer (agents that accept images only: up to
-  6 per message, PNG, JPEG, GIF or WebP, 5 MB each). They show as thumbnails you can remove, and
+- **Pasted images**: paste or drag images into the composer (agents that accept images only: PNG,
+  JPEG, GIF or WebP, up to 3.75 MB each). They show as thumbnails you can remove, and
   appear in the conversation, where **Click to view** opens them in the file viewer.
 - **Timestamps**: every message shows the day and hour it was sent; hover for the full date with
   seconds.

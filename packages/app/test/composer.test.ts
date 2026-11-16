@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { isEditable, shouldFocusComposer } from '../src/renderer/lib/composer-focus'
-import { MAX_IMAGE_FILE_BYTES, checkImageFile, insertImageMarkers, pickImageFiles, removeImageMarker } from '../src/renderer/lib/images'
+import { en } from '../src/renderer/i18n/en'
+import { es } from '../src/renderer/i18n/es'
+import { interpolate } from '../src/renderer/i18n/translate'
+import { MAX_IMAGE_FILE_BYTES, MAX_IMAGE_FILE_MB, checkImageFile, insertImageMarkers, pickImageFiles, removeImageMarker } from '../src/renderer/lib/images'
 import { PromptQueues, acceptsInput, restoreComposer, submitMode } from '../src/renderer/lib/prompt-queue'
 import { withTurnEnd, type SessionData } from '../src/renderer/store'
 
@@ -220,6 +223,11 @@ describe('pasted images', () => {
     expect(checkImageFile({ type: 'image/jpeg', size: MAX_IMAGE_FILE_BYTES + 1 })).toBe('size')
     // Base64 of the largest accepted file still fits Claude's 5 MB per image.
     expect(Math.ceil(MAX_IMAGE_FILE_BYTES / 3) * 4).toBeLessThanOrEqual(5 * 1024 * 1024)
+  })
+  it('names the real size limit in the rejection message, in both languages', () => {
+    expect(MAX_IMAGE_FILE_MB).toBe(3.75)
+    expect(interpolate(en['chat.imageRejected'], { size: MAX_IMAGE_FILE_MB })).toContain('3.75 MB')
+    expect(interpolate(es['chat.imageRejected'], { size: MAX_IMAGE_FILE_MB })).toContain('3.75 MB')
   })
   it('sets no count per message: only the type and size leave an image out', () => {
     const png = { type: 'image/png', size: 1 }

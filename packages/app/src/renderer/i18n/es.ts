@@ -404,7 +404,7 @@ export const es: Record<keyof typeof en, string> = {
   'chat.permissionWithdrawn': 'El agente retiró la solicitud',
   'chat.resumedHere.one': '{count} mensaje anterior · se retoma aquí',
   'chat.resumedHere.other': '{count} mensajes anteriores · se retoma aquí',
-  'chat.imageRejected': 'Se omitieron imágenes pegadas: solo PNG, JPEG, GIF o WebP de hasta 5 MB.',
+  'chat.imageRejected': 'Se omitieron imágenes pegadas: solo PNG, JPEG, GIF o WebP de hasta {size} MB cada una.',
   'chat.attached': 'Imágenes adjuntas',
   'chat.placeholderQueue': 'El agente está trabajando… un mensaje enviado ahora espera a que termine su turno',
   'chat.placeholderInject': 'El agente está trabajando… un mensaje enviado ahora se suma a su turno',

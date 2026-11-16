@@ -10,7 +10,7 @@ import type { MessageKey } from '../../i18n/translate'
 import { cn } from '../../lib/cn'
 import { usePendingFocus } from '../../lib/pendingFocus'
 import { clearStoredDraft, flushStoredDrafts, loadStoredDraft, onComposerDraft, saveStoredDraft, takeComposerDraft } from '../../lib/drafts'
-import { hasImageFiles, imageFilesOf, insertImageMarkers, pickImageFiles, PROMPT_IMAGE_TYPES, readImageFiles, removeImageMarker } from '../../lib/images'
+import { hasImageFiles, imageFilesOf, insertImageMarkers, MAX_IMAGE_FILE_MB, pickImageFiles, PROMPT_IMAGE_TYPES, readImageFiles, removeImageMarker } from '../../lib/images'
 import { acceptsInput, restoreComposer } from '../../lib/prompt-queue'
 import { isEditable, shouldFocusComposer } from '../../lib/composer-focus'
 import { interruptSession, onRecoveredPrompts, removeQueuedPrompt, submitPrompt, useQueuedPrompts } from '../../promptQueue'
@@ -641,7 +641,7 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
       return
     }
     const { accepted, rejected } = pickImageFiles(files)
-    if (rejected.length) pushItem(v.id, 'error', t('chat.imageRejected'))
+    if (rejected.length) pushItem(v.id, 'error', t('chat.imageRejected', { size: MAX_IMAGE_FILE_MB }))
     if (!accepted.length) return
     const from = images.length
     const el = composer.current
@@ -660,7 +660,7 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
           el?.setSelectionRange(after, after)
         })
       },
-      () => pushItem(v.id, 'error', t('chat.imageRejected'))
+      () => pushItem(v.id, 'error', t('chat.imageRejected', { size: MAX_IMAGE_FILE_MB }))
     )
   }
   const attach = (data: DataTransfer): boolean => {

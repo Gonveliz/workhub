@@ -405,7 +405,7 @@ export const en = {
   'chat.permissionWithdrawn': 'The agent withdrew the request',
   'chat.resumedHere.one': '{count} earlier message · resumed here',
   'chat.resumedHere.other': '{count} earlier messages · resumed here',
-  'chat.imageRejected': 'Some pasted images were left out: only PNG, JPEG, GIF or WebP up to 5 MB.',
+  'chat.imageRejected': 'Some pasted images were left out: only PNG, JPEG, GIF or WebP up to {size} MB each.',
   'chat.attached': 'Attached images',
   'chat.placeholderQueue': 'The agent is working… a message sent now waits for its turn to end',
   'chat.placeholderInject': 'The agent is working… a message sent now joins its turn',
