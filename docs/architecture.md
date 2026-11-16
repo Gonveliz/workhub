@@ -41,7 +41,7 @@ adapter, not by reaching into a service from the UI.
 | `AgentRuntime` | `agent-claude-native`, `agent-acp`, `agent-terminal` |
 | Transcript readers (fill the common monitor model) | `transcript-claude`, `-kiro`, `-opencode`, `-codex` |
 | Code host | `codehost-github` (`gh`), `codehost-gitlab` (`glab`) |
-| Ticket tracker (capabilities: sprints, transitions, comments, assign, and the optional `search` and `create` that Plan uses) | `tracker-jira`, `tracker-linear`, `tracker-demo` |
+| Ticket tracker (capabilities: sprints, transitions, comments, assign, and the optional `search` and `create` that Plan uses) | `tracker-jira`, `tracker-linear`, `tracker-github` (GitHub Issues through `gh`), `tracker-demo` |
 | Chat source | `chat-slack` (through a Claude account's Slack connector) |
 | Health provider | `health-elastic` |
 | Calendar source (`CalendarSource`; ICS parsing, recurrence and rules are pure code in `core/calendar`) | `calendar-ics` (private ICS address over https, 20 s timeout, 5 MB cap; also the demo source) |

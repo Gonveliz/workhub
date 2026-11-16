@@ -25,10 +25,10 @@ describe('buildTracker', () => {
     expect(buildTracker(jira, null)).toEqual({ missing: 'incomplete', detail: 'token' })
     expect('tracker' in buildTracker(jira, 't')).toBe(true)
   })
-  it('needs only a key for Linear and has no adapter for GitHub Issues', () => {
+  it('needs only a key for Linear, and no token at all for GitHub Issues', () => {
     expect(buildTracker(linear, null)).toEqual({ missing: 'incomplete', detail: 'token' })
     expect('tracker' in buildTracker(linear, 'k')).toBe(true)
-    expect(buildTracker({ ...linear, provider: 'github-issues' }, 'k')).toEqual({ missing: 'unsupported' })
+    expect('tracker' in buildTracker({ ...linear, provider: 'github-issues', secretRef: undefined }, null, undefined, { run: async () => ({ code: 0, stdout: '', stderr: '' }) })).toBe(true)
   })
 })
 

@@ -16,6 +16,7 @@ export const settingsConnectionsEs: Record<keyof typeof settingsConnectionsEn, s
   'settingsConnections.add.gitlab': 'Conectar GitLab',
   'settingsConnections.add.jira': 'Conectar Jira',
   'settingsConnections.add.linear': 'Conectar Linear',
+  'settingsConnections.add.githubIssues': 'Conectar GitHub Issues',
   'settingsConnections.add.calendar': 'Agregar calendario (ICS)',
   'settingsConnections.add.health': 'Conectar',
   'settingsConnections.none': 'Ninguna todavía.',

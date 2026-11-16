@@ -81,6 +81,8 @@ export const ticketsEn = {
   'trackers.tokenHintLinear': 'Create one in Linear → Settings → Security & access.',
   'trackers.projectKeys': 'Project keys',
   'trackers.projectKeysHint': 'Comma separated, like ABC, WEB. They make ticket links in titles and branches exact.',
+  'trackers.repositories': 'Repositories',
+  'trackers.repositoriesHint': 'Comma separated, like acme/app, acme/api. Empty: the GitHub repositories of the profile folders. Uses your gh sign-in; no token is stored.',
   'trackers.ignoredStatuses': 'Statuses to hide',
   'trackers.ignoredStatusesHint': 'Comma separated. Tickets in these statuses stay out of the lists.',
   'trackers.useInProfile': 'Use in the active profile',

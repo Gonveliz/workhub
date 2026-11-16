@@ -83,6 +83,8 @@ export const ticketsEs: Record<keyof typeof ticketsEn, string> = {
   'trackers.tokenHintLinear': 'Créala en Linear → Settings → Security & access.',
   'trackers.projectKeys': 'Claves de proyecto',
   'trackers.projectKeysHint': 'Separadas por comas, como ABC, WEB. Hacen exactos los vínculos con tickets en títulos y ramas.',
+  'trackers.repositories': 'Repositorios',
+  'trackers.repositoriesHint': 'Separados por comas, como acme/app, acme/api. Vacío: los repositorios de GitHub de las carpetas del perfil. Usa tu sesión de gh; no se guarda ningún token.',
   'trackers.ignoredStatuses': 'Estados a ocultar',
   'trackers.ignoredStatusesHint': 'Separados por comas. Los tickets en esos estados no aparecen en las listas.',
   'trackers.useInProfile': 'Usar en el perfil activo',

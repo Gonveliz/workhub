@@ -168,7 +168,7 @@ secret store.
 | Group | Add | Fields |
 |---|---|---|
 | **Code** | **Connect GitHub**, **Connect GitLab** | Name and host (empty: the public service). Workhub reads through the `gh` / `glab` login; no token is asked for. **Branches never deleted** (the branches **Close PR** never deletes) is shown once for the whole app. |
-| **Tickets** | **Connect Jira**, **Connect Linear** | Name, Jira site and account email, API token or key, project keys and statuses to hide; **Test**. |
+| **Tickets** | **Connect Jira**, **Connect Linear**, **Connect GitHub Issues** | Name, Jira site and account email, API token or key, project keys and statuses to hide; **Test**. GitHub Issues asks for no token (it reads through your `gh` login), only the **Repositories** to read. |
 | **Calendars** | **Add calendar (ICS)** | Name, your address in the calendar and its private address; **Test**. How often a profile reads its calendars is set in its Plan. |
 | **Slack** | | **Watch Slack channels**: the watcher (account and model, interval, hours, channels) and the **Tracking hook** that follows threads from sessions, for the whole app. See [Slack](slack.md). |
 | **Health (Elasticsearch)** | **Connect** | URL, authentication (API key or user and password), TLS (system, pinned fingerprint or insecure); **Test**. **Read at most every** (how often any profile may read Elasticsearch) is shown once. |

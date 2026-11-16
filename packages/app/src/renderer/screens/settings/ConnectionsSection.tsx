@@ -47,7 +47,8 @@ const GROUP_TEXT: Record<ConnectionGroupId, { title: MessageKey; help: MessageKe
     rowId: CONNECTIONS_ROW_IDS.tickets,
     add: [
       { provider: 'jira', label: 'settingsConnections.add.jira' },
-      { provider: 'linear', label: 'settingsConnections.add.linear' }
+      { provider: 'linear', label: 'settingsConnections.add.linear' },
+      { provider: 'github-issues', label: 'settingsConnections.add.githubIssues' }
     ]
   },
   calendars: { title: 'settingsConnections.group.calendars', help: 'settingsConnections.group.calendarsHelp', rowId: CONNECTIONS_ROW_IDS.calendars, add: [{ provider: 'ics', label: 'settingsConnections.add.calendar' }] },
@@ -342,13 +343,15 @@ export function ConnectionEditor({
         )
       case 'tracker': {
         const jira = draft.provider === 'jira'
+        const githubIssues = draft.provider === 'github-issues'
         return (
           <>
             {providerSelect([
               { value: 'jira', label: 'Jira' },
-              { value: 'linear', label: 'Linear' }
+              { value: 'linear', label: 'Linear' },
+              { value: 'github-issues', label: 'GitHub Issues' }
             ])}
-            {nameField(jira ? 'Team Jira' : 'Team Linear')}
+            {nameField(jira ? 'Team Jira' : githubIssues ? 'Acme issues' : 'Team Linear')}
             {jira && (
               <>
                 <Field label={t('trackers.site')} hint={t('trackers.siteHint')}>
@@ -359,13 +362,21 @@ export function ConnectionEditor({
                 </Field>
               </>
             )}
-            {secretInput(jira ? t('trackers.token') : t('trackers.apiKey'), jira ? t('trackers.tokenHintJira') : t('trackers.tokenHintLinear'), stored ? t('trackers.tokenStored') : t('trackers.tokenNotSet'))}
-            <Field label={t('trackers.projectKeys')} hint={t('trackers.projectKeysHint')}>
-              <Input aria-label={t('trackers.projectKeys')} value={draft.settings[TRACKER_SETTINGS.projectKeys] ?? ''} onChange={(e) => setSetting(TRACKER_SETTINGS.projectKeys, e.target.value)} placeholder="ABC, WEB" spellCheck={false} />
-            </Field>
-            <Field label={t('trackers.ignoredStatuses')} hint={t('trackers.ignoredStatusesHint')}>
-              <Input aria-label={t('trackers.ignoredStatuses')} value={draft.settings[TRACKER_SETTINGS.ignored] ?? ''} onChange={(e) => setSetting(TRACKER_SETTINGS.ignored, e.target.value)} placeholder="Blocked, On hold" />
-            </Field>
+            {githubIssues ? (
+              <Field label={t('trackers.repositories')} hint={t('trackers.repositoriesHint')} className="col-span-2">
+                <Input aria-label={t('trackers.repositories')} value={draft.settings[TRACKER_SETTINGS.repositories] ?? ''} onChange={(e) => setSetting(TRACKER_SETTINGS.repositories, e.target.value)} placeholder="acme/app, acme/api" spellCheck={false} />
+              </Field>
+            ) : (
+              <>
+                {secretInput(jira ? t('trackers.token') : t('trackers.apiKey'), jira ? t('trackers.tokenHintJira') : t('trackers.tokenHintLinear'), stored ? t('trackers.tokenStored') : t('trackers.tokenNotSet'))}
+                <Field label={t('trackers.projectKeys')} hint={t('trackers.projectKeysHint')}>
+                  <Input aria-label={t('trackers.projectKeys')} value={draft.settings[TRACKER_SETTINGS.projectKeys] ?? ''} onChange={(e) => setSetting(TRACKER_SETTINGS.projectKeys, e.target.value)} placeholder="ABC, WEB" spellCheck={false} />
+                </Field>
+                <Field label={t('trackers.ignoredStatuses')} hint={t('trackers.ignoredStatusesHint')}>
+                  <Input aria-label={t('trackers.ignoredStatuses')} value={draft.settings[TRACKER_SETTINGS.ignored] ?? ''} onChange={(e) => setSetting(TRACKER_SETTINGS.ignored, e.target.value)} placeholder="Blocked, On hold" />
+                </Field>
+              </>
+            )}
             {refreshField('tracker')}
           </>
         )

@@ -15,6 +15,7 @@ export const settingsConnectionsEn = {
   'settingsConnections.add.gitlab': 'Connect GitLab',
   'settingsConnections.add.jira': 'Connect Jira',
   'settingsConnections.add.linear': 'Connect Linear',
+  'settingsConnections.add.githubIssues': 'Connect GitHub Issues',
   'settingsConnections.add.calendar': 'Add calendar (ICS)',
   'settingsConnections.add.health': 'Connect',
   'settingsConnections.none': 'None yet.',

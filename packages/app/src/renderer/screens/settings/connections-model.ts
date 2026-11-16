@@ -60,6 +60,8 @@ export function connectionProblem(c: Connection, typedSecret: string, storedSecr
     case 'tracker':
       if (c.provider === 'jira' && !c.endpoint?.trim()) return 'trackers.missing.site'
       if (c.provider === 'jira' && !s[TRACKER_SETTINGS.email]?.trim()) return 'trackers.missing.email'
+      // GitHub Issues reads through the `gh` login: no token.
+      if (c.provider === 'github-issues') return null
       return secret ? null : 'trackers.missing.token'
     case 'health':
       if (!c.endpoint?.trim()) return 'health.settings.missing.url'

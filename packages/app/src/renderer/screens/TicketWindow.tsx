@@ -173,8 +173,8 @@ function TicketWindow({ profileId, ticketKey }: { profileId: string; ticketKey: 
 
   const d = load.detail
   const listed = listedPullRequests(d)
-  // Linear writes Markdown; Jira's rich text arrives as plain text with hard line breaks.
-  const markdown = status?.provider === 'linear'
+  // Linear and GitHub write Markdown; Jira's rich text arrives as plain text with hard line breaks.
+  const markdown = status?.provider === 'linear' || status?.provider === 'github-issues'
   // PRs the code host knows open in their own window; other listed URLs open in the browser.
   const matched = pullRequestsForTicket(ticketKey, hostPrs, providers, listed)
   const matchedUrls = new Set(matched.map((pr) => pr.url.toLowerCase()))
