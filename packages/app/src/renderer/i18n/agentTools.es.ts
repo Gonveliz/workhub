@@ -19,7 +19,7 @@ export const agentToolsEs: Record<keyof typeof agentToolsEn, string> = {
   'agentTools.update': 'Actualizar',
   'agentTools.remove': 'Quitar',
   'agentTools.globalMcp': 'MCP fuera de Workhub',
-  'agentTools.globalMcpHint': 'Agrega el servidor a la configuración de usuario de Claude Code, así `claude` en cualquier terminal llega a este Workhub mientras está abierto.',
+  'agentTools.globalMcpHint': 'Agrega el servidor a la configuración de usuario de Claude Code, así `claude` en cualquier terminal llega a este Workhub mientras está abierto. Fuera de una sesión solo puede leer el plan y las automatizaciones del perfil activo: los cambios, el historial y los datos de uso necesitan el token propio de una sesión.',
   'agentTools.globalMcp.installed': 'Instalado',
   'agentTools.globalMcp.missing': 'Sin instalar',
   'agentTools.globalMcp.noClaude': 'No se encontró Claude Code',

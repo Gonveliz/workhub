@@ -165,13 +165,16 @@ Agents talk to Workhub through its local control endpoint (Plan, flow maps, revi
 gets these environment variables:
 
 - `WORKHUB_SESSION`: the session id.
+- `WORKHUB_SESSION_TOKEN`: the session's own token; send `X-Workhub-Token: $WORKHUB_SESSION_TOKEN`.
+  Without it only reads of the active profile's plan and automations are answered; changes,
+  History and analytics answer `401`.
 - macOS and Linux: `WORKHUB_SOCKET`, the path of a Unix socket.
 - Windows: `WORKHUB_URL` and `WORKHUB_TOKEN`. The endpoint is a loopback HTTP port with a
-  per-launch token; send `Authorization: Bearer $WORKHUB_TOKEN`.
+  per-launch token; send `Authorization: Bearer $WORKHUB_TOKEN` too.
 
-If calls fail with "no such file", "connection refused" or a rejected token, the session probably
-started before Workhub restarted and holds old values. The socket path, the port and the token can
-change on each launch. Start a new session. Also check that the session runs inside Workhub: a
+If calls fail with "no such file", "connection refused" or a rejected token ("unknown or revoked
+session token"), the session probably started before Workhub restarted, or was removed, and holds
+old values. The socket path, the port and the tokens change on each launch. Start a new session. Also check that the session runs inside Workhub: a
 terminal opened outside it has none of these variables.
 
 ## Updates

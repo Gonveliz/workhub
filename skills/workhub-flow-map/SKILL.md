@@ -66,13 +66,16 @@ hop of an existing flow, or asks to fix a map that Workhub lists as invalid.
    ```sh
    # macOS and Linux (WORKHUB_SOCKET):
    curl --unix-socket "$WORKHUB_SOCKET" -X POST http://workhub/v1/flow-maps \
+     -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" \
      -H 'content-type: application/json' --data-binary @<map>.json
    # Windows (WORKHUB_URL and WORKHUB_TOKEN):
-   curl -H "Authorization: Bearer $WORKHUB_TOKEN" -X POST "$WORKHUB_URL/v1/flow-maps" \
+   curl -H "Authorization: Bearer $WORKHUB_TOKEN" -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" \
+     -X POST "$WORKHUB_URL/v1/flow-maps" \
      -H 'content-type: application/json' --data-binary @<map>.json
    ```
 
-   A posted map replaces the stored one with the same `id`, except that a map posted without
+   `WORKHUB_SESSION_TOKEN` is this session's own token: without it the post is refused (`401`).
+   Never print or pass it on. A posted map replaces the stored one with the same `id`, except that a map posted without
    `alerts` keeps the stored map's `alerts`.
 
    Outside a session, hand the file to the user for **Settings → Profiles → (profile) → Screens → Flow maps → Import JSON…** (maps

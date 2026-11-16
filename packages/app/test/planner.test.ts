@@ -313,10 +313,10 @@ describe('POST /v1/inbox', () => {
     dirs.push(dir)
     const socket = controlSocketPath(dir)
     const proposed: unknown[][] = []
-    const server = await startControlServer(socket, { openReview: () => ({ ok: true }), addInboxItems: (body) => addControlInboxItems(deps(proposed), body) })
+    const server = await startControlServer(socket, { auth: { sessionOf: (t) => (t === 't-s1' ? 's1' : undefined), readOnly: () => false }, openReview: () => ({ ok: true }), addInboxItems: (body) => addControlInboxItems(deps(proposed), body) })
     const call = (method: string, body?: unknown) =>
       new Promise<{ status: number; json: Record<string, unknown> }>((resolve, reject) => {
-        const req = request({ socketPath: socket, method, path: '/v1/inbox', headers: { 'content-type': 'application/json' } }, (res) => {
+        const req = request({ socketPath: socket, method, path: '/v1/inbox', headers: { 'content-type': 'application/json', 'x-workhub-token': 't-s1' } }, (res) => {
           let text = ''
           res.on('data', (c) => (text += c))
           res.on('end', () => resolve({ status: res.statusCode ?? 0, json: JSON.parse(text) }))

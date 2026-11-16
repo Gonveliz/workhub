@@ -23,6 +23,8 @@ describe("Workhub's MCP server for a session", () => {
       { name: 'workhub', command: '/app/Workhub', args: ['/app/bridge/workhub-mcp.mjs'], env: { ELECTRON_RUN_AS_NODE: '1', WORKHUB_SESSION: 's1', WORKHUB_SOCKET: '/d/control.sock' } }
     ])
     expect(workhubMcpLaunch({ WORKHUB_SESSION: 's1', WORKHUB_URL: 'http://127.0.0.1:5', WORKHUB_TOKEN: 't' }, where)[0]!.env).toEqual({ ELECTRON_RUN_AS_NODE: '1', WORKHUB_SESSION: 's1', WORKHUB_URL: 'http://127.0.0.1:5', WORKHUB_TOKEN: 't' })
+    // The session's own token goes to its MCP server, which sends it with every call.
+    expect(workhubMcpLaunch({ WORKHUB_SESSION: 's1', WORKHUB_SESSION_TOKEN: 'st', WORKHUB_SOCKET: '/d/control.sock' }, where)[0]!.env).toEqual({ ELECTRON_RUN_AS_NODE: '1', WORKHUB_SESSION: 's1', WORKHUB_SESSION_TOKEN: 'st', WORKHUB_SOCKET: '/d/control.sock' })
     // A reviewer (empty variables) or no endpoint: none.
     expect(workhubMcpLaunch({ WORKHUB_SESSION: '', WORKHUB_SOCKET: '' }, where)).toEqual([])
     expect(workhubMcpLaunch({ WORKHUB_SESSION: 's1' }, where)).toEqual([])

@@ -54,7 +54,8 @@ npm run demo         # dev build with synthetic data in .demo-data/ (add -- --re
 
 - Local control endpoint: `packages/app/src/main/control-server.ts`; Plan routes in
   `packages/app/src/main/plan-control.ts`. Unix socket on macOS and Linux (`WORKHUB_SOCKET`),
-  loopback HTTP with a token on Windows. Every session also gets `WORKHUB_SESSION`.
+  loopback HTTP with a token on Windows. Every session also gets `WORKHUB_SESSION` and its own
+  `WORKHUB_SESSION_TOKEN` (sent as `X-Workhub-Token`; `control-auth.ts` binds a request to it).
 - Agent skills that teach agents those endpoints: `skills/workhub-plan`,
   `skills/workhub-flow-map`, `skills/workhub-automations` (automations and history,
   `packages/app/src/main/automation-control.ts`) and `skills/workhub-analytics` (read-only usage

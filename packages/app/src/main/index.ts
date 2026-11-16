@@ -121,6 +121,7 @@ import { registerLinksIpc } from './links'
 import { LocalReviewService, opensAsProgram, registerLocalReviewIpc } from './local-review'
 import { CONTROL_ENV_KEYS, controlEnv, controlSocketPath, newControlToken, reviewPathOutside, startControlServer, startLoopbackControlServer, usesLoopbackControl, type ControlDeps, type ControlEndpoint } from './control-server'
 import { createAnalyticsControl } from './analytics-control'
+import { ControlTokens } from './control-auth'
 import { kiroUsageProbeEnabled } from './kiro-usage-probe'
 import { AnalyticsQueries, type QueryWorker } from './analytics-queries'
 import { registerStorageMaintenanceIpc, StorageMaintenance } from './storage-maintenance'
@@ -582,6 +583,8 @@ const loopbackControl = usesLoopbackControl()
 const controlToken = newControlToken()
 // Set only once the endpoint listens; sessions started before (or when it cannot listen) get none.
 let controlEndpoint: ControlEndpoint | null = null
+// Each session's own token for the endpoint, minted at its start and revoked when it is removed.
+const controlTokens = new ControlTokens()
 // The sessions Workhub runs and what their monitors relate them to, for the usage reports.
 const analyticsRecorder = new AnalyticsRecorder({
   records: sessionRecords,
@@ -592,7 +595,7 @@ const sessions = new SessionManager({
   log: (m) => diagnostics.log.warn(m),
   worktrees: new GitWorktrees(),
   text: (key, params) => trayText(trayLocale).t(key, params),
-  sessionEnv: (sessionId) => controlEnv(sessionId, controlEndpoint),
+  sessionEnv: (sessionId) => controlEnv(sessionId, controlEndpoint, () => controlTokens.mint(sessionId)),
   // Workhub's MCP server (Settings → Agents → Workhub tools), for sessions that reach the endpoint.
   sessionMcp: async (env) => {
     if (!appOptions(await configuration.current()).workhubMcp) return []
@@ -631,6 +634,7 @@ const sessions = new SessionManager({
     openSessions.changed()
   },
   emitRemoved: (id) => {
+    controlTokens.revoke(id)
     analyticsRecorder.sessionRemoved(id)
     remoteActivity.forget(id)
     send('session:removed', id)
@@ -2163,6 +2167,7 @@ void app.whenReady().then(async () => {
       .catch((err: unknown) => diagnostics.log.warn(`agent options: ${err instanceof Error ? err.message : String(err)}`))
   }, 8_000).unref()
   const controlDeps: ControlDeps = {
+    auth: controlTokens.auth(() => sessions.list()),
     openReview: async (sessionId, repos) => {
       const v = sessions.list().find((s) => s.id === sessionId)
       if (!v) return { ok: false, status: 404, error: 'unknown session' }
@@ -2178,7 +2183,7 @@ void app.whenReady().then(async () => {
     },
     saveFlowMap: (map) => saveFlowMap(flowMaps, map, { keepAlerts: true }),
     addInboxItems: async (body) => {
-      // A reviewer cannot propose items; a request without a session may (see resolveControlProfile).
+      // A reviewer cannot propose items; the session in the body is the caller's (bound by its token).
       const b = (body && typeof body === 'object' && !Array.isArray(body) ? body : {}) as Record<string, unknown>
       const who = await resolveControlProfile(controlProfiles, { session: b['session'], profile: b['profile'] }, { write: true })
       if (!who.ok) return who

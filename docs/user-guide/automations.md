@@ -60,12 +60,13 @@ An agent in a Workhub session can list, add and edit automations through the loc
 endpoint (`skills/workhub-automations` teaches it how):
 
 ```sh
-curl --unix-socket "$WORKHUB_SOCKET" "http://workhub/v1/automations?session=$WORKHUB_SESSION"
+curl --unix-socket "$WORKHUB_SOCKET" -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" \
+  "http://workhub/v1/automations?session=$WORKHUB_SESSION"
 curl --unix-socket "$WORKHUB_SOCKET" -X POST http://workhub/v1/automations \
-  -H 'content-type: application/json' \
+  -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" -H 'content-type: application/json' \
   -d '{"session":"'"$WORKHUB_SESSION"'","automation":{"name":"Triage","prompt":"/triage","triggers":{"intervalMinutes":30}}}'
 curl --unix-socket "$WORKHUB_SOCKET" -X PATCH "http://workhub/v1/automations/<id>" \
-  -H 'content-type: application/json' \
+  -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" -H 'content-type: application/json' \
   -d '{"session":"'"$WORKHUB_SESSION"'","automation":{"window":{"endHour":18}}}'
 ```
 
@@ -78,7 +79,9 @@ curl --unix-socket "$WORKHUB_SOCKET" -X PATCH "http://workhub/v1/automations/<id
   `limits` merge into the stored ones).
 - **An agent never turns an automation on.** What it adds starts off and what it edits is turned
   off, so you check it on this screen and turn it on yourself. A Plan brief rule that names an automation that is off ignores it and uses the profile's agent. Removing one stays yours too.
-- A reviewer session can read but not change them. On Windows the endpoint is a loopback port
-  with a token (`WORKHUB_URL`, `WORKHUB_TOKEN`); the skill covers both.
+- Every call sends the session's own token (`WORKHUB_SESSION_TOKEN`) and acts as that session only;
+  without it, only the list of the active profile is answered and every change is refused. A
+  reviewer session can read but not change them. On Windows the endpoint is a loopback port
+  with a token (`WORKHUB_URL`, `WORKHUB_TOKEN`) on top of the session's; the skill covers both.
 
 Next: [History](history.md).

@@ -372,7 +372,8 @@ describe.skipIf(!RUNTIME)('analytics over the endpoint', () => {
   it('serves the three routes, refuses other methods and requests without the token', async () => {
     const { control } = setup()
     const token = 'tok'
-    const started = await startLoopbackControlServer(token, { openReview: () => ({ ok: true }), analytics: control })
+    // The reviewer's session token on top of the launch token: analytics are read-only, so a reviewer may call them.
+    const started = await startLoopbackControlServer(token, { auth: { sessionOf: (t) => (t === 't-review' ? 'sess-review' : undefined), readOnly: () => true }, openReview: () => ({ ok: true }), analytics: control })
     const { server, url } = started!
     const hit = (method: string, path: string, headers: Record<string, string>, body?: unknown) =>
       new Promise<{ status: number; body: Record<string, unknown> }>((done, fail) => {
@@ -385,8 +386,10 @@ describe.skipIf(!RUNTIME)('analytics over the endpoint', () => {
         req.on('error', fail)
         req.end(body === undefined ? undefined : JSON.stringify(body))
       })
-    const auth = { authorization: `Bearer ${token}` }
+    const auth = { authorization: `Bearer ${token}`, 'x-workhub-token': 't-review' }
     try {
+      // The launch token alone reaches the endpoint, but analytics need a session token.
+      expect((await hit('GET', '/v1/analytics/schema', { authorization: `Bearer ${token}` })).status).toBe(401)
       expect((await hit('GET', '/v1/analytics/schema', {})).status).toBe(401)
       expect((await hit('POST', '/v1/analytics/query', {}, { sql: 'SELECT 1' })).status).toBe(401)
       expect((await hit('GET', '/v1/analytics/schema?session=sess-review', auth)).status).toBe(200)
@@ -394,7 +397,8 @@ describe.skipIf(!RUNTIME)('analytics over the endpoint', () => {
       expect((await hit('POST', '/v1/analytics/query', auth, { sql: 'PRAGMA user_version' })).status).toBe(400)
       expect((await hit('GET', '/v1/analytics/report?kind=weekly', auth)).status).toBe(200)
       expect((await hit('GET', '/v1/analytics/query', auth)).status).toBe(405)
-      expect((await hit('POST', '/v1/analytics/schema', auth, {})).status).toBe(405)
+      // A reviewer's POST anywhere but the query is a change, refused before the method is checked.
+      expect((await hit('POST', '/v1/analytics/schema', auth, {})).status).toBe(403)
       expect((await hit('GET', '/v1/analytics/nope', auth)).status).toBe(404)
     } finally {
       server.close()
@@ -402,9 +406,9 @@ describe.skipIf(!RUNTIME)('analytics over the endpoint', () => {
   })
 
   it('is absent when the app offers no analytics', async () => {
-    const { server, url } = (await startLoopbackControlServer('t', { openReview: () => ({ ok: true }) }))!
+    const { server, url } = (await startLoopbackControlServer('t', { auth: { sessionOf: () => 's1', readOnly: () => false }, openReview: () => ({ ok: true }) }))!
     try {
-      const status = await new Promise<number>((done) => request(new URL('/v1/analytics/schema', url), { headers: { authorization: 'Bearer t' } }, (res) => (res.resume(), done(res.statusCode ?? 0))).end())
+      const status = await new Promise<number>((done) => request(new URL('/v1/analytics/schema', url), { headers: { authorization: 'Bearer t', 'x-workhub-token': 'st' } }, (res) => (res.resume(), done(res.statusCode ?? 0))).end())
       expect(status).toBe(404)
     } finally {
       server.close()

@@ -24,16 +24,18 @@ through the local control endpoint. Full reference: "Ask your agent about your u
 
 Use the `workhub` MCP tools when they are available: `usage_report` (spend and weekly summaries),
 `analytics_schema` (tables, columns, examples) and `analytics_query` (one SQL query). Without them,
-the session environment has `WORKHUB_SESSION` and either `WORKHUB_SOCKET` (macOS, Linux) or
-`WORKHUB_URL` and `WORKHUB_TOKEN` (Windows). With none of them you are not in a Workhub session:
-say so and stop; do not look for the database file.
+the session environment has `WORKHUB_SESSION`, `WORKHUB_SESSION_TOKEN` (this session's own token,
+sent as `X-Workhub-Token` on every call; analytics answer `401` without it) and either
+`WORKHUB_SOCKET` (macOS, Linux) or `WORKHUB_URL` and `WORKHUB_TOKEN` (Windows). With none of them
+you are not in a Workhub session: say so and stop; do not look for the database file. Never print, log or pass on `WORKHUB_SESSION_TOKEN`; send it only in that header.
 
 ```sh
 W() {
-  if [ -n "$WORKHUB_URL" ]; then # Windows: a loopback port and a token
+  local t=(-H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN") # this session's own token, on every call
+  if [ -n "$WORKHUB_URL" ]; then # Windows: a loopback port and the launch token on top
     local a=() x; for x in "$@"; do a+=("${x/http:\/\/workhub/$WORKHUB_URL}"); done
-    curl -s -H "Authorization: Bearer $WORKHUB_TOKEN" "${a[@]}"
-  else curl -s --unix-socket "$WORKHUB_SOCKET" "$@"; fi
+    curl -s -H "Authorization: Bearer $WORKHUB_TOKEN" "${t[@]}" "${a[@]}"
+  else curl -s --unix-socket "$WORKHUB_SOCKET" "${t[@]}" "$@"; fi
 }
 S="session=$WORKHUB_SESSION"
 ```

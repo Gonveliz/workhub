@@ -8,7 +8,9 @@
 //
 // Where the endpoint is: WORKHUB_SOCKET (macOS, Linux) or WORKHUB_URL + WORKHUB_TOKEN (Windows),
 // from the session's environment; `--socket <path>` names one when it is installed for agents
-// outside Workhub. WORKHUB_SESSION, when set, is sent with every call.
+// outside Workhub. WORKHUB_SESSION_TOKEN, the session's own token, goes with every call as
+// X-Workhub-Token, with WORKHUB_SESSION and the folder. Without it (outside Workhub) only reads of
+// the active profile's plan and automations are answered, so neither session nor folder is sent.
 import { request } from "node:http";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
@@ -21,6 +23,7 @@ const SOCKET = process.env.WORKHUB_SOCKET || argSocket || "";
 const URL_BASE = process.env.WORKHUB_URL || "";
 const TOKEN = process.env.WORKHUB_TOKEN || "";
 const SESSION = process.env.WORKHUB_SESSION || "";
+const SESSION_TOKEN = process.env.WORKHUB_SESSION_TOKEN || "";
 const CWD = process.env.WORKHUB_CWD || process.cwd();
 const TIMEOUT_MS = 30_000;
 
@@ -269,7 +272,7 @@ const TOOLS = [
 function http(method, path, body) {
   return new Promise((resolve, reject) => {
     const payload = body === undefined ? undefined : JSON.stringify(body);
-    const headers = { "content-type": "application/json", ...(payload ? { "content-length": Buffer.byteLength(payload) } : {}) };
+    const headers = { "content-type": "application/json", ...(payload ? { "content-length": Buffer.byteLength(payload) } : {}), ...(SESSION_TOKEN ? { "x-workhub-token": SESSION_TOKEN } : {}) };
     let options;
     if (URL_BASE) {
       const u = new URL(path, URL_BASE);
@@ -301,7 +304,7 @@ export async function callTool(name, args = {}) {
   const spec = tool.call(args ?? {});
   if (!spec) return { isError: true, text: "this tool needs a Workhub session (WORKHUB_SESSION is not set)" };
   const [method, path, data, how] = spec;
-  const who = { ...(SESSION ? { session: SESSION } : {}), cwd: CWD };
+  const who = SESSION_TOKEN ? { ...(SESSION ? { session: SESSION } : {}), cwd: CWD } : {};
   let target = path;
   let body;
   if (method === "GET" || method === "DELETE") {

@@ -28,12 +28,16 @@ Three ways to add one:
 
   ```sh
   curl --unix-socket "$WORKHUB_SOCKET" -X POST http://workhub/v1/flow-maps \
+    -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" \
     -H 'content-type: application/json' --data-binary @checkout.json
   ```
 
+  `WORKHUB_SESSION_TOKEN` is the session's own token; a post without it is refused.
+
 On Windows the session has `WORKHUB_URL` and `WORKHUB_TOKEN` instead of `WORKHUB_SOCKET` (a loopback
 port with a token made at each launch): replace `--unix-socket "$WORKHUB_SOCKET" http://workhub` with
-`-H "Authorization: Bearer $WORKHUB_TOKEN" "$WORKHUB_URL"` in these examples.
+`-H "Authorization: Bearer $WORKHUB_TOKEN" "$WORKHUB_URL"` in these examples, and keep the
+`X-Workhub-Token` header.
 
   The answer is `{"ok":true,"id":…,"file":…}` or `{"ok":false,"errors":[…]}` naming the fields.
   A posted map replaces the stored one with the same `id`; when the posted file has no `alerts`,

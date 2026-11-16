@@ -39,11 +39,11 @@ export type ControlProfile = { ok: true; profileId: string; session: string | nu
 /**
  * The profile a control request acts on: the one of `session` (an agent passes `$WORKHUB_SESSION`),
  * else `profile` (a profile id), else the profile that owns `cwd` (the folder the agent works in),
- * else the active one. A `session` that is sent but is not a session id (empty, a number,
+ * else the active one. A session never acts on a named `profile`: one without a profile falls to
+ * `cwd`, then the active one. A `session` that is sent but is not a session id (empty, a number,
  * malformed) is a 400, never read as "no session". With `write`, a read-only session (a reviewer)
- * gets a 403. A request without a session may still write: it comes from a process of the user's
- * own (a terminal, a script) that can reach the endpoint, which is already limited to the user (a
- * socket only they can open, or a per-launch token on Windows).
+ * gets a 403. On the control endpoint the session was proven by its token before this runs, and a
+ * request without a token reaches this only for a read of the active profile (`control-auth.ts`).
  */
 export async function resolveControlProfile(deps: ControlProfileDeps, ask: { session?: unknown; profile?: unknown; cwd?: unknown }, options: { write?: boolean } = {}): Promise<ControlProfile> {
   let session: string | null = null
@@ -59,7 +59,7 @@ export async function resolveControlProfile(deps: ControlProfileDeps, ask: { ses
     if (options.write && deps.sessionReadOnly?.(session)) return { ok: false, status: 403, error: 'a read-only session cannot change the plan' }
     profileId = owner
   }
-  if (!profileId && typeof ask.profile === 'string' && ask.profile) {
+  if (!profileId && !session && typeof ask.profile === 'string' && ask.profile) {
     if (!ids.includes(ask.profile)) return { ok: false, status: 404, error: 'unknown profile' }
     profileId = ask.profile
   }
@@ -443,7 +443,7 @@ export function createPlanControl(deps: PlanControlDeps): PlanControl {
       if (change.milestone) {
         const before = view.milestones.find((r) => r.milestone.id === change.milestoneId)?.milestone
         const foreign = unknownTaskItems(change.milestone, new Set(view.inbox.map((i) => i.id)), before)
-        if (foreign.length) return fail(400, `task pieces must be items of this profile's inbox (send "session" or "profile" for another one); unknown: ${foreign.join(', ')}`)
+        if (foreign.length) return fail(400, `task pieces must be items of this profile's inbox; unknown: ${foreign.join(', ')}`)
       }
       const r = await deps.planner.agentMilestone(who.profileId, change, changeSource(who.session, body))
       if (!r.ok) return fail(r.reason === 'unknown' ? 404 : 409, r.error)

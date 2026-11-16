@@ -24,16 +24,20 @@ When the `workhub` MCP tools are available (`plan_today`, `inbox_list`, `automat
 and folder themselves. The rules below apply either way.
 
 
-The session environment has `WORKHUB_SESSION` and either `WORKHUB_SOCKET` (macOS, Linux) or
+The session environment has `WORKHUB_SESSION` (this session's id), `WORKHUB_SESSION_TOKEN` (its
+own token, sent as `X-Workhub-Token` on every call) and either `WORKHUB_SOCKET` (macOS, Linux) or
 `WORKHUB_URL` and `WORKHUB_TOKEN` (Windows). With none of them you are not in a Workhub session:
-say so and stop; do not look for the endpoint.
+say so and stop; do not look for the endpoint. The token proves which session is calling: a call
+without it is refused (`401`) for every change and for History, and a call that names another
+session answers `403`. Never print, log or pass on `WORKHUB_SESSION_TOKEN`; send it only in that header.
 
 ```sh
 W() {
-  if [ -n "$WORKHUB_URL" ]; then # Windows: a loopback port and a token
+  local t=(-H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN") # this session's own token, on every call
+  if [ -n "$WORKHUB_URL" ]; then # Windows: a loopback port and the launch token on top
     local a=() x; for x in "$@"; do a+=("${x/http:\/\/workhub/$WORKHUB_URL}"); done
-    curl -s -H "Authorization: Bearer $WORKHUB_TOKEN" "${a[@]}"
-  else curl -s --unix-socket "$WORKHUB_SOCKET" "$@"; fi
+    curl -s -H "Authorization: Bearer $WORKHUB_TOKEN" "${t[@]}" "${a[@]}"
+  else curl -s --unix-socket "$WORKHUB_SOCKET" "${t[@]}" "$@"; fi
 }
 S="session=$WORKHUB_SESSION"
 ```

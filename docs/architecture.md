@@ -146,8 +146,21 @@ never breaks the session.
   socket in the data folder (mode `0600`) and sessions get `WORKHUB_SOCKET`. On Windows it listens
   on a loopback HTTP port (127.0.0.1, random port) guarded by a per-launch token; sessions get
   `WORKHUB_URL` and `WORKHUB_TOKEN`, and requests send `Authorization: Bearer $WORKHUB_TOKEN`. Either
-  way only the user's own processes reach it. Every session also gets `WORKHUB_SESSION`; a request acts on the profile of
-  the session it names, else a named profile, else the active one. Bodies are capped at 256 KB and
+  way only the user's own processes reach it, which says nothing about which session is calling, so
+  every session also gets `WORKHUB_SESSION` and its own token, `WORKHUB_SESSION_TOKEN`
+  (`control-auth.ts`: 32 random bytes minted when the session starts, kept only as a hash in
+  memory, revoked when the session is removed, never logged). Requests send it as
+  `X-Workhub-Token` (on Windows on top of the launch token). A request with a session token acts as
+  that session: a `session` it names in the query or body must be its own (else 403), the session
+  is filled in where it is left out, a `profile` it names is ignored (a session without a profile
+  falls to the one owning its `cwd`, then the active one), and a read-only (reviewer) session gets
+  403 on every change (anything but `GET` and `POST /v1/analytics/query`). A token of a removed
+  session, or of one no longer listed, answers 401. Without a token only `GET` of `/v1/plan/today`,
+  `/v1/inbox`, `/v1/milestones`, `/v1/people` and `/v1/automations` are answered, for the active
+  profile and without `session`, `profile` or `cwd`, with a warning in the log; every change,
+  History and analytics answer 401. That keeps a `curl` the user types in their own terminal
+  working for reads while no process can write as, or read the plan of, a session it is not.
+  Reviewer sessions are started with the variables empty (`NO_CONTROL_ENV`), so they get no token today; the read-only rule holds for any token a read-only session holds. Bodies are capped at 256 KB and
   checked field by field. Endpoints: `POST /v1/sessions/:id/review` (open the human review),
   `POST /v1/flow-maps`, and Plan's (`plan-control.ts`): `GET /v1/plan/today`, `GET` and `POST
   /v1/inbox`, `PATCH /v1/inbox/:id` (local moves and fields, and linking an existing ticket:
@@ -191,8 +204,11 @@ Agents learn the endpoint two ways (Settings → Agents → Workhub tools, `agen
 
 - **MCP**: `workhub-mcp.mjs`, a dependency-free stdio MCP server that ships with the bridge scripts
   and runs through the app's binary (`ELECTRON_RUN_AS_NODE=1`). Each tool is one call to the
-  endpoint with the session and folder added, so it allows nothing the endpoint does not. The
-  session manager hands it to every session that reaches the endpoint (`StartSessionRequest.mcpServers`):
+  endpoint with the session token, the session and folder added, so it allows nothing the endpoint
+  does not; without a session token (installed in Claude Code's user settings for `claude` outside
+  Workhub, `--socket`) it sends neither session nor folder and only reads the active profile. The
+  session manager hands it to every session that reaches the endpoint, with `WORKHUB_SESSION_TOKEN`
+  in its environment (`StartSessionRequest.mcpServers`):
   the native bridge passes it to the Agent SDK's `mcpServers`, the ACP runtime to `session/new`,
   Claude's console to `--mcp-config` (not on Windows, where ConPTY breaks the JSON quoting).
   Reviewers get none. The option `workhubMcp` (default on) turns it off.

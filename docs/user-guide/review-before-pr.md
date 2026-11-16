@@ -142,17 +142,19 @@ closes the review and tells the session so if you want. If the session is busy, 
 queued until it is idle. A reviewer session cannot receive comments.
 
 A tool the agent runs can open this window too. Every session (except reviewers) gets
-`WORKHUB_SESSION` (its id) and `WORKHUB_SOCKET` (a local socket only your user can reach; on Windows `WORKHUB_URL` and `WORKHUB_TOKEN`) in its
-environment:
+`WORKHUB_SESSION` (its id), `WORKHUB_SESSION_TOKEN` (its own token) and `WORKHUB_SOCKET` (a local socket only your user can reach; on Windows `WORKHUB_URL` and `WORKHUB_TOKEN`) in its
+environment. A session can open only its own review: the token must be the one of the session in the path.
 
 ```sh
 curl --unix-socket "$WORKHUB_SOCKET" -X POST "http://workhub/v1/sessions/$WORKHUB_SESSION/review" \
+  -H "X-Workhub-Token: $WORKHUB_SESSION_TOKEN" \
   -H 'content-type: application/json' -d '{"repos":[{"path":"/abs/path/to/repo","base":"origin/main"}]}'
 ```
 
 On Windows the session has `WORKHUB_URL` and `WORKHUB_TOKEN` instead of `WORKHUB_SOCKET` (a loopback
 port with a token made at each launch): replace `--unix-socket "$WORKHUB_SOCKET" http://workhub` with
-`-H "Authorization: Bearer $WORKHUB_TOKEN" "$WORKHUB_URL"` in these examples.
+`-H "Authorization: Bearer $WORKHUB_TOKEN" "$WORKHUB_URL"` in these examples, and keep the
+`X-Workhub-Token` header.
 
 `repos` is optional: the listed repositories are added to the ones Workhub finds in the session's
 folder, and `base` picks what to compare with: a branch, or any commit (such as the last one you pushed). An open window reloads. Every listed path must be inside the session's folder (or its worktree) or inside one of its profile's folders, compared by real path (a symlink that points outside does not count); any other path is refused with a 400 error.

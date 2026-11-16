@@ -57,6 +57,7 @@ describe('stored flow maps', () => {
     const socket = controlSocketPath(dir)
     const stored: unknown[] = []
     const server = await startControlServer(socket, {
+      auth: { sessionOf: (t) => (t === 't-s1' ? 's1' : undefined), readOnly: () => false },
       openReview: () => ({ ok: true }),
       saveFlowMap: (map) => {
         stored.push(map)
@@ -66,7 +67,7 @@ describe('stored flow maps', () => {
     expect(server).not.toBeNull()
     const call = (body: unknown) =>
       new Promise<{ status: number; json: Record<string, unknown> }>((resolve, reject) => {
-        const req = request({ socketPath: socket, method: 'POST', path: '/v1/flow-maps', headers: { 'content-type': 'application/json' } }, (res) => {
+        const req = request({ socketPath: socket, method: 'POST', path: '/v1/flow-maps', headers: { 'content-type': 'application/json', 'x-workhub-token': 't-s1' } }, (res) => {
           let text = ''
           res.on('data', (c) => (text += c))
           res.on('end', () => resolve({ status: res.statusCode ?? 0, json: JSON.parse(text) }))

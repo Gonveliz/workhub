@@ -17,7 +17,7 @@ export const agentToolsEn = {
   'agentTools.update': 'Update',
   'agentTools.remove': 'Remove',
   'agentTools.globalMcp': 'MCP outside Workhub',
-  'agentTools.globalMcpHint': 'Adds the server to Claude Code’s user settings, so `claude` in any terminal reaches this Workhub while it is open.',
+  'agentTools.globalMcpHint': 'Adds the server to Claude Code’s user settings, so `claude` in any terminal reaches this Workhub while it is open. Outside a session it can only read the active profile’s plan and automations: changes, history and usage data need a session’s own token.',
   'agentTools.globalMcp.installed': 'Installed',
   'agentTools.globalMcp.missing': 'Not installed',
   'agentTools.globalMcp.noClaude': 'Claude Code not found',

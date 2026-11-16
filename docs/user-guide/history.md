@@ -67,6 +67,7 @@ An agent in a Workhub session can read the history through the local control end
 `agent`, `automation` or `folder`; with words (`q`) it searches the index like the search box,
 best match first, and each match carries the text around it (`snippet`); `GET /v1/history/<agent>/<session id>` returns the
 last messages of one of them, with text shortened and tool output and images left out. It cannot
-resume, rename or change a past session.
+resume, rename or change a past session. These calls need the session's own token
+(`WORKHUB_SESSION_TOKEN`); without it they are refused.
 
 Next: [Usage and budgets](usage.md).
