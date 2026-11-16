@@ -10,13 +10,13 @@ Start with [Getting started](user-guide/getting-started.md), or browse the [user
 
 | Page | What it covers |
 |---|---|
-| [Getting started](user-guide/getting-started.md) | Install, first run, the setup check |
+| [Getting started](user-guide/getting-started.md) | Install, the Welcome, the setup check, tools Workhub installs for itself, signing in |
 | [Profiles](user-guide/profiles.md) | Folders, accounts, how links open, session environment |
 | [Sessions](user-guide/sessions.md) | New session, App / Terminal / Shell, the composer, resume, windows, the sidebar; agents that propose sessions and message each other with your approval (`skills/workhub-sessions`) |
 | [Monitor](user-guide/monitor.md) | The panel next to a session, and the Home screen |
 | [Review before PR](user-guide/review-before-pr.md) | Have another agent review a branch, and review changes yourself |
-| [Pull requests](user-guide/pull-requests.md) | The list and the pull request window |
-| [Tickets](user-guide/tickets.md) | Jira and Linear |
+| [Pull requests](user-guide/pull-requests.md) | The list, the pull request window, creating and merging |
+| [Tickets](user-guide/tickets.md) | Jira, Linear and GitHub Issues |
 | [Slack](user-guide/slack.md) | Watched channels and followed threads |
 | [Health](user-guide/health.md) | Errors, pods and slow endpoints from Elasticsearch |
 | [Remote access](user-guide/remote-access.md) | Workhub on your phone: pairing, what it can do, self-hosting the relay |
@@ -24,7 +24,7 @@ Start with [Getting started](user-guide/getting-started.md), or browse the [user
 | [Plan](user-guide/plan.md) | Today's and tomorrow's meetings from your calendars (⌘9), reminders, agent-prepared meeting briefs, the people you meet, milestones and an inbox; agents read and update it (`skills/workhub-plan`) |
 | [Automations](user-guide/automations.md) | Prompts sent to a dedicated session on an event or a schedule; agents can add and edit them, never turn them on (`skills/workhub-automations`) |
 | [History](user-guide/history.md) | Past sessions, resumable; agents can read them (`skills/workhub-automations`) |
-| [Usage and budgets](user-guide/usage.md) | Plan usage, ceilings, per-session limits, token spend; agents can read the usage data, read-only (`skills/workhub-analytics`) |
+| [Usage and budgets](user-guide/usage.md) | Plan usage, ceilings, per-session limits, project budgets, token spend, how long data is kept; agents can read the usage data, read-only (`skills/workhub-analytics`) |
 | [Settings](user-guide/settings.md) | What each Settings tab holds |
 | [Keyboard shortcuts](user-guide/keyboard-shortcuts.md) | All shortcuts |
 

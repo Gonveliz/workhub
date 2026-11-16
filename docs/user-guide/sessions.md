@@ -170,7 +170,7 @@ that wake the session, and **Stop**. On a narrow window the secondary controls f
 The panel button at the right end (**Hide the monitor**, ⇧⌘M) folds the side panel away and
 brings it back; its icon shows whether the panel is open.
 
-- **No output for 12 min**: a session that is working and whose agent has sent nothing for 10
+- **No output for …**: a session that is working and whose agent has sent nothing for 10
   minutes (the limit is in **Settings → General → On open and close**, or off) shows a notice
   under the header and **No output for …** in place of **Working**, with **Stop** and **Keep
   waiting**. Nothing is stopped for you: the agent may be thinking. **Keep waiting** asks again

@@ -252,8 +252,18 @@ Verify the download against its `.sha256` file if you want to be sure it is the 
 
 ## Other
 
-- **Pull requests say `gh` is not installed or signed out**: install the GitHub CLI and run
-  `gh auth login`, then refresh. Workhub stores no GitHub token.
+- **Pull requests say `gh` is not installed or signed out**: install the GitHub CLI and sign in
+  (**Sign in** on the GitHub row of **Help → Setup Check…**, or `gh auth login`), then refresh.
+  Workhub stores no GitHub token.
+- **The setup check says GitHub is not signed in, but `gh` has a token**: GitHub refused that
+  token (revoked or expired, or left in the keychain after `gh`'s settings were removed). Press
+  **Sign in** again. "Signed in, but GitHub did not answer" means the check got no answer at all:
+  checks that ask GitHub or GitLab wait at most 5 seconds, so a slow network or a rate limit
+  shows this. Check the network, then check again.
+- **A window shows "Something went wrong"**: part of the window failed to draw. Your sessions keep
+  running. **Reload window** draws it again and the chats come back; a single session that fails
+  shows "This session hit an error" with **Try again**. A window whose process crashes reloads by
+  itself, at most 3 times a minute. The error is in the log (**Help → Reveal Logs**).
 - **The Slack screen shows "Failing" or nothing**: check that **Watch Slack** is on, that the chosen
   Claude account has the Slack connector, that the channel ids are right and that the hours and days
   include now. Reads also wait when the account is over the usage guard or a ceiling.
