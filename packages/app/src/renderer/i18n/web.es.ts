@@ -96,7 +96,7 @@ export const webEs: Record<keyof typeof webEn, string> = {
   'web.session.file.tooLong': 'Es demasiado largo para mostrarlo acá. Descargalo para leerlo.',
   'web.session.file.loading': 'Trayendo desde la computadora…',
   'web.session.file.failed': 'No se pudo traer el archivo: {error}',
-  'web.session.file.tooLarge': 'El archivo es demasiado grande para mandarlo al celular.',
+  'web.session.file.tooLarge': 'El archivo es demasiado grande para abrirlo en el celular. Abrilo en la computadora.',
   'web.session.openSubagent': 'Ver subagente',
   'web.subagent.title': 'Subagente',
   'web.session.toolFailed': 'falló',

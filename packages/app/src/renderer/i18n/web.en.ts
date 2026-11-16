@@ -94,7 +94,7 @@ export const webEn = {
   'web.session.file.tooLong': 'Too long to show here. Download it to read it.',
   'web.session.file.loading': 'Fetching from the computer…',
   'web.session.file.failed': 'Could not fetch the file: {error}',
-  'web.session.file.tooLarge': 'The file is too large to send to the phone.',
+  'web.session.file.tooLarge': 'The file is too large to open on the phone. Open it on the computer.',
   'web.session.openSubagent': 'Open sub-agent',
   'web.subagent.title': 'Sub-agent',
   'web.session.toolFailed': 'failed',

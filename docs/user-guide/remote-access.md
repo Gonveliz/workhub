@@ -95,7 +95,7 @@ The phone opens the relay's address in its browser: the relay serves the phone a
    file fetches it from the computer and shows it in the chat: an image, a Markdown document with its
    formatting, or any other text (a log, source code, JSON) as it is, in a box that scrolls until you
    tap **Expand**. Text longer than 256 KB, and anything that is not text or an image (a PDF, an
-   archive), only downloads; files above 8 MB stay on the desktop. An image outside the folder opens too when
+   archive), only downloads; files above about 290 KB (what fits one relay frame once encoded) stay on the computer and show "too large to open on the phone". An image outside the folder opens too when
    the session's agent read or wrote it, such as a screenshot you gave it; other files outside do not. Opening a session loads its latest messages;
    scrolling up loads earlier ones a page at a time (very long tool output and pasted images stay
    on the desktop). Under the chat, in this order: a row that says how many of the session's

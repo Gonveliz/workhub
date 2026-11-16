@@ -3,11 +3,28 @@
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { basename, extname, isAbsolute, relative, resolve, sep } from 'node:path'
 import type { HistoryMessage } from '@workhub/core'
+import { fitsFrame, MAX_FRAME_BYTES } from '@workhub/protocol'
 import type { RemoteFile } from '../../shared/remote-api'
 import { RemoteRefused } from './dispatcher'
 
-/** Files above this are not sent to a phone. */
-export const REMOTE_FILE_MAX_BYTES = 8 * 1024 * 1024
+/**
+ * Whether a file of `size` bytes named `name` fits the answer to `remote:file`: the whole file goes
+ * base64-encoded in one `result` message, which must fit one relay frame (see fitsFrame).
+ */
+export function remoteFileFits(name: string, size: number): boolean {
+  // Nothing above the frame fits; this also keeps the probe below small.
+  if (size > MAX_FRAME_BYTES) return false
+  const data = 'A'.repeat(Math.ceil(size / 3) * 4)
+  return fitsFrame({ t: 'result', id: Number.MAX_SAFE_INTEGER, ok: true, value: { name, size, mime: 'application/octet-stream', data } })
+}
+
+/** The largest file, in bytes, that goes to a phone for a name of 255 bytes: about 290 KB, not the 8 MB the desktop could read. */
+export const REMOTE_FILE_MAX_BYTES = (() => {
+  const name = 'x'.repeat(255)
+  let size = MAX_FRAME_BYTES
+  while (size > 0 && !remoteFileFits(name, size)) size -= 1024
+  return size
+})()
 
 const MIME: Record<string, string> = {
   '.png': 'image/png',
@@ -125,7 +142,9 @@ export async function readRemoteFile(folder: string, path: string, touched?: () 
   }
   const info = await stat(target)
   if (!info.isFile()) throw new RemoteRefused('not a file')
-  if (info.size > REMOTE_FILE_MAX_BYTES) throw new RemoteRefused('the file is too large to send')
+  // Before reading: a file over the frame would be read and encoded only to be refused.
+  const name = basename(target)
+  if (!remoteFileFits(name, info.size)) throw new RemoteRefused('the file is too large to open on the phone')
   const bytes = await readFile(target)
-  return { name: basename(target), size: info.size, mime: mimeOf(target), data: bytes.toString('base64') }
+  return { name, size: info.size, mime: mimeOf(target), data: bytes.toString('base64') }
 }

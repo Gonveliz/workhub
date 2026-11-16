@@ -102,7 +102,7 @@ import { ContinuityService, type ContinuityDeps } from './continuity'
 import { HealthService } from './health-service'
 import { guardIpc, isTrustedRendererUrl } from './ipc-guard'
 import { timeIpc } from './ipc-timing'
-import { isRemoteSender, pageHistory, promptFromDevice, readActivity, recordIpc, RemoteActivityLog, RemoteHub, RemoteService, registerRemoteIpc, readRemoteFile, touchedPaths, type RemoteState } from './remote'
+import { broadcastToWindowsAndDevices, isRemoteSender, pageHistory, promptFromDevice, readActivity, recordIpc, RemoteActivityLog, RemoteHub, RemoteService, registerRemoteIpc, readRemoteFile, touchedPaths, type RemoteState } from './remote'
 import { rendererReporter, startDiagnostics } from './diagnostics'
 import { ReloadGuard, watchRenderer } from './render-recovery'
 import { permissionAllowed } from './permissions'
@@ -291,8 +291,7 @@ const remoteHub = new RemoteHub({
 })
 /** Tells every window, and every paired device, that the config changed. */
 const configChanged = () => {
-  BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('config:changed'))
-  remoteHub.tap('config:changed', [])
+  broadcastToWindowsAndDevices(BrowserWindow.getAllWindows(), remoteHub, 'config:changed')
 }
 // Every write tells every window (`config:changed`): a change in the Settings window shows in the main window.
 const configPath = join(dataDir, 'config.json')
@@ -1716,8 +1715,8 @@ const planner = new PlannerService({
   profiles: async () => (await configuration.current()).profiles,
   store: db.state<PlannerState>('planner-state', 500),
   tracker: (profileId, connectionId) => ticketService.trackerFor(profileId, connectionId),
-  // Every window: the main one, and the windows of single inbox items and milestones.
-  changed: (profileId) => BrowserWindow.getAllWindows().forEach((w) => !w.isDestroyed() && w.webContents.send('planner:changed', profileId))
+  // Every window (the main one, and the windows of single inbox items and milestones) and every paired device.
+  changed: (profileId) => broadcastToWindowsAndDevices(BrowserWindow.getAllWindows(), remoteHub, 'planner:changed', profileId)
 })
 
 const ticketWatcher = new TicketWatcher({

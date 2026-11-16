@@ -1,10 +1,16 @@
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RemoteRefused } from '../src/main/remote'
 import { readRemoteFile, resolveRemoteFile, touchedPaths } from '../src/main/remote/files'
 import type { HistoryMessage } from '@workhub/core'
+
+// Wraps readFile so a test can see whether a file was read at all.
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, readFile: vi.fn(actual.readFile) }
+})
 
 let base: string
 let folder: string
@@ -114,5 +120,26 @@ describe('remote files', () => {
       expect(asked).toBe(false)
       await expect(readRemoteFile(folder, shot())).rejects.toThrow(/not in the session folder/)
     })
+  })
+})
+
+describe('remote file size ceiling', () => {
+  it('refuses a file above what one relay frame holds without reading it', async () => {
+    const { REMOTE_FILE_MAX_BYTES } = await import('../src/main/remote/files')
+    await writeFile(join(folder, 'big.bin'), Buffer.alloc(REMOTE_FILE_MAX_BYTES + 4096))
+    const { readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockClear()
+    await expect(readRemoteFile(folder, 'big.bin')).rejects.toThrow(/too large to open on the phone/)
+    expect(readFile).not.toHaveBeenCalled()
+  })
+
+  it('sends a file just below the ceiling, and the answer fits a frame', async () => {
+    const { REMOTE_FILE_MAX_BYTES } = await import('../src/main/remote/files')
+    const { fitsFrame } = await import('@workhub/protocol')
+    expect(REMOTE_FILE_MAX_BYTES).toBeGreaterThan(200 * 1024)
+    expect(REMOTE_FILE_MAX_BYTES).toBeLessThan(520 * 1024)
+    await writeFile(join(folder, 'near.bin'), Buffer.alloc(REMOTE_FILE_MAX_BYTES))
+    const file = await readRemoteFile(folder, 'near.bin')
+    expect(fitsFrame({ t: 'result', id: 1, ok: true, value: file })).toBe(true)
   })
 })
