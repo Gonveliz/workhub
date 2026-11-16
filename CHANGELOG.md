@@ -4,6 +4,24 @@ All notable changes to Workhub 2 are listed here. Entries from 2.0.0-alpha.2 on 
 [release-please](https://github.com/googleapis/release-please) from the Conventional Commits on
 `main`; see the release process in [CONTRIBUTING.md](CONTRIBUTING.md#releases).
 
+## [2.0.0-alpha.35](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.34...v2.0.0-alpha.35) (2026-11-16)
+
+
+### Features
+
+* file mentions, project budgets, answers from the phone notification, and a smaller main entry file ([305d26b](https://github.com/SoldierIced/workhub/commit/305d26b1923b0210b8f348da9d4a39fc5880a749))
+* **home:** show what is still missing for the chosen goal ([0b81dad](https://github.com/SoldierIced/workhub/commit/0b81dad335631d6f1e7f837f47cf8cdf6b50ecef))
+* **remote:** deny a permission request from the phone's notification ([0846e42](https://github.com/SoldierIced/workhub/commit/0846e42a6074ee3b3f8f457cdbc6702b1dc322fa))
+* **sessions:** mention files with @ in the composer ([0846e42](https://github.com/SoldierIced/workhub/commit/0846e42a6074ee3b3f8f457cdbc6702b1dc322fa))
+* **setup:** a guided first run, installs from the app and sign-in inside the app ([4b6187b](https://github.com/SoldierIced/workhub/commit/4b6187b58c111beeff65ea3b5057adf7a77a8558))
+* **setup:** guide the first run and sign in inside the app ([0b81dad](https://github.com/SoldierIced/workhub/commit/0b81dad335631d6f1e7f837f47cf8cdf6b50ecef))
+* **usage:** add a monthly budget per project ([0846e42](https://github.com/SoldierIced/workhub/commit/0846e42a6074ee3b3f8f457cdbc6702b1dc322fa))
+
+
+### Bug Fixes
+
+* **setup:** create the first workspace even when its name is left empty ([0b81dad](https://github.com/SoldierIced/workhub/commit/0b81dad335631d6f1e7f837f47cf8cdf6b50ecef))
+
 ## [2.0.0-alpha.34](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.33...v2.0.0-alpha.34) (2026-11-16)
 
 
