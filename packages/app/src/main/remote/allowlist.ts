@@ -29,6 +29,12 @@ export const REMOTE_INVOKES: Readonly<Record<string, RemoteCapability | 'any'>> 
   'remote:sessions': 'sessions',
   'remote:activity': 'sessions',
   'history:search': 'sessions',
+  // What a session changed, read only, a page at a time (changes.ts: only files its review lists),
+  // and the decisions its review loop offers while it waits for the person (review.ts).
+  'remote:changes': 'sessions',
+  'remote:diff': 'sessions',
+  'remote:review': 'sessions',
+  'remote:reviewDecide': 'sessions',
   'codeHost:lists': 'pullRequests',
   'remote:pullRequests': 'pullRequests',
   'metricAlerts:list': 'health',

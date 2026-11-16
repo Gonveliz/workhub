@@ -55,8 +55,9 @@ export function mimeOf(path: string): string {
  */
 const SECRET_NAME = [/^\./, /^id_/i, /\.(pem|key|p12|pfx)$/i]
 
-function hasSecretPart(rel: string): boolean {
-  return rel.split(sep).some((part) => SECRET_NAME.some((re) => re.test(part)))
+/** Whether a relative path (native separators, or git's forward slashes) has a secret-like part. */
+export function hasSecretPart(rel: string): boolean {
+  return rel.split(/[\\/]/).some((part) => SECRET_NAME.some((re) => re.test(part)))
 }
 
 /** `rel` (from `relative(root, target)`) names something strictly inside `root`. */

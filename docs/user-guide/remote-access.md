@@ -27,7 +27,7 @@ phone (web app, later a native app)  ⇄  relay (your server, or one you trust) 
   the code your phone shows: their device gets another code, and a wrong code cancels the
   request. If a second device answers the same QR, the desktop cancels it and tells you.
 - **Capabilities.** A device gets only what you tick: sessions (view, chat, answer permissions,
-  close, open a new one in a profile folder), pull requests (read-only lists), automations (their notifications, and an Automations screen to run one, stop a run and turn one off), health and alerts, Plan. A device
+  close, open a new one in a profile folder, see what a session changed and answer its review loop), pull requests (read-only lists), automations (their notifications, and an Automations screen to run one, stop a run and turn one off), health and alerts, Plan. A device
   can call only what the phone app itself uses: it cannot review, comment on or close a pull request, or create, edit, remove or turn on an automation, whatever it was granted.
   Sessions mean the agents run code on this computer, so grant them to phones you hold; automations
   start unticked. A device can never pick a folder outside the profile's, open windows or dialogs
@@ -122,6 +122,18 @@ The phone opens the relay's address in its browser: the relay serves the phone a
    box sends a message or stops the
    turn; what you send shows in the desktop's chat as your message too. *New* opens a session in one of the profile's folders, with the agent and an optional
    first message; the session appears on the desktop too.
+   The **Changes** icon at the top of a session shows what it changed: the same changes as the
+   desktop's [review before a pull request](review-before-pr.md), read only. Pick *Branch vs base* or
+   *Uncommitted only*; each repository the session touched lists its branch, and each changed file
+   its status and the lines added and removed, a page at a time (*Load more*). A tap on a file shows
+   its diff, again a page at a time; very long lines are cut (the computer shows them whole). A
+   binary or too-large file, and hidden files or key-like names (`.env`, `id_rsa`), show a notice
+   instead of their content. The phone can only open files from that list. When the session has a
+   review loop, its state shows at the top of Changes; while it waits for you, the chat shows it
+   too, with the decisions the desktop offers at that point: **Continue** or **Stop review** for a
+   paused *Review before PR*, and for a *Review with another agent* loop the findings to send to the
+   author (with an optional note) or **Stop loop**. Everything else (comments on lines, finding
+   states, starting a review) stays on the computer.
    The search icon at the top of Sessions (a *Search sessions* box) searches the computer's History (see
    [History](history.md#find-and-filter)), limited to sessions run in the folders of the profile
    the phone has picked, the same folders it may open a session in. Results come best match first

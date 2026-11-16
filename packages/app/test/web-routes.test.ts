@@ -22,6 +22,12 @@ describe('web routes', () => {
     for (const hash of ['#session/s%2F1/agent/a1', '#new', '#prs', '#alerts', '#automations', '#settings', '#session/abc%2F1', '#plan/inbox', '#item/new', '#item/i%2F1', '#milestone/m1']) expect(routeHash(parseRoute(hash))).toBe(hash)
   })
 
+  it('opens a session’s changes, and round-trips the hash', () => {
+    expect(parseRoute('#session/s%2F1/changes')).toEqual({ screen: 'changes', sessionId: 's/1' })
+    expect(routeHash({ screen: 'changes', sessionId: 's/1' })).toBe('#session/s%2F1/changes')
+    expect(parseRoute('#session/%E0/changes')).toEqual({ screen: 'home' })
+  })
+
   it('splits the desktop a notification names off the hash', () => {
     const fp = 'a'.repeat(32)
     expect(splitDesktop(`#d/${fp}/session/s1`)).toEqual({ desktop: fp, hash: '#session/s1' })

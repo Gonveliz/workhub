@@ -100,8 +100,22 @@ never breaks the session.
   (`remote:sessions`, `remote:pullRequests` per list, each `{ limit, cursor }` → `{ items, nextCursor, total }`,
   `main/remote/paging.ts`), on top of the same handler and redaction as the unpaged call; a
   session too large for a page on its own goes as a stub (id, label, state). The desktop names
-  what it understands in its `ready` (`features`: `away`, `paging`, `activity`); a phone asks for
+  what it understands in its `ready` (`features`: `away`, `paging`, `activity`, `changes`); a phone asks for
   pages only when `paging` is named, so an older desktop and an older phone keep working.
+  What a session changed reaches a device through the desktop's own local review
+  (`LocalReviewService.load`, every change of the session's repos; `main/remote/changes.ts`):
+  `remote:changes` pages the changed files (repository key, path, status, line counts; never a
+  repository root), `remote:diff` pages one file's hunks cut into pieces of about 48 KB with lines
+  over 2,000 characters cut, so each page stays under `PAGE_BYTES`. The device names a file only by
+  the repository key and path the list sent, and gets a diff only for a file that list holds (read
+  again once when the cached one does not have it); dotfiles and key-like names are listed without
+  their content, as `remote:file` refuses them. A first page reads git again; later pages and diffs
+  answer from that read for a minute. `remote:review` gives the session's "Review before PR" and
+  "Review with another agent" loop trimmed to a frame, with the decisions the desktop panel offers
+  while each waits for the person: Continue or Stop for a paused review, the finding pick (with a
+  note) or Stop for a loop waiting for approval. `remote:reviewDecide` takes one of those for the
+  session the device names, never a review or loop id, and only while it is offered
+  (`main/remote/review.ts`). The phone asks for these only when `changes` is named.
 - Pairing (`protocol/src/pairing.ts`, `main/remote/service.ts`, `web/remote-client.ts`): the QR's
   offer carries `pv` (pairing version, 2). A version-2 request makes the desktop send, boxed to the
   device, a challenge: a fresh nonce signed over both fingerprints and the offer's expiry. Both

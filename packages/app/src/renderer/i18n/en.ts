@@ -35,6 +35,8 @@ import { usageReportsEn } from './usageReports.en'
 import { keyboardEn } from './keyboard.en'
 import { chatToolsEn } from './chatTools.en'
 import { sessionRequestsEn } from './sessionRequests.en'
+import { webChangesEn } from './webChanges.en'
+import { agentChangesEn } from './agentChanges.en'
 import { localReviewEn } from './localReview.en'
 import { unsavedEn } from './unsaved.en'
 import { planEn } from './plan.en'
@@ -204,6 +206,9 @@ export const en = {
   'home.tokensByFolder': 'Token spend by folder',
   'home.tokensByFolderMeta': 'tokens · last {days} days',
   'home.tokensByFolderEmpty': 'No agent activity in this profile\'s folders in the last {days} days',
+  'home.tokensBackground': 'Workhub background',
+  'home.tokensBackgroundValue': '{tokens} tokens · {usd}',
+  'home.tokensBackgroundHelp': 'Model runs Workhub starts by itself (Slack watcher reads, Listen summaries), every profile together. Usage and reports counts them as "Workhub background".',
   'home.tokensByFolderLoading': 'Reading transcripts…',
   'home.tokensByFolderNoFolders': 'No folders in this profile: add them in Settings → Profiles',
   'home.tokensByFolderRoot': '{name} (root)',
@@ -519,5 +524,7 @@ export const en = {
   ...usageReportsEn,
   ...keyboardEn,
   ...chatToolsEn,
-  ...sessionRequestsEn
+  ...sessionRequestsEn,
+  ...webChangesEn,
+  ...agentChangesEn
 } as const

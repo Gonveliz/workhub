@@ -1,4 +1,4 @@
-import { ArrowUp, Check, Download, FileText, Image as ImageIcon, Square, TriangleAlert, X } from 'lucide-react'
+import { ArrowUp, Check, Download, FileDiff, FileText, Image as ImageIcon, Square, TriangleAlert, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
 import type { ToolView } from '@workhub/core'
 import { Spinner } from '../../renderer/components/atoms'
@@ -10,7 +10,7 @@ import { answerText, openRequests, type AnswerPermission, type PermissionItem } 
 import { loadBacklog, loadEarlier, markPermission, pushUser, useSessions, type ChatItem, type SessionData } from '../../renderer/store'
 import { useNow } from '../../renderer/lib/usage'
 import { usePendingFocus } from '../../renderer/lib/pendingFocus'
-import type { RemoteFile, RemoteHistoryPage } from '../../shared/remote-api'
+import { REMOTE_FEATURES, type RemoteFile, type RemoteHistoryPage } from '../../shared/remote-api'
 import { navigate, useClient, useClientStatus } from '../app-context'
 import { filePreview, type FilePreview } from '../file-preview'
 import { takeFirstPrompt } from '../first-prompt'
@@ -20,6 +20,7 @@ import { SubagentLink } from './SubagentScreen'
 import { subagentOfCall } from '../../renderer/lib/subagentView'
 import { SessionActivity } from './SessionActivity'
 import { PermissionBadge } from './PermissionBadge'
+import { ReviewCard, reviewWaits, useRemoteReview } from './ReviewCard'
 
 const IMAGE = /\.(png|jpe?g|gif|webp|svg)$/i
 
@@ -302,6 +303,8 @@ export function SessionScreen({ id }: { id: string }) {
   const pendingBox = useRef<HTMLElement>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
   const focusAfterAnswer = usePendingFocus(pending, pendingBox, composer)
+  // A review loop waiting for the person shows its decisions here too; read again as the session's state moves.
+  const review = useRemoteReview(id, session?.view.state)
 
   const send = (value: string) => {
     pushUser(id, value)
@@ -343,9 +346,16 @@ export function SessionScreen({ id }: { id: string }) {
         }
         back={{ screen: 'home' }}
         right={
-          <button type="button" aria-label={t('web.session.closeSession')} onClick={() => setClosing(true)} className="flex size-10 items-center justify-center rounded-lg text-muted active:bg-surface-hover">
-            <X className="size-5" aria-hidden />
-          </button>
+          <>
+            {client.supports(REMOTE_FEATURES.changes) && (
+              <button type="button" aria-label={t('web.changes.open')} onClick={() => navigate({ screen: 'changes', sessionId: id })} className="flex size-10 items-center justify-center rounded-lg text-muted active:bg-surface-hover" data-testid="open-changes">
+                <FileDiff className="size-5" aria-hidden />
+              </button>
+            )}
+            <button type="button" aria-label={t('web.session.closeSession')} onClick={() => setClosing(true)} className="flex size-10 items-center justify-center rounded-lg text-muted active:bg-surface-hover">
+              <X className="size-5" aria-hidden />
+            </button>
+          </>
         }
       />
       <div className="px-4 pt-2">
@@ -393,6 +403,7 @@ export function SessionScreen({ id }: { id: string }) {
       {/* Sub-agents, background tasks and pinned requests share one scrolling area, so the chat keeps most of the screen. */}
       <div data-testid="chat-dock" className="flex max-h-[45dvh] shrink-0 flex-col overflow-y-auto">
       <SessionActivity sessionId={id} state={v.state} monitor={session.monitor} now={now} />
+      {reviewWaits(review.state) && review.state && <ReviewCard sessionId={id} state={review.state} onDone={review.reload} className="mx-4 my-2 shrink-0" />}
       {(pending.length > 0 || v.consoleAsking) && (
         <section ref={pendingBox} data-testid="pending-requests" aria-label={t('web.session.pendingRequests')} className="flex shrink-0 flex-col gap-2.5 border-t border-warning/30 bg-sidebar px-4 py-3">
           {pending.length > 0 && (

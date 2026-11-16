@@ -36,6 +36,8 @@ import { usageReportsEs } from './usageReports.es'
 import { keyboardEs } from './keyboard.es'
 import { chatToolsEs } from './chatTools.es'
 import { sessionRequestsEs } from './sessionRequests.es'
+import { webChangesEs } from './webChanges.es'
+import { agentChangesEs } from './agentChanges.es'
 import { localReviewEs } from './localReview.es'
 import { unsavedEs } from './unsaved.es'
 import { planEs } from './plan.es'
@@ -203,6 +205,9 @@ export const es: Record<keyof typeof en, string> = {
   'home.tokensByFolder': 'Gasto de tokens por carpeta',
   'home.tokensByFolderMeta': 'tokens · últimos {days} días',
   'home.tokensByFolderEmpty': 'Sin actividad de agentes en las carpetas de este perfil en los últimos {days} días',
+  'home.tokensBackground': 'Segundo plano de Workhub',
+  'home.tokensBackgroundValue': '{tokens} tokens · {usd}',
+  'home.tokensBackgroundHelp': 'Ejecuciones del modelo que Workhub inicia por su cuenta (lecturas de Slack, resúmenes para escuchar), de todos los perfiles. Uso y reportes las cuenta como "Segundo plano de Workhub".',
   'home.tokensByFolderLoading': 'Leyendo transcripciones…',
   'home.tokensByFolderNoFolders': 'Este perfil no tiene carpetas: agrégalas en Ajustes → Perfiles',
   'home.tokensByFolderRoot': '{name} (raíz)',
@@ -518,5 +523,7 @@ export const es: Record<keyof typeof en, string> = {
   ...usageReportsEs,
   ...keyboardEs,
   ...chatToolsEs,
-  ...sessionRequestsEs
+  ...sessionRequestsEs,
+  ...webChangesEs,
+  ...agentChangesEs
 }

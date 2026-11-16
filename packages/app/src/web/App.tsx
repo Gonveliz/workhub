@@ -17,6 +17,7 @@ import { PairScreen } from './screens/PairScreen'
 import { PullRequestsScreen } from './screens/PullRequestsScreen'
 import { SessionScreen } from './screens/SessionScreen'
 import { SubagentScreen } from './screens/SubagentScreen'
+import { ChangesScreen } from './screens/ChangesScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
 import { PlanScreen } from './screens/PlanScreen'
 import { NewItemScreen, PlanItemScreen } from './screens/PlanItemScreen'
@@ -109,6 +110,9 @@ function Shell({ defaultName }: { defaultName: string }) {
       break
     case 'subagent':
       screen = capabilities.includes('sessions') ? <SubagentScreen sessionId={route.sessionId} id={route.id} /> : <NotAllowed what={t('web.capability.sessions')} />
+      break
+    case 'changes':
+      screen = capabilities.includes('sessions') ? <ChangesScreen sessionId={route.sessionId} /> : <NotAllowed what={t('web.capability.sessions')} />
       break
     case 'pullRequests':
       screen = capabilities.includes('pullRequests') ? <PullRequestsScreen /> : <NotAllowed what={t('web.capability.pullRequests')} />

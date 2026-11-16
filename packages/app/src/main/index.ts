@@ -125,6 +125,8 @@ import { OwnerStarts } from './owner-starts'
 import { resolveChoice, SessionManager, ticketPrefixes } from './session-manager'
 import { registerLinksIpc } from './links'
 import { LocalReviewService, opensAsProgram, registerLocalReviewIpc } from './local-review'
+import { RemoteChanges, registerRemoteChangesIpc } from './remote/changes'
+import { registerRemoteReviewIpc } from './remote/review'
 import { CONTROL_ENV_KEYS, controlEnv, controlSocketPath, newControlToken, reviewPathOutside, startControlServer, startLoopbackControlServer, usesLoopbackControl, type ControlDeps, type ControlEndpoint } from './control-server'
 import { createAnalyticsControl } from './analytics-control'
 import { ControlTokens } from './control-auth'
@@ -1588,6 +1590,18 @@ function registerIpc(): void {
   // A paired device that connected while sub-agents or background tasks ran reads them here, for one
   // session or a list (see remote/activity.ts).
   ipc.handle('remote:activity', (_e, ids: unknown) => readActivity(remoteActivity, () => sessions.list().map((v) => v.id), ids))
+  // A paired device reads what a session changed, through the desktop's own local review (remote/changes.ts),
+  // and takes the decisions its review loop offers while it waits for the person (remote/review.ts).
+  registerRemoteChangesIpc(ipc, new RemoteChanges({ sessions: () => sessions.list(), load: (id, scope) => localReview.load(id, scope, 'repo') }))
+  registerRemoteReviewIpc(ipc, {
+    sessions: () => sessions.list(),
+    reviews: () => aiReview.snapshot().reviews,
+    loops: () => agentReview.snapshot(),
+    continueReview: (id) => aiReview.continue(id),
+    stopReview: (id) => aiReview.stopReview(id),
+    approveLoop: (id, keep, note) => agentReview.approve(id, keep, note),
+    stopLoop: (id) => agentReview.stop(id)
+  })
   registerChatIpc(ipc, { slack, automations, configuration, guarded })
   // The chat's Listen button: a long agent message is summarized (one small Haiku query) before it is read aloud.
   const listenSummarizer = new ListenSummarizer({ bridgeDir, cwd: dataDir })

@@ -8,6 +8,8 @@ export type Route =
   | { screen: 'session'; id: string }
   /** A sub-agent's conversation, of an open session. */
   | { screen: 'subagent'; sessionId: string; id: string }
+  /** What an open session changed, and its review loop. */
+  | { screen: 'changes'; sessionId: string }
   | { screen: 'pullRequests' }
   | { screen: 'alerts' }
   | { screen: 'automations' }
@@ -65,6 +67,11 @@ export function parseRoute(hash: string): Route {
     const id = decodeId(milestone[1]!)
     return id === null ? { screen: 'home' } : { screen: 'milestone', id }
   }
+  const changes = /^session\/([^/?#]+)\/changes$/.exec(h)
+  if (changes) {
+    const sessionId = decodeId(changes[1]!)
+    return sessionId === null ? { screen: 'home' } : { screen: 'changes', sessionId }
+  }
   const subagent = /^session\/([^/?#]+)\/agent\/([^/?#]+)/.exec(h)
   if (subagent) {
     const sessionId = decodeId(subagent[1]!)
@@ -89,6 +96,8 @@ export function routeHash(route: Route): string {
       return `#session/${encodeURIComponent(route.id)}`
     case 'subagent':
       return `#session/${encodeURIComponent(route.sessionId)}/agent/${encodeURIComponent(route.id)}`
+    case 'changes':
+      return `#session/${encodeURIComponent(route.sessionId)}/changes`
     case 'pullRequests':
       return '#prs'
     case 'alerts':

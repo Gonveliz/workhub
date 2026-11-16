@@ -98,7 +98,7 @@ export interface RemoteHistoryPage {
  * paged lists or session activity only when the desktop names the feature; an older desktop gets
  * the calls it always had.
  */
-export const REMOTE_FEATURES = { away: 'away', paging: 'paging', activity: 'activity', automations: 'automations' } as const
+export const REMOTE_FEATURES = { away: 'away', paging: 'paging', activity: 'activity', automations: 'automations', changes: 'changes' } as const
 
 /** A page of a long list a device asks for (`remote:sessions`, `remote:pullRequests`, `remote:automations`, `remote:automationRuns`). */
 export interface RemotePageRequest {
