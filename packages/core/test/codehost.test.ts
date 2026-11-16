@@ -82,6 +82,12 @@ function fakeHost(over: Partial<CodeHost> = {}): CodeHost & { calls: string[] } 
     comment: async (_r, b) => void calls.push(`comment:${b}`),
     replyToThread: async () => undefined,
     close: async (_r, o) => void calls.push(`close:${o.comment}:${o.deleteBranch}:${o.branch}`),
+    createPullRequest: async (input) => {
+      calls.push(`create:${input.branch}->${input.base}:${input.title}:${input.draft}`)
+      return { provider: 'github', owner: input.repository.owner, repo: input.repository.repo, number: 9, url: `https://github.com/${input.repository.owner}/${input.repository.repo}/pull/9` }
+    },
+    mergeMethods: async () => ['merge', 'squash'],
+    merge: async (_r, o) => void calls.push(`merge:${o.method}:${o.deleteBranch}:${o.branch}`),
     ...over
   }
 }

@@ -178,6 +178,80 @@ describe('GitHubCodeHost writes (mock runner only)', () => {
   })
 })
 
+describe('GitHubCodeHost create and merge (mock runner only)', () => {
+  const ref = { provider: 'github', owner: 'acme', repo: 'api', number: 7, url: 'https://github.com/acme/api/pull/7' }
+  const recording = (answer: (args: string[]) => { code: number; stdout?: string; stderr?: string }) => {
+    const calls: string[][] = []
+    const run: CliRunner = async (c, args) => {
+      calls.push([c, ...args])
+      const a = answer(args)
+      return { code: a.code, stdout: a.stdout ?? '', stderr: a.stderr ?? '' }
+    }
+    return { calls, run }
+  }
+  const input = { repository: { owner: 'acme', repo: 'api' }, branch: 'feat/x', base: 'main', title: 'Add $(whoami)', body: '`body`', draft: true }
+
+  it('creates with --head and --base and reads the new PR from the output', async () => {
+    const { calls, run } = recording(() => ({ code: 0, stdout: 'https://github.com/acme/api/pull/12\n' }))
+    const made = await new GitHubCodeHost({ run }).createPullRequest(input)
+    expect(made).toMatchObject({ owner: 'acme', repo: 'api', number: 12 })
+    expect(calls).toEqual([['gh', 'pr', 'create', '--repo', 'acme/api', '--head', 'feat/x', '--base', 'main', '--title', 'Add $(whoami)', '--body', '`body`', '--draft']])
+  })
+
+  it('names the Enterprise host in --repo', async () => {
+    const { calls, run } = recording(() => ({ code: 0, stdout: 'https://ghe.example.com/acme/api/pull/3' }))
+    await new GitHubCodeHost({ run, host: 'ghe.example.com' }).createPullRequest({ ...input, draft: false })
+    expect(calls[0]!.slice(0, 5)).toEqual(['gh', 'pr', 'create', '--repo', 'ghe.example.com/acme/api'])
+    expect(calls[0]).not.toContain('--draft')
+  })
+
+  it('refuses bad refs without running gh', async () => {
+    const { calls, run } = recording(() => ({ code: 0 }))
+    const h = new GitHubCodeHost({ run })
+    await expect(h.createPullRequest({ ...input, branch: '--force' })).rejects.toMatchObject({ kind: 'unsupported' })
+    await expect(h.merge(ref, { method: 'merge', deleteBranch: true, branch: 'a..b' })).rejects.toMatchObject({ kind: 'unsupported' })
+    expect(calls).toEqual([])
+  })
+
+  it('maps create failures', async () => {
+    const exists = recording(() => ({ code: 1, stderr: 'a pull request for branch "feat/x" into branch "main" already exists:\nhttps://github.com/acme/api/pull/3' }))
+    await expect(new GitHubCodeHost({ run: exists.run }).createPullRequest(input)).rejects.toMatchObject({ kind: 'exists' })
+    const forbidden = recording(() => ({ code: 1, stderr: 'GraphQL: Resource not accessible by integration (createPullRequest)' }))
+    await expect(new GitHubCodeHost({ run: forbidden.run }).createPullRequest(input)).rejects.toMatchObject({ kind: 'forbidden' })
+  })
+
+  it('merges with the method flag, then deletes the branch through the API', async () => {
+    const { calls, run } = recording(() => ({ code: 0 }))
+    const h = new GitHubCodeHost({ run })
+    await h.merge(ref, { method: 'squash', deleteBranch: true, branch: 'feat/x' })
+    await h.merge(ref, { method: 'rebase', deleteBranch: false, branch: 'feat/x' })
+    expect(calls).toEqual([
+      ['gh', 'pr', 'merge', ref.url, '--squash'],
+      ['gh', 'api', '--method', 'DELETE', 'repos/acme/api/git/refs/heads/feat/x'],
+      ['gh', 'pr', 'merge', ref.url, '--rebase']
+    ])
+  })
+
+  it('treats a branch the host already deleted as deleted', async () => {
+    const { run } = recording((args) => (args[0] === 'api' ? { code: 1, stderr: 'gh: Reference does not exist (HTTP 422)' } : { code: 0 }))
+    await expect(new GitHubCodeHost({ run }).merge(ref, { method: 'merge', deleteBranch: true, branch: 'feat/x' })).resolves.toBeUndefined()
+  })
+
+  it('maps merge failures to not mergeable, failing checks and no permission', async () => {
+    const fail = (stderr: string) => new GitHubCodeHost({ run: recording(() => ({ code: 1, stderr })).run }).merge(ref, { method: 'merge', deleteBranch: false, branch: 'feat/x' })
+    await expect(fail('X Pull request acme/api#7 is not mergeable: the merge commit cannot be cleanly created.')).rejects.toMatchObject({ kind: 'notMergeable' })
+    await expect(fail('GraphQL: Required status check "build" is failing (mergePullRequest)')).rejects.toMatchObject({ kind: 'checksFailing' })
+    await expect(fail('GraphQL: acme-bot does not have the correct permissions to execute `MergePullRequest` (mergePullRequest)')).rejects.toMatchObject({ kind: 'forbidden' })
+    await expect(fail('connection reset')).rejects.toMatchObject({ kind: 'failed', message: 'connection reset' })
+  })
+
+  it('reads the merge methods the repository allows', async () => {
+    const { calls, run } = recording(() => ({ code: 0, stdout: JSON.stringify({ mergeCommitAllowed: false, squashMergeAllowed: true, rebaseMergeAllowed: true }) }))
+    expect(await new GitHubCodeHost({ run }).mergeMethods(ref)).toEqual(['squash', 'rebase'])
+    expect(calls[0]).toEqual(['gh', 'repo', 'view', 'acme/api', '--json', 'mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed'])
+  })
+})
+
 describe('shared CLI helpers', () => {
   it('parses paginated output', () => {
     expect(parseJsonPages('[{"a":1}][{"a":2}]')).toEqual([{ a: 1 }, { a: 2 }])

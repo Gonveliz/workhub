@@ -197,3 +197,63 @@ describe('GitLabCodeHost writes (mock runner only)', () => {
     expect(host.recognizes('https://github.com/a/b/pull/1')).toBe(false)
   })
 })
+
+describe('GitLabCodeHost create and merge (mock runner only)', () => {
+  const project = 'projects/acme-demo%2Fteam%2Fshop'
+  const input = { repository: { owner: 'acme-demo/team', repo: 'shop' }, branch: 'feat/x', base: 'main', title: 'Add x', body: 'Why', draft: true }
+
+  it('creates through the API, marking a draft in the title', async () => {
+    const run = runner([{ match: /merge_requests$/, out: { web_url: `${WEB}/9` } }])
+    const made = await new GitLabCodeHost({ run }).createPullRequest(input)
+    expect(made).toMatchObject({ owner: 'acme-demo/team', repo: 'shop', number: 9 })
+    expect(run.calls).toEqual([
+      ['glab', 'api', '--method', 'POST', `${project}/merge_requests`, '--raw-field', 'source_branch=feat/x', '--raw-field', 'target_branch=main', '--raw-field', 'title=Draft: Add x', '--raw-field', 'description=Why']
+    ])
+  })
+
+  it('uses --hostname on a self-managed GitLab and refuses bad refs before running glab', async () => {
+    const run = runner([{ match: /merge_requests$/, out: { web_url: 'https://git.example.com/acme-demo/team/shop/-/merge_requests/2' } }])
+    const host = new GitLabCodeHost({ run, host: 'git.example.com' })
+    await host.createPullRequest({ ...input, draft: false })
+    expect(run.calls[0]!.slice(0, 3)).toEqual(['glab', 'api', '--hostname'])
+    await expect(host.createPullRequest({ ...input, base: '-x' })).rejects.toMatchObject({ kind: 'unsupported' })
+    expect(run.calls).toHaveLength(1)
+  })
+
+  it('maps an existing merge request and a missing permission', async () => {
+    const exists = runner([{ match: /merge_requests$/, code: 1, err: '409 Conflict: Another open merge request already exists for this source branch: !5' }])
+    await expect(new GitLabCodeHost({ run: exists }).createPullRequest(input)).rejects.toMatchObject({ kind: 'exists' })
+    const forbidden = runner([{ match: /merge_requests$/, code: 1, err: '403 Forbidden' }])
+    await expect(new GitLabCodeHost({ run: forbidden }).createPullRequest(input)).rejects.toMatchObject({ kind: 'forbidden' })
+  })
+
+  it('merges now, squashing and removing the source branch when asked', async () => {
+    const run = runner([{ match: /\/merge$/, out: {} }])
+    const host = new GitLabCodeHost({ run })
+    await host.merge(ref, { method: 'squash', deleteBranch: true, branch: 'feat/x' })
+    await host.merge(ref, { method: 'merge', deleteBranch: false, branch: 'feat/x' })
+    const mr = `${project}/merge_requests/5/merge`
+    expect(run.calls).toEqual([
+      ['glab', 'api', '--method', 'PUT', mr, '--field', 'squash=true', '--field', 'should_remove_source_branch=true'],
+      ['glab', 'api', '--method', 'PUT', mr, '--field', 'squash=false']
+    ])
+    await expect(host.merge(ref, { method: 'rebase', deleteBranch: false, branch: 'feat/x' })).rejects.toMatchObject({ kind: 'unsupported' })
+    expect(run.calls).toHaveLength(2)
+  })
+
+  it('maps merge failures', async () => {
+    const fail = (err: string) => new GitLabCodeHost({ run: runner([{ match: /\/merge$/, code: 1, err }]) }).merge(ref, { method: 'merge', deleteBranch: false, branch: 'feat/x' })
+    await expect(fail('405 Method Not Allowed')).rejects.toMatchObject({ kind: 'notMergeable' })
+    await expect(fail('406 Branch cannot be merged')).rejects.toMatchObject({ kind: 'notMergeable' })
+    await expect(fail('405: Pipeline must succeed before merging')).rejects.toMatchObject({ kind: 'checksFailing' })
+    await expect(fail('403 Forbidden')).rejects.toMatchObject({ kind: 'forbidden' })
+    await expect(fail('401 Unauthorized')).rejects.toMatchObject({ kind: 'signedOut' })
+  })
+
+  it('offers the methods the project\'s squash option allows', async () => {
+    const methods = (squash_option: string) => new GitLabCodeHost({ run: runner([{ match: /^projects\/[^/]+$/, out: { squash_option } }]) }).mergeMethods(ref)
+    expect(await methods('always')).toEqual(['squash'])
+    expect(await methods('never')).toEqual(['merge'])
+    expect(await methods('default_off')).toEqual(['merge', 'squash'])
+  })
+})

@@ -136,6 +136,29 @@ export interface DiffFile {
 
 export type ReviewAction = 'approve' | 'requestChanges' | 'comment'
 
+/** How a PR lands on its base. GitLab offers `merge` and `squash` (its project setting picks merge commit or fast-forward). */
+export type MergeMethod = 'merge' | 'squash' | 'rebase'
+
+export const MERGE_METHODS: readonly MergeMethod[] = ['merge', 'squash', 'rebase']
+
+/** A repository on the host: `owner/repo` (GitLab: the group path and the project). */
+export interface RepositoryRef {
+  owner: string
+  repo: string
+}
+
+/** What "Create pull request" sends: the head branch must already be on the host (Workhub never pushes it). */
+export interface NewPullRequest {
+  repository: RepositoryRef
+  /** Head (source) branch. */
+  branch: string
+  /** Base (target) branch. */
+  base: string
+  title: string
+  body: string
+  draft: boolean
+}
+
 /** What a host can do from Workhub: GitLab has no "request changes" verdict on every plan. */
 export interface CodeHostCapabilities {
   reviewActions: readonly ReviewAction[]
@@ -149,11 +172,19 @@ export type CodeHostStatus =
   | { state: 'signedOut'; cli: string }
   | { state: 'error'; message: string }
 
+/**
+ * Why a write was refused, when the host's text says so: the PR cannot be merged (conflicts, draft,
+ * a branch rule), its checks fail, the login lacks the permission, or the PR already exists.
+ */
+export type CodeHostFailure = 'notMergeable' | 'checksFailing' | 'forbidden' | 'exists'
+
+export type CodeHostErrorKind = 'missingCli' | 'signedOut' | 'failed' | 'unsupported' | CodeHostFailure
+
 /** An error from the host with a message fit for the user (the CLI's own text). */
 export class CodeHostError extends Error {
   constructor(
     message: string,
-    readonly kind: 'missingCli' | 'signedOut' | 'failed' | 'unsupported' = 'failed'
+    readonly kind: CodeHostErrorKind = 'failed'
   ) {
     super(message)
     this.name = 'CodeHostError'

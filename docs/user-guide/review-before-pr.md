@@ -54,6 +54,10 @@ shows a single item for the whole review. **Stop loop** ends the loop instead. *
 shows the same list in a window of its own, with every finding open and larger text; you can pick
 and send from either place.
 
+When the branch is pushed, the brief the author wrote also becomes the starting description of
+**Create pull request…** in the session monitor; see
+[Pull requests](pull-requests.md#create-a-pull-request-from-a-session).
+
 ### The base prompt
 
 The prompt in the dialog starts from a per-profile text. Change the default in **Settings →
@@ -107,6 +111,10 @@ goes to the dev session now and to the reviewer in the next round. It pauses for
 reviewer asks you to decide scope or design, when a finding stays open after two fix attempts, or
 when the dev agent disputes a finding. A review is also held when the reviewer's account is past
 its usage ceiling (**Run anyway** overrides it).
+
+**Ready for PR** is where the review ends. Push the branch yourself (Workhub never pushes it), then
+open the pull request with **Create pull request…** in the session monitor, and merge it later from
+the pull request window; see [Pull requests](pull-requests.md#create-a-pull-request-from-a-session).
 
 Settings are per profile, in **Settings → Profiles → (profile) → Screens → Review before the pull request**:
 

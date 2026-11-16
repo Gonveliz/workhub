@@ -1,11 +1,17 @@
 import {
+  classifyCodeHostFailure,
   CodeHostError,
+  createRefusal,
   githubRecognizer,
+  isSafeRefName,
+  MERGE_METHODS,
   parseUnifiedDiff,
   type CodeHost,
   type CodeHostCapabilities,
   type CodeHostStatus,
   type DiffFile,
+  type MergeMethod,
+  type NewPullRequest,
   type PullRequest,
   type PullRequestDetail,
   type PullRequestQuery,
@@ -33,6 +39,9 @@ const VIEW_FIELDS = [
 ].join(',')
 
 const REVIEW_FLAG: Record<ReviewAction, string> = { approve: '--approve', requestChanges: '--request-changes', comment: '--comment' }
+
+const MERGE_FLAG: Record<MergeMethod, string> = { merge: '--merge', squash: '--squash', rebase: '--rebase' }
+const MERGE_ALLOWED: Record<MergeMethod, string> = { merge: 'mergeCommitAllowed', squash: 'squashMergeAllowed', rebase: 'rebaseMergeAllowed' }
 
 export interface GitHubCodeHostOptions {
   run: CliRunner
@@ -76,6 +85,21 @@ export class GitHubCodeHost implements CodeHost {
     }
     if (result.code !== 0) throw new CodeHostError(failureText(result, fallback))
     return result
+  }
+
+  /** A write whose failure text may say why (not mergeable, checks failing, no permission, already exists). */
+  private async write(args: string[], fallback: string): Promise<CliResult> {
+    try {
+      return await this.gh(args, fallback)
+    } catch (e) {
+      if (e instanceof CodeHostError && e.kind === 'failed') throw new CodeHostError(e.message, classifyCodeHostFailure(e.message) ?? 'failed')
+      throw e
+    }
+  }
+
+  /** `owner/repo`, with the host in front on GitHub Enterprise (`gh --repo HOST/OWNER/REPO`). */
+  private repoArg(owner: string, repo: string): string {
+    return this.host === 'github.com' ? `${owner}/${repo}` : `${this.host}/${owner}/${repo}`
   }
 
   async status(): Promise<CodeHostStatus> {
@@ -154,6 +178,44 @@ export class GitHubCodeHost implements CodeHost {
     if (options.comment) args.push('--comment', options.comment)
     if (options.deleteBranch) args.push('--delete-branch')
     await this.gh(args, 'gh pr close failed')
+  }
+
+  async createPullRequest(input: NewPullRequest): Promise<PullRequestRef> {
+    const refusal = createRefusal(input)
+    if (refusal) throw new CodeHostError(`create refused: ${refusal}`, 'unsupported')
+    // `--head` names the branch on the host, so gh neither looks at a checkout nor offers to push.
+    const args = ['pr', 'create', '--repo', this.repoArg(input.repository.owner, input.repository.repo), '--head', input.branch, '--base', input.base, '--title', input.title, '--body', input.body]
+    if (input.draft) args.push('--draft')
+    const result = await this.write(args, 'gh pr create failed')
+    const ref = result.stdout.split(/\s+/).map((w) => this.recognizer.parse(w)).find((r) => r !== null)
+    if (!ref) throw new CodeHostError('GitHub created the pull request, but Workhub could not read its address')
+    return ref
+  }
+
+  async mergeMethods(ref: PullRequestRef): Promise<MergeMethod[]> {
+    const fields = MERGE_METHODS.map((m) => MERGE_ALLOWED[m]).join(',')
+    const result = await this.gh(['repo', 'view', this.repoArg(ref.owner, ref.repo), '--json', fields], 'Could not read the repository settings')
+    let parsed: Record<string, unknown>
+    try {
+      parsed = JSON.parse(result.stdout) as Record<string, unknown>
+    } catch {
+      throw new CodeHostError('GitHub returned an answer Workhub could not read')
+    }
+    return MERGE_METHODS.filter((m) => parsed[MERGE_ALLOWED[m]] === true)
+  }
+
+  async merge(ref: PullRequestRef, options: { method: MergeMethod; deleteBranch: boolean; branch: string }): Promise<void> {
+    // No `--auto`: merge now or fail with the reason. No `--delete-branch` either: gh would also
+    // delete a local branch of that name in whatever checkout it runs from; the API call below only
+    // touches the host.
+    if (options.deleteBranch && !isSafeRefName(options.branch)) throw new CodeHostError('Bad branch name', 'unsupported')
+    await this.write(['pr', 'merge', ref.url, MERGE_FLAG[options.method]], 'gh pr merge failed')
+    if (!options.deleteBranch) return
+    const deleted = await this.run('gh', ['api', ...this.hostArgs, '--method', 'DELETE', `repos/${ref.owner}/${ref.repo}/git/refs/heads/${options.branch}`])
+    // A repository that deletes head branches on merge already did it.
+    if (deleted.code !== 0 && !/Reference does not exist|\b(404|422)\b/i.test(deleted.stderr + deleted.stdout)) {
+      throw new CodeHostError(`Merged, but the branch could not be deleted: ${failureText(deleted, 'unknown error')}`)
+    }
   }
 
   async replyToThread(ref: PullRequestRef, threadId: string, body: string): Promise<void> {

@@ -68,7 +68,27 @@ Actions on the toolbar:
   the branch**. Long-lived branches are never deleted: the list is **Protected branches** in
   **Settings → Connections → Code**, and `release…` branches are always kept. A closed pull
   request can be reopened on the code host.
+- **Merge…** merges it now. It is enabled only while the pull request is open, not a draft, and
+  the code host reports it as mergeable. The dialog offers the methods the repository allows
+  (**Merge commit**, **Squash and merge**, **Rebase and merge** on GitHub; on GitLab the project's
+  own method, with squashing as its squash option allows) and **Delete the branch**, locked for
+  protected branches as above. The confirmation names the method and whether the branch is
+  deleted. When the code host refuses (conflicts, failing or unfinished required checks, no
+  permission), the dialog says which. After a merge, sessions working in a worktree on the
+  pull request's branch are offered to close with their worktree removed; nothing happens until
+  you click, and a worktree with uncommitted or unpushed work is kept.
 - **Copy link**.
+
+## Create a pull request from a session
+
+When a session's branch is pushed, has commits beyond the base and has no open pull request, the
+session monitor shows **New pull request** with **Create pull request…**. The form starts with the
+first commit's subject as the title, the review brief as the description when **Review before PR**
+produced one, and the remote's default branch as the base; **Open as a draft** is off. Nothing is
+sent until you press **Create pull request**; the new pull request then opens in its own window.
+
+Workhub never pushes a branch. If the remote does not have the branch, or lacks some of its
+commits, the monitor says so and shows the push command with **Copy**.
 
 ## Notifications
 

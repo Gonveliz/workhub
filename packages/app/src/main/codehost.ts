@@ -15,11 +15,16 @@ import {
   loadReviewQueue,
   normalizePullRequestFilter,
   closePullRequest,
+  createPullRequest,
+  MERGE_METHODS,
+  mergePullRequest,
   postComment,
   submitReview,
   toItem,
   type CodeHost,
   type Connection,
+  type MergeMethod,
+  type NewPullRequest,
   type Profile,
   type PullRequest,
   type PullRequestFilterSettings,
@@ -28,7 +33,16 @@ import {
   type WorkhubConfig
 } from '@workhub/core'
 import type { IpcRegistrar } from './ipc-guard'
-import { isPullRequestWindowTab, type CodeHostActionResult, type CodeHostLists, type PullRequestViewResult, type PullRequestWindowTab } from '../shared/codehost-api'
+import {
+  isPullRequestWindowTab,
+  type CodeHostActionResult,
+  type CodeHostLists,
+  type CreatePullRequestResult,
+  type MergeMethodsResult,
+  type MergeResult,
+  type PullRequestViewResult,
+  type PullRequestWindowTab
+} from '../shared/codehost-api'
 
 const exec = promisify(execFile)
 const LIST_TTL_MS = 30_000
@@ -45,6 +59,8 @@ interface Resolved {
 }
 
 const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e))
+/** The error of a failed write for the renderer, with the host's reason when it gave one. */
+const failureOf = (e: unknown) => ({ ok: false as const, error: messageOf(e), ...(e instanceof CodeHostError && e.kind !== 'failed' ? { kind: e.kind } : {}) })
 
 /** The web host of a connection endpoint (`https://git.example.com/` -> `git.example.com`); undefined for the public defaults. */
 function hostOf(endpoint: string | undefined, publicHosts: string[]): string | undefined {
@@ -253,7 +269,62 @@ export class CodeHostService {
       this.cache.delete(resolved.key)
       return { ok: true }
     } catch (e) {
+      return failureOf(e)
+    }
+  }
+
+  /** Forgets what is known of one PR, so the lists and the session monitor read it again. */
+  private forget(key: string, url: string): void {
+    this.cache.delete(key)
+    for (const k of this.items.keys()) if (k.endsWith(`\n${url}`)) this.items.delete(k)
+  }
+
+  /** Whether the profile has a code host Workhub can use. */
+  async connected(profileId: string | null): Promise<boolean> {
+    return (await this.resolve(profileId)) !== null
+  }
+
+  /** Opens a PR on the profile's code host; the caller made sure the branch is pushed. */
+  async create(profileId: string | null, input: NewPullRequest): Promise<CreatePullRequestResult> {
+    const resolved = await this.resolve(profileId)
+    if (!resolved) return { ok: false, error: 'No code host is connected to this profile' }
+    try {
+      const ref = await createPullRequest(resolved.host, input)
+      this.forget(resolved.key, ref.url)
+      return { ok: true, url: ref.url }
+    } catch (e) {
+      return failureOf(e)
+    }
+  }
+
+  async mergeMethods(profileId: string | null, url: string): Promise<MergeMethodsResult> {
+    const resolved = await this.resolve(profileId)
+    const ref = resolved?.host.parseUrl(url)
+    if (!resolved || !ref) return { ok: false, error: 'This is not a pull request of the connected code host' }
+    try {
+      return { ok: true, methods: await resolved.host.mergeMethods(ref) }
+    } catch (e) {
       return { ok: false, error: messageOf(e) }
+    }
+  }
+
+  /** Merges now with an allowed method; a protected head branch is kept whatever was asked. */
+  async merge(profileId: string | null, url: string, method: MergeMethod, deleteBranch: boolean): Promise<MergeResult> {
+    const resolved = await this.resolve(profileId)
+    const ref = resolved?.host.parseUrl(url)
+    if (!resolved || !ref) return { ok: false, error: 'This is not a pull request of the connected code host' }
+    const { host } = resolved
+    try {
+      const [pr, allowed] = await Promise.all([host.detail(ref), host.mergeMethods(ref)])
+      const protectedBranches = appOptions(await this.loadConfig()).protectedBranches
+      const { branchDeleted } = await mergePullRequest(host, ref, pr, { method, deleteBranch, allowed, protectedBranches })
+      return { ok: true, branchDeleted }
+    } catch (e) {
+      // A failure after the merge itself (deleting the branch) still leaves a merged PR.
+      const after = await host.detail(ref).catch(() => null)
+      return after?.state === 'merged' ? { ok: true, branchDeleted: false, warning: messageOf(e) } : failureOf(e)
+    } finally {
+      this.forget(resolved.key, ref.url)
     }
   }
 
@@ -316,6 +387,12 @@ export function registerCodeHostIpc(ipc: IpcRegistrar, { service, openWindow, sh
   )
   ipc.handle('codeHost:close', (_e, profileId: string | null, url: string, comment: unknown, deleteBranch: unknown) =>
     service.close(profileId, url, typeof comment === 'string' ? comment : '', deleteBranch === true)
+  )
+  ipc.handle('codeHost:mergeMethods', (_e, profileId: string | null, url: string) => service.mergeMethods(profileId, url))
+  ipc.handle('codeHost:merge', (_e, profileId: string | null, url: string, method: unknown, deleteBranch: unknown) =>
+    MERGE_METHODS.includes(method as MergeMethod)
+      ? service.merge(profileId, url, method as MergeMethod, deleteBranch === true)
+      : { ok: false, error: 'Unknown merge method' }
   )
   ipc.handle('codeHost:openWindow', async (_e, profileId: string | null, url: string, tab?: unknown) => {
     if (await service.recognizes(profileId, url)) openWindow(profileId, url, isPullRequestWindowTab(tab) ? tab : undefined)

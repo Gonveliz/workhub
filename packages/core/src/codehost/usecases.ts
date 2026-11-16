@@ -1,7 +1,10 @@
 import {
   CodeHostError,
   type CodeHostCapabilities,
+  type CodeHostFailure,
   type DiffFile,
+  type MergeMethod,
+  type NewPullRequest,
   type PullRequest,
   type PullRequestDetail,
   type PullRequestRef,
@@ -187,6 +190,91 @@ export async function closePullRequest(host: CodeHost, ref: PullRequestRef, pr: 
   const refusal = closeRefusal(pr, isMine)
   if (refusal) throw new CodeHostError(`close refused: ${refusal}`, 'unsupported')
   await host.close(ref, { comment: options.comment.trim(), deleteBranch: options.deleteBranch && !isLongLivedBranch(pr.branch, options.protectedBranches), branch: pr.branch })
+}
+
+/**
+ * A branch name Workhub hands to a CLI: plain ref characters only, never something read as an
+ * option (`-x`), a range (`a..b`) or a path trick. Stricter than git, on purpose.
+ */
+export function isSafeRefName(name: string): boolean {
+  return (
+    name.length > 0 &&
+    name.length <= 255 &&
+    /^[A-Za-z0-9._/-]+$/.test(name) &&
+    !/^[-./]/.test(name) &&
+    !/[/.]$/.test(name) &&
+    !name.endsWith('.lock') &&
+    !/\.\.|\/\/|\/\.|\/-/.test(name)
+  )
+}
+
+/** `owner/repo` (GitLab: `group/sub/project`) made of plain path segments, none read as an option. */
+export function isSafeRepositoryPath(path: string): boolean {
+  return path.length <= 400 && path.split('/').length >= 2 && path.split('/').every((s) => /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(s))
+}
+
+const FAILURE_TEXT: readonly [CodeHostFailure, RegExp][] = [
+  ['exists', /already exists/i],
+  ['checksFailing', /status checks?|required checks?|checks? (?:are |is |have )?fail|pipeline (?:must|has not|did not|failed|is (?:still )?running)/i],
+  ['forbidden', /\b403\b|forbidden|permission|not authori[sz]ed to|must have (?:write|admin|push|maintainer)|resource not accessible/i],
+  ['notMergeable', /not mergeable|cannot be merged|merge conflict|\b40[56]\b|is (?:still )?a draft|base branch policy|branch protection|review is required|approvals? (?:is |are )?required|not allowed on this repository/i]
+]
+
+/** What a failed create or merge was about, read from the host's own text; null when it does not say. */
+export function classifyCodeHostFailure(text: string): CodeHostFailure | null {
+  return FAILURE_TEXT.find(([, re]) => re.test(text))?.[0] ?? null
+}
+
+export type CreateRefusal = 'titleRequired' | 'badBranch' | 'badBase' | 'sameBranch' | 'badRepository'
+
+/** Why a PR cannot be created as asked; checked before the CLI runs. */
+export function createRefusal(input: NewPullRequest): CreateRefusal | null {
+  if (!isSafeRepositoryPath(`${input.repository.owner}/${input.repository.repo}`)) return 'badRepository'
+  if (!isSafeRefName(input.branch)) return 'badBranch'
+  if (!isSafeRefName(input.base)) return 'badBase'
+  if (input.branch === input.base) return 'sameBranch'
+  if (!input.title.trim()) return 'titleRequired'
+  return null
+}
+
+/** Creates a PR after `createRefusal` allows it, with the title and body trimmed. */
+export async function createPullRequest(host: CodeHost, input: NewPullRequest): Promise<PullRequestRef> {
+  const refusal = createRefusal(input)
+  if (refusal) throw new CodeHostError(`create refused: ${refusal}`, 'unsupported')
+  return host.createPullRequest({ ...input, title: input.title.trim().slice(0, 256), body: input.body.trim() })
+}
+
+/** The form's first values: the first commit's subject (else the branch) and the review brief, when there is one. */
+export function pullRequestDraft(input: { branch: string; subjects: readonly string[]; brief?: string | null }): { title: string; body: string } {
+  return { title: input.subjects.find((s) => s.trim())?.trim() ?? input.branch, body: input.brief?.trim() ?? '' }
+}
+
+export type MergeRefusal = 'notOpen' | 'draft' | 'notMergeable' | 'methodNotAllowed'
+
+/**
+ * Why "Merge" is refused: only an open, non-draft PR the host reports as mergeable, with a method
+ * the repository allows. The host still has the last word (checks, reviews, permissions).
+ */
+export function mergeRefusal(pr: Pick<PullRequest, 'state' | 'isDraft' | 'mergeable'>, method?: MergeMethod, allowed?: readonly MergeMethod[]): MergeRefusal | null {
+  if (pr.state !== 'open') return 'notOpen'
+  if (pr.isDraft) return 'draft'
+  if (pr.mergeable !== 'mergeable') return 'notMergeable'
+  if (method && allowed && !allowed.includes(method)) return 'methodNotAllowed'
+  return null
+}
+
+/** Merges after `mergeRefusal` allows it; a protected head branch is kept whatever was asked. Says whether deletion was asked of the host. */
+export async function mergePullRequest(
+  host: CodeHost,
+  ref: PullRequestRef,
+  pr: Pick<PullRequest, 'state' | 'isDraft' | 'mergeable' | 'branch'>,
+  options: { method: MergeMethod; deleteBranch: boolean; allowed: readonly MergeMethod[]; protectedBranches?: readonly string[] }
+): Promise<{ branchDeleted: boolean }> {
+  const refusal = mergeRefusal(pr, options.method, options.allowed)
+  if (refusal) throw new CodeHostError(`merge refused: ${refusal}`, refusal === 'notMergeable' ? 'notMergeable' : 'unsupported')
+  const deleteBranch = options.deleteBranch && isSafeRefName(pr.branch) && !isLongLivedBranch(pr.branch, options.protectedBranches)
+  await host.merge(ref, { method: options.method, deleteBranch, branch: pr.branch })
+  return { branchDeleted: deleteBranch }
 }
 
 export interface ReviewerState {

@@ -10,6 +10,7 @@ export const MONITOR_SECTIONS = [
   'slack',
   'tickets',
   'pullRequests',
+  'newPullRequest',
   'tags',
   'sessionTime',
   'tokens',

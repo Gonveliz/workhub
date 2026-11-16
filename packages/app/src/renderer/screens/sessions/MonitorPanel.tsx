@@ -19,6 +19,7 @@ import { localizeToolTitle } from '../../lib/toolTitle'
 import { useCachedPullRequestLists } from '../../pullRequestsStore'
 import type { SessionData } from '../../store'
 import { AiReviewSection } from './AiReviewPanel'
+import { CreatePullRequestSection } from './CreatePullRequest'
 import { Legend, MetricBox, MetricRow, MonitorSection, SegmentBar } from './MonitorSection'
 import { SessionBudgetSection } from './SessionBudgetSection'
 import { SlackThreadsSection } from './SlackThreadsSection'
@@ -279,6 +280,8 @@ export function MonitorPanel({ data, visible }: { data: SessionData; visible: bo
             </ul>
           </MonitorSection>
         )}
+
+        <CreatePullRequestSection sessionId={v.id} profileId={profileId} visible={visible} known={[...listed, ...prs].map((i) => i.pr)} refreshKey={`${v.state}|${prs.length}`} />
 
         {tagsId && (
           <MonitorSection id="tags" title={t('tags.label')}>

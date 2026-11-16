@@ -99,6 +99,7 @@ import { AiReviewService, registerAiReviewIpc, reviewBudgetGate } from './ai-rev
 import { claudeConfigDirOf } from './claude-accounts'
 import { registerListenIpc } from './listen-ipc'
 import { CodeHostService, registerCodeHostIpc } from './codehost'
+import { PullRequestCreateService, registerPullRequestCreateIpc } from './pull-request-create'
 import { ContinuityService, type ContinuityDeps } from './continuity'
 import { HealthService } from './health-service'
 import { guardIpc, isTrustedRendererUrl, rendererDevServerUrl } from './ipc-guard'
@@ -1482,6 +1483,7 @@ function registerIpc(): void {
   ipc.on('sessions:resize', (_e, id: string, cols: number, rows: number) => sessions.resize(id, cols, rows))
 
   registerCodeHostIpc(ipc, { service: codeHost, openWindow: openPullRequestWindow, showInWorkhub: showPullRequestInMain, openExternal: (url, profileId) => openLink(profileId, url) })
+  registerPullRequestCreateIpc(ipc, new PullRequestCreateService({ sessions: () => sessions.list(), codeHost, brief: (id) => agentReview.briefOf(id) }))
   registerLinksIpc({ ipcMain: ipc, loadConfig: () => configuration.current(), mainWindow: () => win })
   registerPrEventsIpc(ipc, { service: prEvents, notify: showPullRequestNotification, recognizes: (profileId, url) => codeHost.recognizes(profileId, url) })
   ipc.handle('health:get', (_e, profileId: string | null, force?: boolean) => health.get(profileId, force === true))
