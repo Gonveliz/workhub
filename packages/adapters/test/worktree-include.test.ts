@@ -30,6 +30,9 @@ describe('.worktreeinclude on a real repository', () => {
     repo = join(dir, 'acme')
     mkdirSync(repo)
     git(repo, 'init', '--quiet', '-b', 'main')
+    // Worktrees share this config. A Windows runner defaults to autocrlf=true, which would turn the
+    // LF text these tests compare into CRLF on checkout.
+    git(repo, 'config', 'core.autocrlf', 'false')
     write(repo, '.gitignore', '.env\n*.local\nsecrets/\nbuild/\nnode_modules/\n')
     write(repo, 'a.txt')
     write(repo, 'config/tracked.local', 'tracked\n')

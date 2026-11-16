@@ -5,7 +5,8 @@
 //
 //   npm run build && npm run smoke              needs packages/app/out
 //   npm run smoke -- --shots <dir>              also saves one PNG per screen
-//   xvfb-run -a npm run smoke                   on a Linux machine without a display
+//   npm run smoke -- --size 1280x800            page size to set before navigating (default 1280x800)
+//   xvfb-run -a -s "-screen 0 1920x1080x24" npm run smoke   on a Linux machine without a display
 //
 // The app runs from this clone only, with a temporary data folder and the demo variables. The
 // agents' own folders (Claude, Codex, OpenCode, Kiro) point at empty temporary folders where the app
@@ -30,14 +31,19 @@ const fail = (message, code = 1) => {
 }
 
 if (args.includes('--help') || args.includes('-h')) {
-  console.log('Usage: npm run smoke [-- --shots <dir>]\n\n  --shots <dir>  save one screenshot per screen into <dir>\n\nNeeds a build: npm run build')
+  console.log('Usage: npm run smoke [-- --shots <dir>] [--size <width>x<height>]\n\n  --shots <dir>  save one screenshot per screen into <dir>\n  --size WxH     set the main page to this size before navigating (default 1280x800)\n\nNeeds a build: npm run build')
   process.exit(0)
 }
 let shotsDir
+let size = { width: 1280, height: 800 }
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--shots') {
     shotsDir = args[++i]
     if (!shotsDir) fail('--shots needs a folder', 2)
+  } else if (args[i] === '--size') {
+    const m = /^(\d{3,5})x(\d{3,5})$/.exec(args[++i] ?? '')
+    if (!m) fail('--size needs <width>x<height>, for example 1280x800', 2)
+    size = { width: Number(m[1]), height: Number(m[2]) }
   } else fail(`unknown option ${args[i]}. Try: npm run smoke -- --help`, 2)
 }
 
@@ -170,6 +176,7 @@ async function connect(url) {
       if (r.result.exceptionDetails) throw new Error(r.result.exceptionDetails.exception?.description ?? r.result.exceptionDetails.text)
       return r.result.result?.value
     },
+    call,
     async shot(file) {
       const r = await call('Page.captureScreenshot', { format: 'png' })
       writeFileSync(file, Buffer.from(r.result.data, 'base64'))
@@ -218,6 +225,21 @@ async function assertScreen(page, name) {
   if (r.length < 20) throw new Error(`${name}: the page has no content (${r.length} characters)`)
 }
 
+// The one error a CI runner always logs: a Linux runner has no keyring, so Electron's safeStorage is
+// unavailable and the app (rightly) refuses to keep secrets in plain text. Any other ERROR line fails.
+const KNOWN_LOG_ERROR = /^\S+ ERROR OS encryption is not available; Workhub will not store secrets in plain text\.\s*$/
+const isBadLogLine = (l) => !KNOWN_LOG_ERROR.test(l) && (/^\S+ ERROR /.test(l) || l.includes('render-process-gone') || /renderer gone/.test(l))
+
+// The page's size is fixed over the DevTools protocol so a display's size (xvfb defaults to 640x480)
+// does not decide what the top bar shows. Electron has no Browser.setWindowBounds, so this overrides
+// the page's metrics, which is what the layout reads; the OS window may still be larger or smaller.
+async function setViewportSize(page, { width, height }) {
+  const r = await page.call('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
+  if (r.error) throw new Error(`could not size the page: ${r.error.message}`)
+  await sleep(500)
+  return page.evaluate('({ width: window.innerWidth, height: window.innerHeight })')
+}
+
 const SCREENS = [
   ['Home', 'home'],
   ['Pull requests', 'pullRequests'],
@@ -249,6 +271,8 @@ async function main() {
   const mainPage = await connect(mainTarget.webSocketDebuggerUrl)
   await waitFor('the navigation bar', () => mainPage.evaluate(`document.readyState === 'complete' && !!document.querySelector('[data-route]')`), 60000)
   console.log('smoke: main window is up')
+  const got = await setViewportSize(mainPage, size)
+  console.log(`smoke: page size ${got.width}x${got.height} (asked for ${size.width}x${size.height})`)
 
   const shot = async (page, name) => {
     if (shotsDir) await page.shot(join(shotsDir, `${name}.png`))
@@ -256,7 +280,14 @@ async function main() {
 
   for (const [name, route] of SCREENS) {
     // The demo profile's modules (Automations, Health, Plan) arrive with the first config snapshot.
-    await waitFor(`the ${name} navigation entry`, () => mainPage.evaluate(`!!document.querySelector('[data-route="${route}"]')`), 20000)
+    // The top bar folds to icons when narrow but keeps every entry in the page; if one is missing, say which are there.
+    try {
+      await waitFor(`the ${name} navigation entry`, () => mainPage.evaluate(`!!document.querySelector('[data-route="${route}"]')`), 30000)
+    } catch (e) {
+      const present = await mainPage.evaluate(`[...document.querySelectorAll('[data-route]')].map((b) => b.dataset.route).join(', ')`)
+      const dims = await mainPage.evaluate('`${window.innerWidth}x${window.innerHeight}`')
+      throw new Error(`${e.message} (page ${dims}; entries present: ${present || 'none'})`)
+    }
     const clicked = await mainPage.evaluate(`(() => { const b = document.querySelector('[data-route="${route}"]'); if (!b) return false; b.click(); return true })()`)
     if (!clicked) throw new Error(`${name}: there is no navigation entry for it (route ${route})`)
     await waitFor(`${name} to be current`, () => mainPage.evaluate(`document.querySelector('[data-route="${route}"]')?.getAttribute('aria-current') === 'page'`), 10000)
@@ -287,7 +318,7 @@ async function main() {
   const logFile = join(dataDir, 'logs', 'main.log')
   if (!existsSync(logFile)) throw new Error(`there is no log at ${logFile}`)
   const lines = readFileSync(logFile, 'utf8').split('\n')
-  const bad = lines.filter((l) => /^\S+ ERROR /.test(l) || l.includes('render-process-gone') || /renderer gone/.test(l))
+  const bad = lines.filter(isBadLogLine)
   if (bad.length > 0) throw new Error(`main.log has ${bad.length} error line(s), first: ${bad[0].slice(0, 300)}`)
   await stopApp()
   console.log(`smoke: ok  main.log (${lines.length} lines, no ERROR, no render-process-gone)`)

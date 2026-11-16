@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ app: { getPath: () => '/docs' }, dialog: {} }))
@@ -88,7 +89,8 @@ describe('the export handler', () => {
   it('offers the dated name in the folder and writes what the user picked', async () => {
     const { run, written, picked } = setup(async () => '/somewhere/usage.csv')
     expect(await run(table([row('a')]))).toEqual({ ok: true, path: '/somewhere/usage.csv' })
-    expect(picked).toEqual(['/docs/workhub-usage-by-project-2026-10-01_2026-10-27.csv'])
+    // The product joins with node:path, so the separator is the platform's.
+    expect(picked).toEqual([join('/docs', 'workhub-usage-by-project-2026-10-01_2026-10-27.csv')])
     expect(written).toHaveLength(1)
     expect(written[0]!.text.startsWith('﻿Group,')).toBe(true)
   })
