@@ -88,6 +88,18 @@ export function attendedFallbackMode(offered: { modes: readonly { id: string }[]
 }
 
 /**
+ * A start with no mode as it may run when nobody watches it start (a phone, an agent's proposal):
+ * unchanged when its configured default asks for permissions, else in the agent's safest attended
+ * mode; null when the agent has none, so the start must be refused.
+ */
+export async function attendedStart(start: StartSessionInput, startMode: (input: StartSessionInput) => Promise<RemoteStartMode | null>): Promise<StartSessionInput | null> {
+  const resolved = await startMode(start)
+  if (!resolved?.configured || !isRemoteForbiddenMode(resolved.configured)) return start
+  const modeId = attendedFallbackMode(await resolved.modes())
+  return modeId ? { ...start, modeId } : null
+}
+
+/**
  * Strings a device passes that can end up in an agent's argv (model, effort, mode, session ids,
  * branch names): plain tokens, never an option.
  */
@@ -317,11 +329,9 @@ export class RemoteHub {
    * the agent's safest attended mode, or no session at all when it has none.
    */
   private async withAttendedMode(start: StartSessionInput): Promise<StartSessionInput> {
-    const resolved = await this.deps.startMode(start)
-    if (!resolved?.configured || !isRemoteForbiddenMode(resolved.configured)) return start
-    const modeId = attendedFallbackMode(await resolved.modes())
-    if (!modeId) throw new RemoteRefused('this agent starts without permission prompts and has no mode that asks; start the session on the desktop')
-    return { ...start, modeId }
+    const attended = await attendedStart(start, this.deps.startMode)
+    if (!attended) throw new RemoteRefused('this agent starts without permission prompts and has no mode that asks; start the session on the desktop')
+    return attended
   }
 
   /**

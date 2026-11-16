@@ -12,7 +12,7 @@ Start with [Getting started](user-guide/getting-started.md), or browse the [user
 |---|---|
 | [Getting started](user-guide/getting-started.md) | Install, first run, the setup check |
 | [Profiles](user-guide/profiles.md) | Folders, accounts, how links open, session environment |
-| [Sessions](user-guide/sessions.md) | New session, App / Terminal / Shell, the composer, resume, windows, the sidebar |
+| [Sessions](user-guide/sessions.md) | New session, App / Terminal / Shell, the composer, resume, windows, the sidebar; agents that propose sessions and message each other with your approval (`skills/workhub-sessions`) |
 | [Monitor](user-guide/monitor.md) | The panel next to a session, and the Home screen |
 | [Review before PR](user-guide/review-before-pr.md) | Have another agent review a branch, and review changes yourself |
 | [Pull requests](user-guide/pull-requests.md) | The list and the pull request window |

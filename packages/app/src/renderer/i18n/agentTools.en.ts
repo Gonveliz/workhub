@@ -2,7 +2,7 @@
 export const agentToolsEn = {
   'agentTools.title': 'Workhub tools for agents',
   'agentTools.help':
-    'How agents in your sessions reach Workhub: Plan, automations, history, the review of their changes and flow maps. The MCP server gives them tools; the skills teach them when and how to use them. Both can be on.',
+    'How agents in your sessions reach Workhub: Plan, automations, history, the review of their changes, flow maps and your other sessions (what they propose waits for your approval). The MCP server gives them tools; the skills teach them when and how to use them. Both can be on.',
   'agentTools.mcp': 'Give sessions the Workhub MCP server',
   'agentTools.mcpHint': 'Every new session (except reviewers) gets Workhub’s tools. They add some tokens to each turn; Claude Code loads them on demand when there are many.',
   'agentTools.account': 'Claude Code folder',

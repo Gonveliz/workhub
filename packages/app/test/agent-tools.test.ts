@@ -49,7 +49,7 @@ describe("Workhub's MCP server for a session", () => {
 describe('Workhub skills in a Claude folder', () => {
   it('ships the repo skills', () => {
     const names = bundledSkills(resolve(__dirname, '../../../skills')).map((s) => s.name)
-    expect(names).toEqual(expect.arrayContaining(['workhub-analytics', 'workhub-automations', 'workhub-flow-map', 'workhub-plan']))
+    expect(names).toEqual(expect.arrayContaining(['workhub-analytics', 'workhub-automations', 'workhub-flow-map', 'workhub-plan', 'workhub-sessions']))
   })
 
   it('installs, updates and removes only its own copies', () => {

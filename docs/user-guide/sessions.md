@@ -255,5 +255,32 @@ with "Earlier messages are not shown", and the full conversation stays in Histor
   command in the background ("wait for the CI checks") or a watcher, its row shows a timer with
   the number of tasks (hover for what each one does), and the chat shows them above the message
   box with how long each has run. They disappear when the tasks end or the session stops.
+- **Requests from agents**: a row with an inbox icon and a number has requests from its agent waiting
+  for you (see below).
+
+## Agents that work with other sessions
+
+With Workhub's tools for agents on (**Settings → Agents → Workhub tools**, or the
+`workhub-sessions` skill), an agent can see the other sessions of its profile (name, agent,
+folder, state and whether one needs you; never what was said in them) and ask for two things.
+Neither happens until you say so:
+
+- **Start a new session**: the agent proposes an agent, a folder of the profile and a first
+  prompt. A bar at the top of the proposing session shows the whole prompt with **Start session**
+  and **Dismiss**. Approved, the session starts in a mode that asks before acting (as a start from
+  a phone: never one that skips permission prompts) and gets the prompt once it is ready.
+- **Send a message to another session**: the first message from one session to another shows in
+  the sending session with **Allow and send** and **Dismiss**. Once allowed, later messages from
+  that session to that one go through until Workhub quits. Each arrives as "Message from session
+  <name>", its text set apart as data from another agent, not as your instructions. Reviewer
+  sessions never send or receive messages.
+
+You also get a notification for each request; its click opens the session that asked. At most 3
+requests of a session wait at once, and proposals and messages are rate limited. Requests end when
+Workhub quits or the session that made them is closed.
+
+An agent can also raise a notification of its own (a title and one line), for example when a long
+task is done. It follows **Settings → Notifications and alerts** like a session's reply, and is
+rate limited. None of this is available from a paired phone.
 
 Next: [Monitor](monitor.md).

@@ -1,4 +1,4 @@
-import { Bot, ChevronRight, Ellipsis, FolderClosed, FolderOpen, FolderPlus, RotateCcw, Settings, Timer, X } from 'lucide-react'
+import { Bot, ChevronRight, Ellipsis, FolderClosed, FolderOpen, FolderPlus, Inbox, RotateCcw, Settings, Timer, X } from 'lucide-react'
 import { ContextMenu, DropdownMenu } from 'radix-ui'
 import { memo, useMemo, useRef, useState, type CSSProperties, type DragEvent, type ElementType, type KeyboardEvent, type ReactNode } from 'react'
 import {
@@ -47,7 +47,7 @@ import { useNow } from '../../lib/usage'
 import { usePlatform } from '../../lib/platform'
 import { shortcutLabel, type Shortcut } from '../../lib/shortcuts'
 import { isSessionReadAloud, setSessionReadAloud, useReadAloudVersion } from '../../lib/readAloud'
-import { useAutomations } from '../../chatStore'
+import { useAutomations, useSessionRequests } from '../../chatStore'
 import { awaitingAnswer, pushItem } from '../../store'
 import { AgentIcon } from '../atoms/AgentIcon'
 import { Badge } from '../atoms/Badge'
@@ -534,6 +534,8 @@ const SessionItem = memo(function SessionItem(props: SessionItemProps) {
   const { member, entry, actions } = props
   // Threads this session owns (member.key is its stable identity), with a dot for unread replies.
   const slack = useSessionSlack(member.key)
+  // What its agent asked of other sessions, waiting for the user (the session's own bar has the buttons).
+  const requests = useSessionRequests(entry?.data.view.id ?? '').length
   const data = entry?.data
   const level = data ? statusLevel({ state: data.view.state, unseen: data.unseen, awaitingAnswer: awaitingAnswer(data) }) : null
   const tone = data ? (level ? LEVEL_TONE[level] : STATE_TONE[data.view.state]) : 'neutral'
@@ -661,6 +663,18 @@ const SessionItem = memo(function SessionItem(props: SessionItemProps) {
               </button>
             </Tooltip>
             {props.slack && <SlackBadge summary={slack.summary} onOpen={actions.openSlack} />}
+            {requests > 0 && (
+              <span
+                role="img"
+                data-testid="session-requests-badge"
+                aria-label={tn('sessionRequests.badge', requests)}
+                title={tn('sessionRequests.badge', requests)}
+                className="mr-0.5 inline-flex h-5 shrink-0 items-center gap-0.5 rounded-sm bg-accent-soft px-1 text-xs font-medium tabular-nums text-accent"
+              >
+                <Inbox className="size-3" aria-hidden />
+                {requests}
+              </span>
+            )}
             {waiting.length > 0 && (
               <span
                 role="img"

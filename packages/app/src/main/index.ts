@@ -104,7 +104,7 @@ import { ContinuityService, type ContinuityDeps } from './continuity'
 import { HealthService } from './health-service'
 import { guardIpc, isTrustedRendererUrl, rendererDevServerUrl } from './ipc-guard'
 import { timeIpc } from './ipc-timing'
-import { broadcastToWindowsAndDevices, isRemoteSender, pageHistory, promptFromDevice, readActivity, recordIpc, RemoteActivityLog, RemoteHub, RemoteService, registerRemoteIpc, readRemoteFile, touchedPaths, type RemoteState } from './remote'
+import { broadcastToWindowsAndDevices, isRemoteSender, pageHistory, promptFromDevice, readActivity, recordIpc, RemoteActivityLog, RemoteHub, RemoteService, registerRemoteIpc, readRemoteFile, touchedPaths, type RemoteHubDeps, type RemoteState } from './remote'
 import { rendererReporter, startDiagnostics } from './diagnostics'
 import { createDiagnosticsExporter } from './diagnostics-export-app'
 import { createUsageCsvExporter } from './usage-csv'
@@ -131,6 +131,7 @@ import { registerStorageMaintenanceIpc, StorageMaintenance } from './storage-mai
 import { DatabaseRestore, registerDatabaseRestoreIpc } from './database-restore'
 import { createAutomationControl } from './automation-control'
 import { createPlanControl, resolveControlProfile } from './plan-control'
+import { registerSessionRequestsIpc, SessionRequests } from './session-control'
 import { FlowHistoryStore } from './flow-history'
 import { saveFlowMap } from './flow-maps'
 import { registerFlowMapsIpc } from './flow-maps-ipc'
@@ -312,6 +313,21 @@ function revealLogs(): void {
   shell.showItemInFolder(diagnostics.logPath)
 }
 
+/** The agent and account a start resolves to, as the session manager picks them (the profile that owns the folder wins). */
+const startModeOf: RemoteHubDeps['startMode'] = async (input) => {
+  const config = await configuration.current()
+  const owner = owningProfile(input.cwd, config.profiles, homedir())
+  const owned = owner && owner.id !== input.profileId && resolveChoice(config, owner.id, input.agentKey) ? owner.id : input.profileId
+  const choice = resolveChoice(config, owned, input.agentKey)
+  if (!choice) return null
+  return {
+    configured: defaultStartMode(config, choice.agent.id, choice.account),
+    modes: async () => {
+      const options = await agentOptions.get(choice.agent, choice.account)
+      return { modes: options.modes, permissionModes: options.modeSemantics === 'permission' }
+    }
+  }
+}
 /** Every window's handlers, reachable by a paired device too (Settings → Remote access); filled by registerIpc. */
 const recordedIpc = recordIpc(timeIpc(guardIpc(ipcMain, (url) => isTrustedRendererUrl(url, rendererOrigin)), diagnostics))
 /** The latest sub-agents and background tasks of each session, for a device that connects late. */
@@ -323,21 +339,7 @@ const remoteHub = new RemoteHub({
     const profile = profileId ? config.profiles.find((p) => p.id === profileId) : undefined
     return profile ? (await profileWorkspaces(profile, homedir())).map((f) => f.path) : []
   },
-  // The agent and account a start resolves to, as the session manager picks them (the profile that owns the folder wins).
-  startMode: async (input) => {
-    const config = await configuration.current()
-    const owner = owningProfile(input.cwd, config.profiles, homedir())
-    const owned = owner && owner.id !== input.profileId && resolveChoice(config, owner.id, input.agentKey) ? owner.id : input.profileId
-    const choice = resolveChoice(config, owned, input.agentKey)
-    if (!choice) return null
-    return {
-      configured: defaultStartMode(config, choice.agent.id, choice.account),
-      modes: async () => {
-        const options = await agentOptions.get(choice.agent, choice.account)
-        return { modes: options.modes, permissionModes: options.modeSemantics === 'permission' }
-      }
-    }
-  },
+  startMode: startModeOf,
   log: diagnostics.log
 })
 /** Tells every window, and every paired device, that the config changed. */
@@ -378,7 +380,7 @@ const calendar = new CalendarService({ configuration, secrets, source: new IcsCa
 
 let win: BrowserWindow | null = null
 /** What session and sub-agent windows follow too: the sessions' live state and what their screens show. */
-const SHARED_CHANNELS = new Set(['session:event', 'session:changed', 'session:removed', 'session:replay', 'automations:prompted', 'automations:turnEnded', 'aiReview:changed', 'agentReview:changed', 'usage:changed'])
+const SHARED_CHANNELS = new Set(['session:event', 'session:changed', 'session:removed', 'session:replay', 'automations:prompted', 'automations:turnEnded', 'aiReview:changed', 'agentReview:changed', 'usage:changed', 'sessionRequests:changed'])
 // Every session's chat, so a window that loads later rebuilds it; chat messages go out numbered.
 const chatJournal = new ChatJournals()
 const send = (channel: string, ...message: unknown[]) => {
@@ -652,6 +654,7 @@ const sessions = new SessionManager({
   },
   emitRemoved: (id) => {
     controlTokens.revoke(id)
+    sessionRequests.forget(id)
     analyticsRecorder.sessionRemoved(id)
     remoteActivity.forget(id)
     send('session:removed', id)
@@ -780,6 +783,23 @@ async function automaticUpdateCheck(): Promise<void> {
 // Slack watcher and automations (P6a). WORKHUB_DEMO_SLACK=1 reads synthetic Slack instead of
 // asking an agent, and never touches a Claude account's settings.
 const driver = new SessionDriver(sessions, (id, text) => send('automations:prompted', id, text))
+// What agents ask of other sessions over the control endpoint, waiting for the user (session-control.ts).
+const sessionRequests = new SessionRequests({
+  sessions: () => sessions.list(),
+  profile: async (profileId) => {
+    const config = await configuration.current()
+    const profile = profileId ? config.profiles.find((p) => p.id === profileId) : undefined
+    return { agents: resolveEffectiveAgents(config, profileId).map((a) => ({ key: a.key, name: a.label })), folders: profile ? profileFolderPaths(profile, homedir()).map((f) => f.path) : [] }
+  },
+  startMode: startModeOf,
+  start: (input) => sessions.start(input),
+  rename: (id, name) => sessions.rename(id, name),
+  deliver: (id, text) => driver.deliver(id, text),
+  notify: (n) => showSessionNotification(n),
+  changed: (requests) => send('sessionRequests:changed', requests),
+  text: (key, params) => trayText(trayLocale).t(key, params),
+  log: (m) => diagnostics.log.warn(m)
+})
 driver.onTurnEnded = (id, stopReason) => send('automations:turnEnded', id, stopReason)
 const demoSlack = process.env['WORKHUB_DEMO_SLACK'] === '1' ? new DemoChatSource() : null
 // One start per session identity: the sidebar's reopen and a Slack wake for the same session share it.
@@ -1511,6 +1531,7 @@ function registerIpc(): void {
   })
   registerStorageMaintenanceIpc(ipc, storageMaintenance)
   registerDatabaseRestoreIpc(ipc, databaseRestore)
+  registerSessionRequestsIpc(ipc, sessionRequests)
   ipc.on('storage:revealBackups', () => {
     const folder = join(dataDir, BACKUP_FOLDER)
     mkdirSync(folder, { recursive: true, mode: 0o700 })
@@ -2239,6 +2260,7 @@ void app.whenReady().then(async () => {
       runs: (query) => automationRuns.list(query)
     }),
     analytics: createAnalyticsControl({ ...controlProfiles, db, queries: analyticsQueries, log: (m) => diagnostics.log.info(m) }),
+    sessions: sessionRequests,
     log: (m) => diagnostics.log.warn(m)
   }
   if (loopbackControl) {

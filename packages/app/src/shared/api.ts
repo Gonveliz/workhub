@@ -44,6 +44,7 @@ import type { AiReviewApi } from './ai-review-api'
 import type { AutomationsApi, SlackApi } from './chat-api'
 import type { CodeHostApi } from './codehost-api'
 import type { ContinuityApi } from './continuity-api'
+import type { SessionRequestsApi } from './session-requests-api'
 import type { HealthApi } from './health-api'
 import type { FlowMapsApi } from './flow-maps-api'
 import type { PlanApi } from './plan-api'
@@ -587,6 +588,8 @@ export interface HubApi {
   automations: AutomationsApi
   aiReview: AiReviewApi
   continuity: ContinuityApi
+  /** What agents asked of other sessions, waiting for the user (never offered to paired devices). */
+  sessionRequests: SessionRequestsApi
   localReview: LocalReviewApi
   files: FilesApi
   tray: TrayApi

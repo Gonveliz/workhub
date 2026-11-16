@@ -9,7 +9,8 @@
  *   session cannot change anything. Its profile is then the session's (`resolveControlProfile`).
  * - Without one, only reads of the active profile's plan and automations are answered (the
  *   user's own `curl` in a terminal), with a warning in the log. Every change, History and
- *   analytics (which read across profiles) need a token, and so does naming a session or a profile.
+ *   analytics (which read across profiles) and the list of sessions need a token, and so does
+ *   naming a session or a profile.
  */
 import { createHash, randomBytes } from 'node:crypto'
 

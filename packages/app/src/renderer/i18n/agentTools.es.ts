@@ -4,7 +4,7 @@ import type { agentToolsEn } from './agentTools.en'
 export const agentToolsEs: Record<keyof typeof agentToolsEn, string> = {
   'agentTools.title': 'Herramientas de Workhub para agentes',
   'agentTools.help':
-    'Cómo llegan a Workhub los agentes de tus sesiones: Plan, automatizaciones, historial, la revisión de sus cambios y mapas de flujo. El servidor MCP les da herramientas; las skills les enseñan cuándo y cómo usarlas. Pueden estar los dos.',
+    'Cómo llegan a Workhub los agentes de tus sesiones: Plan, automatizaciones, historial, la revisión de sus cambios, mapas de flujo y tus otras sesiones (lo que proponen espera tu aprobación). El servidor MCP les da herramientas; las skills les enseñan cuándo y cómo usarlas. Pueden estar los dos.',
   'agentTools.mcp': 'Dar a las sesiones el servidor MCP de Workhub',
   'agentTools.mcpHint': 'Cada sesión nueva (salvo las revisoras) recibe las herramientas de Workhub. Suman algunos tokens a cada turno; Claude Code las carga a pedido cuando son muchas.',
   'agentTools.account': 'Carpeta de Claude Code',

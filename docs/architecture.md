@@ -169,7 +169,7 @@ never breaks the session.
   /v1/milestones/:id`. With the profile's `agentMilestones: ask` (the default) they answer 202 with
   `pending: true` and wait as proposals on the Milestones tab; with `allow` they answer 200 with
   `applied: true`. Changes go through the same services as the UI, which push change events to open windows. Agents learn
-  them from the skills in `skills/` (`workhub-flow-map`, `workhub-plan`, `workhub-automations`, `workhub-analytics`).
+  them from the skills in `skills/` (`workhub-flow-map`, `workhub-plan`, `workhub-automations`, `workhub-analytics`, `workhub-sessions`).
 - Automations and History for agents (`automation-control.ts`): `GET /v1/automations`, `POST
   /v1/automations` and `PATCH /v1/automations/:id` save through the same service as the
   Automations screen, but always leave the automation off (`enabled: true` is refused), so an agent
@@ -197,6 +197,23 @@ never breaks the session.
   characters. Not offered to paired devices. The Usage and reports screen's queries run in a second
   process of the same worker (see `workhub.db (usage data)` below); the `report` endpoint above still
   runs on the main process.
+- Sessions for agents (`session-control.ts`), session token required, scoped to the caller's
+  profile (another profile's session answers 404): `GET /v1/sessions` lists them (id, name, agent
+  key, folder, state, attention; never conversation content) with the agents and folders a proposal
+  may use. `POST /v1/sessions` (`{agent, folder, prompt, name?}`) only records a proposal (202): it
+  shows in the proposing session as a bar with Approve and Dismiss (`SessionRequestsBar`), a count
+  on its sidebar row and an OS notification. Approval starts it through `attendedStart`
+  (`remote/dispatcher.ts`, the same rule as a phone's start: never a mode that skips permissions,
+  refused when the agent has none), then types the prompt in once the session is ready. `POST
+  /v1/sessions/:id/message` (`{text}`) waits for approval the first time per (from, to) pair in an
+  app run; then the pair's messages are typed into the target by `SessionDriver.deliver` when it is
+  idle, as "Message from session <name>" with the text fenced by `fenceUntrusted`. Reviewer sessions
+  neither send nor receive. `POST /v1/notify` (`{title, body}`) shows a notification of kind
+  `replied`, so Settings → Notifications and an automation's Notify setting apply. Caps: 3 requests
+  waiting per session; per session 5 proposals an hour, 30 messages and 5 notifications per 10
+  minutes (`SESSION_CONTROL_LIMITS`). Requests, allowed pairs and queued messages live in memory and
+  end with the app run; a removed session's go with it. The `sessionRequests:*` channels are not on
+  the paired devices' allowlist.
 
 ### Agent tools: MCP and skills
 

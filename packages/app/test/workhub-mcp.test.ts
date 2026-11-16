@@ -120,6 +120,47 @@ describe.skipIf(process.platform === 'win32')('workhub MCP server', () => {
     }
   })
 
+  it('offers the session tools and maps them to the session routes', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wh-mcp-'))
+    dirs.push(dir)
+    const socket = controlSocketPath(dir)
+    const seen: { what: string; body?: unknown }[] = []
+    const ok = { status: 200, body: { ok: true } }
+    const server = await startControlServer(socket, {
+      auth: { sessionOf: (t) => (t === 'tok-1' ? 'sess-1' : undefined), readOnly: () => false },
+      openReview: () => ({ ok: true }),
+      sessions: {
+        list: async (caller) => (seen.push({ what: `list ${caller}` }), ok),
+        propose: async (caller, b) => (seen.push({ what: `propose ${caller}`, body: b }), { status: 202, body: { ok: true, pending: true } }),
+        message: async (caller, target, b) => (seen.push({ what: `message ${caller}>${target}`, body: b }), ok),
+        notify: async (caller, b) => (seen.push({ what: `notify ${caller}`, body: b }), ok)
+      }
+    })
+    const client = mcp({ WORKHUB_SOCKET: socket, WORKHUB_SESSION: 'sess-1', WORKHUB_SESSION_TOKEN: 'tok-1', WORKHUB_CWD: '/w/acme' })
+    try {
+      const list = (await client.rpc('tools/list'))['result'] as { tools: { name: string; description: string; inputSchema: { required: string[] } }[] }
+      const tool = (name: string) => list.tools.find((t) => t.name === name)!
+      expect(tool('session_propose').inputSchema.required).toEqual(['agent', 'folder', 'prompt'])
+      expect(tool('session_propose').description).toMatch(/does NOT start/)
+      expect(tool('session_message').inputSchema.required).toEqual(['id', 'text'])
+      expect(tool('notify_user').inputSchema.required).toEqual(['title'])
+      const call = async (name: string, args: unknown) => (await client.rpc('tools/call', { name, arguments: args }))['result'] as { isError: boolean }
+      expect((await call('sessions_list', {})).isError).toBe(false)
+      expect((await call('session_propose', { agent: 'claude', folder: '/w/acme/api', prompt: 'Write the tests' })).isError).toBe(false)
+      expect((await call('session_message', { id: 'sess-2', text: 'The API is merged' })).isError).toBe(false)
+      expect((await call('notify_user', { title: 'Done', body: 'Tests pass' })).isError).toBe(false)
+      expect(seen).toEqual([
+        { what: 'list sess-1' },
+        { what: 'propose sess-1', body: { agent: 'claude', folder: '/w/acme/api', prompt: 'Write the tests', session: 'sess-1', cwd: '/w/acme' } },
+        { what: 'message sess-1>sess-2', body: { text: 'The API is merged', session: 'sess-1', cwd: '/w/acme' } },
+        { what: 'notify sess-1', body: { title: 'Done', body: 'Tests pass', session: 'sess-1', cwd: '/w/acme' } }
+      ])
+    } finally {
+      client.close()
+      server?.close()
+    }
+  })
+
   it('sends neither session nor folder without a session token (installed outside Workhub)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'wh-mcp-'))
     dirs.push(dir)

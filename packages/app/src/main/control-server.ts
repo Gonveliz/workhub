@@ -58,6 +58,17 @@
  *   curl --unix-socket "$WORKHUB_SOCKET" -X POST http://workhub/v1/analytics/query \
  *     -H 'content-type: application/json' -d '{"session":"'"$WORKHUB_SESSION"'","sql":"SELECT cwd, TOTAL(usd) FROM turns GROUP BY cwd"}'
  *   curl --unix-socket "$WORKHUB_SOCKET" "http://workhub/v1/analytics/report?session=$WORKHUB_SESSION&kind=spend_by_project"
+ *
+ * And it lets an agent see the other sessions of its profile and, with the user's approval, start
+ * or message one, and notify the user (`session-control.ts`; the `workhub-sessions` skill):
+ *
+ *   curl --unix-socket "$WORKHUB_SOCKET" "http://workhub/v1/sessions?session=$WORKHUB_SESSION"
+ *   curl --unix-socket "$WORKHUB_SOCKET" -X POST http://workhub/v1/sessions \
+ *     -H 'content-type: application/json' -d '{"agent":"claude","folder":"/abs/repo","prompt":"Write the tests"}'
+ *   curl --unix-socket "$WORKHUB_SOCKET" -X POST "http://workhub/v1/sessions/<id>/message" \
+ *     -H 'content-type: application/json' -d '{"text":"The API is merged"}'
+ *   curl --unix-socket "$WORKHUB_SOCKET" -X POST http://workhub/v1/notify \
+ *     -H 'content-type: application/json' -d '{"title":"Tests pass","body":"Ready for review"}'
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, statSync, unlinkSync } from 'node:fs'
@@ -69,6 +80,7 @@ import type { AnalyticsControl } from './analytics-control'
 import { authorizeControl, bindBody, type ControlAuth, type ControlCaller } from './control-auth'
 import type { AutomationControl } from './automation-control'
 import type { PlanControl } from './plan-control'
+import type { SessionControl } from './session-control'
 
 const MAX_BODY = 256 * 1024
 const MAX_REPOS = 20
@@ -101,6 +113,8 @@ export interface ControlDeps {
   automations?: AutomationControl
   /** Read-only analytics over the usage database (schema, one SELECT, the Usage reports); reviewers too. */
   analytics?: AnalyticsControl
+  /** The other sessions of the caller's profile: list, propose one, message one, and notify the user (`session-control.ts`). */
+  sessions?: SessionControl
   log?: (message: string) => void
 }
 
@@ -380,6 +394,25 @@ export async function handleControl(deps: ControlDeps, req: IncomingMessage, res
     if (!route) return send(res, 404, { ok: false, error: 'unknown endpoint' })
     if (req.method !== 'GET') return send(res, 405, { ok: false, error: 'use GET' })
     return reply(res, await deps.analytics[route](url.searchParams))
+  }
+  const message = /^\/v1\/sessions\/([^/]{1,200})\/message$/.exec(url.pathname)
+  if (url.pathname === '/v1/sessions' || url.pathname === '/v1/notify' || message) {
+    if (!deps.sessions) return send(res, 404, { ok: false, error: 'sessions are not available' })
+    // Only a session, proven by its token, sees or reaches the others (authorizeControl refuses the rest).
+    if (!caller) return send(res, 401, { ok: false, error: 'this needs the session token: send X-Workhub-Token: $WORKHUB_SESSION_TOKEN' })
+    if (url.pathname === '/v1/sessions' && req.method === 'GET') return reply(res, await deps.sessions.list(caller.session))
+    if (req.method !== 'POST') return send(res, 405, { ok: false, error: url.pathname === '/v1/sessions' ? 'use GET or POST' : 'use POST' })
+    const sent = await readBody(req, caller)
+    if (!sent.ok) return send(res, sent.status, { ok: false, error: sent.error })
+    if (url.pathname === '/v1/notify') return reply(res, await deps.sessions.notify(caller.session, sent.body))
+    if (!message) return reply(res, await deps.sessions.propose(caller.session, sent.body))
+    let target: string
+    try {
+      target = decodeURIComponent(message[1]!)
+    } catch {
+      return send(res, 400, { ok: false, error: 'bad session id' })
+    }
+    return reply(res, await deps.sessions.message(caller.session, target, sent.body))
   }
   const read = Object.hasOwn(PLAN_READS, url.pathname) ? PLAN_READS[url.pathname] : undefined
   if (read) {

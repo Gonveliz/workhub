@@ -60,7 +60,9 @@ npm run demo         # dev build with synthetic data in .demo-data/ (add -- --re
   `skills/workhub-flow-map`, `skills/workhub-automations` (automations and history,
   `packages/app/src/main/automation-control.ts`) and `skills/workhub-analytics` (read-only usage
   data, `packages/app/src/main/analytics-control.ts`; the SQL checks are in
-  `packages/adapters/src/sqlite-store/read-query.ts`, queries run in the `analytics-worker.ts` utility process). Keep a skill in step with the endpoint it describes.
+  `packages/adapters/src/sqlite-store/read-query.ts`, queries run in the `analytics-worker.ts` utility process) and
+  `skills/workhub-sessions` (other sessions of the profile, proposals and messages the user approves,
+  notifications, `packages/app/src/main/session-control.ts`). Keep a skill in step with the endpoint it describes.
 - Settings screen: `packages/app/src/renderer/screens/SettingsScreen.tsx`, shown in its own window
   (`screens/SettingsWindow.tsx`, `main/settings-window.ts`).
 - Product name, app id and release repository: `scripts/brand.mjs` only.

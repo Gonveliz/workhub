@@ -10,6 +10,7 @@ import type { SessionIntent } from './links-api'
 import type { AiReviewNotice, AiReviewSnapshot, ReviewLoopView } from './ai-review-api'
 import type { AutomationsSnapshot, ChatNoticeEvent, SlackSnapshot } from './chat-api'
 import type { ContinuityMoved, ContinuityOffer } from './continuity-api'
+import type { SessionRequest } from './session-requests-api'
 import type { TrayPopoverView, TrayRoute } from './tray-api'
 import type { PullRequestWindowTab } from './codehost-api'
 import type { MenuCommand } from './windows-api'
@@ -287,6 +288,12 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       handoff: (sessionId, request) => invoke('continuity:handoff', sessionId, request),
       onOffer: (cb) => subscribe<[ContinuityOffer]>('continuity:offer', cb),
       onMoved: (cb) => subscribe<[ContinuityMoved]>('continuity:moved', cb)
+    },
+    sessionRequests: {
+      list: () => invoke('sessionRequests:list'),
+      approve: (id) => invoke('sessionRequests:approve', id),
+      dismiss: (id) => invoke('sessionRequests:dismiss', id),
+      onChanged: (cb) => subscribe<[SessionRequest[]]>('sessionRequests:changed', cb)
     },
     setup: {
       run: () => invoke('setup:run'),

@@ -141,7 +141,8 @@ each. They appear in the list once Workhub finds them in the `PATH`; **Search ag
 ### Workhub tools for agents
 
 How agents in your sessions reach Workhub (Plan, automations, history, the review of their changes,
-flow maps). Two ways, which can be on together:
+flow maps, and your other sessions: see [Agents that work with other sessions](sessions.md#agents-that-work-with-other-sessions)).
+Two ways, which can be on together:
 
 - **Give sessions the Workhub MCP server** (on by default): every new session except reviewers
   gets Workhub's MCP server, `workhub`, with tools such as `plan_today`, `inbox_propose`,
