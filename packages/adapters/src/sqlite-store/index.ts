@@ -59,6 +59,8 @@ export {
   type WeeklyItem,
   type WeeklySummary
 } from './analytics'
+export { applyRetention, PRUNE_BATCH, RETENTION_KEY, retentionCutoff, retentionState, USAGE_RETENTION_MONTHS, type RetentionOptions, type RetentionResult, type RetentionState } from './retention'
+export { STORAGE_GROUPS, STORAGE_ROW_TABLES, storageGroupOf, storageStats, type StorageGroup, type StorageGroupStats, type StorageStats } from './storage-stats'
 export { checkQueryParams, checkReadOnlySql, DENIED_FUNCTIONS, DENIED_NAMES, deniedTables, READABLE_TABLES, QUERY_LIMITS, QueryRefused, tokenizeSql, type QueryParams, type QueryResult } from './read-query'
 export {
   ensureHistoryIndex,

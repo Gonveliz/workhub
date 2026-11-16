@@ -6,14 +6,19 @@
  *
  * `report` runs a Usage and reports query by name the same way (the app keeps a second instance for
  * the screen); one that outlives the budget kills the process too and is rejected with an error.
+ * `storage` reads the rows and sizes of Settings → Advanced → Data the same way.
+ *
+ * `exclusive` runs a task while no worker holds the file open (Compact now's VACUUM): after the
+ * queries queued before it, with the process stopped; the ones queued after it wait and start a
+ * new process.
  */
 import { fork } from 'node:child_process'
-import { DENIED_FUNCTIONS, DENIED_NAMES, QUERY_LIMITS, type AnalyticsReport, type QueryParams, type QueryResult } from '@workhub/adapters/sqlite-store'
-import type { WorkerInit, WorkerQuery, WorkerReply, WorkerReport } from './analytics-worker'
+import { DENIED_FUNCTIONS, DENIED_NAMES, QUERY_LIMITS, type AnalyticsReport, type QueryParams, type QueryResult, type StorageStats } from '@workhub/adapters/sqlite-store'
+import type { WorkerInit, WorkerQuery, WorkerReply, WorkerReport, WorkerStorage } from './analytics-worker'
 
 /** A running worker process, whatever started it (Electron's utilityProcess, Node's fork). */
 export interface QueryWorker {
-  post(msg: WorkerInit | WorkerQuery | WorkerReport): void
+  post(msg: WorkerInit | WorkerQuery | WorkerReport | WorkerStorage): void
   onMessage(fn: (msg: WorkerReply) => void): void
   onExit(fn: (code: number | null) => void): void
   kill(): void
@@ -83,7 +88,20 @@ export class AnalyticsQueries {
 
   /** Runs a named report (arguments already checked) after the ones before it; rejects with its error, on timeout or when the worker dies. */
   report(report: AnalyticsReport): Promise<unknown> {
-    return this.queue(() => this.oneReport(report))
+    return this.queue(() => this.oneReport(report.name, (id) => ({ type: 'report', id, report })))
+  }
+
+  /** The rows and sizes per group of tables, read in the worker; rejects like `report`. */
+  storage(): Promise<StorageStats> {
+    return this.queue(() => this.oneReport('storage', (id) => ({ type: 'storage', id }))) as Promise<StorageStats>
+  }
+
+  /** Runs `task` with no worker process alive, between the queries queued before and after it. */
+  exclusive<T>(task: () => Promise<T>): Promise<T> {
+    return this.queue(async () => {
+      await this.closeAndWait()
+      return task()
+    })
   }
 
   private queue<T>(task: () => Promise<T>): Promise<T> {
@@ -158,7 +176,7 @@ export class AnalyticsQueries {
     })
   }
 
-  private oneReport(report: AnalyticsReport): Promise<unknown> {
+  private oneReport(name: string, message: (id: number) => WorkerReport | WorkerStorage): Promise<unknown> {
     const budget = this.options.budgetMs ?? QUERY_LIMITS.budgetMs
     const live = this.start()
     const id = this.nextId++
@@ -166,7 +184,7 @@ export class AnalyticsQueries {
       const timer = setTimeout(() => {
         live.pending.delete(id)
         this.stop(live)
-        this.options.log?.(`analytics worker: report ${report.name} stopped after ${budget} ms (process killed)`)
+        this.options.log?.(`analytics worker: report ${name} stopped after ${budget} ms (process killed)`)
         reject(new ReportTimedOut(budget))
       }, budget)
       live.pending.set(id, {
@@ -179,7 +197,7 @@ export class AnalyticsQueries {
           else reject(new Error('unexpected reply from the report process'))
         }
       })
-      live.worker.post({ type: 'report', id, report })
+      live.worker.post(message(id))
     })
   }
 

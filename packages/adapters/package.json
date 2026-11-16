@@ -30,6 +30,7 @@
     "./pr-events-json": "./src/pr-events-json/index.ts",
     "./sqlite-store": "./src/sqlite-store/index.ts",
     "./sqlite-store/analytics": "./src/sqlite-store/analytics.ts",
+    "./sqlite-store/storage-stats": "./src/sqlite-store/storage-stats.ts",
     "./git-review": "./src/git-review/index.ts",
     "./git-worktree": "./src/git-worktree/index.ts",
     "./token-spend": "./src/token-spend/index.ts",

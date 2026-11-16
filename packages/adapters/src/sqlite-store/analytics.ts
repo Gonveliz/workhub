@@ -7,6 +7,9 @@
  * pull request or tag counts a session's turns once in every group it is linked to (so the groups
  * can add up to more than `none`), and in a `null` group when it has none. Sub-agents' turns count
  * their tokens and cost, never their time (it runs inside the parent's turn).
+ *
+ * Turns older than the retention live on as daily summaries (`turns_daily`, see `retention.ts`); the
+ * reports read both, so a total over a span that crosses the boundary is what the turns gave.
  */
 import type { WorkhubDb } from './db'
 
@@ -80,10 +83,19 @@ const GROUP_SQL: Record<SpendGroupBy, { expr: string; join?: string }> = {
   none: { expr: 'NULL' }
 }
 
+/**
+ * What the reports read as `t`: the turns, then the daily summaries with the same columns. A summary
+ * stands at its first turn's time for `n` turns; its turn_ms already leaves sub-agents out (so it
+ * reads as sidechain 0) and its usd is null exactly when its turns were unpriced. Time and folder
+ * conditions on `t` reach both tables' indexes.
+ */
+const TURNS = `(SELECT session_id, at, model, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, usd, cwd, project, turn_ms, sidechain, 1 AS n FROM turns
+  UNION ALL SELECT session_id, at, model, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, usd, cwd, project, turn_ms, 0, turns FROM turns_daily)`
+
 const SUMS = `SUM(t.input_tokens) AS tokens_in, SUM(t.output_tokens) AS tokens_out, SUM(t.cache_read_tokens) AS cache_read,
   SUM(t.cache_write_tokens) AS cache_write, TOTAL(t.usd) AS usd,
   SUM(CASE WHEN t.usd IS NULL THEN t.input_tokens + t.output_tokens + t.cache_write_tokens + t.cache_read_tokens ELSE 0 END) AS unpriced,
-  SUM(CASE WHEN t.sidechain = 0 THEN t.turn_ms ELSE 0 END) AS active_ms, COUNT(*) AS turns, COUNT(DISTINCT t.session_id) AS sessions`
+  SUM(CASE WHEN t.sidechain = 0 THEN t.turn_ms ELSE 0 END) AS active_ms, SUM(t.n) AS turns, COUNT(DISTINCT t.session_id) AS sessions`
 
 /** `column` is `prefix` or below it, with either separator; plain comparisons, so case is compared as stored. */
 function under(column: string, prefix: string, params: Params): string {
@@ -160,7 +172,7 @@ export function spendSeries(db: AnalyticsDb, q: SpendSeriesQuery): SpendRow[] {
   const where = [...turnOnly({ ...(q.filters ?? {}), since: q.since, until: q.until }, params), ...sessionOnly(q.filters ?? {}, 't.session_id', params)]
   const sql = `
     SELECT ${bucket} AS bucket_start, ${group.expr} AS grp, ${SUMS}
-    FROM turns t LEFT JOIN sessions s ON s.id = t.session_id ${group.join ?? ''}
+    FROM ${TURNS} t LEFT JOIN sessions s ON s.id = t.session_id ${group.join ?? ''}
     WHERE ${where.join(' AND ')}
     GROUP BY bucket_start, grp
     ORDER BY bucket_start, usd DESC, tokens_in + tokens_out DESC, grp`
@@ -196,7 +208,7 @@ export function spendGroups(db: AnalyticsDb, q: SpendGroupsQuery): SpendRow[] {
   const where = [...turnOnly({ ...(q.filters ?? {}), since: q.since, until: q.until }, params), ...sessionOnly(q.filters ?? {}, 't.session_id', params)]
   const sql = `
     SELECT ${group.expr} AS grp, ${SUMS}
-    FROM turns t LEFT JOIN sessions s ON s.id = t.session_id ${group.join ?? ''}
+    FROM ${TURNS} t LEFT JOIN sessions s ON s.id = t.session_id ${group.join ?? ''}
     WHERE ${where.join(' AND ')}
     GROUP BY grp
     ORDER BY usd DESC, tokens_in + tokens_out DESC, grp`
@@ -261,9 +273,14 @@ export interface SessionPage {
   nextCursor: string | null
 }
 
-/** The sort key of each order, over sessions `s` and (for totals) its turns under the filters `tw`. */
+/**
+ * The sort key of each order, over sessions `s` and (for totals) its turns and daily summaries under
+ * the filters `tw`: one lookup per table on its session index (a lookup through `TURNS` would read
+ * every turn for each session). Totals orders bind the filters' parameters twice.
+ */
 function sortKey(by: SessionSort, tw: string): string {
-  const of = (expr: string) => `(SELECT ${expr} FROM turns t WHERE t.session_id = s.id${tw ? ` AND ${tw}` : ''})`
+  const of = (expr: string, daily = expr) =>
+    `((SELECT ${expr} FROM turns t WHERE t.session_id = s.id${tw ? ` AND ${tw}` : ''}) + (SELECT ${daily} FROM turns_daily t WHERE t.session_id = s.id${tw ? ` AND ${tw}` : ''}))`
   switch (by) {
     case 'title':
       return `COALESCE(s.title, '')`
@@ -272,7 +289,7 @@ function sortKey(by: SessionSort, tw: string): string {
     case 'tokens':
       return of('COALESCE(SUM(t.input_tokens + t.output_tokens + t.cache_write_tokens), 0)')
     case 'activeMs':
-      return of('COALESCE(SUM(CASE WHEN t.sidechain = 0 THEN t.turn_ms ELSE 0 END), 0)')
+      return of('COALESCE(SUM(CASE WHEN t.sidechain = 0 THEN t.turn_ms ELSE 0 END), 0)', 'COALESCE(SUM(t.turn_ms), 0)')
     default:
       return 'COALESCE(s.started_at, s.updated_at)'
   }
@@ -297,7 +314,7 @@ export function sessionsTable(
   const tw = turnOnly(filters, twParams).join(' AND ')
   const params: Params = []
   const key = sortKey(by, tw)
-  if (by === 'usd' || by === 'tokens' || by === 'activeMs') params.push(...twParams)
+  if (by === 'usd' || by === 'tokens' || by === 'activeMs') params.push(...twParams, ...twParams)
   const where = sessionOnly(filters, 's.id', params)
   if (tw || page.turnsOnly) {
     // A session needs a turn the filters keep; one without any turn yet is judged by its own start and folder.
@@ -317,8 +334,11 @@ export function sessionsTable(
       const b = under('s.cwd', filters.cwdPrefix, ownParams)
       own.push(`(${a} OR ${b})`)
     }
-    where.push(`(EXISTS (SELECT 1 FROM turns t WHERE t.session_id = s.id${tw ? ` AND ${tw}` : ''}) OR (NOT EXISTS (SELECT 1 FROM turns t WHERE t.session_id = s.id) AND ${own.length ? own.join(' AND ') : '1'}))`)
-    params.push(...twParams, ...ownParams)
+    const kept = (table: string) => `EXISTS (SELECT 1 FROM ${table} t WHERE t.session_id = s.id${tw ? ` AND ${tw}` : ''})`
+    where.push(
+      `(${kept('turns')} OR ${kept('turns_daily')} OR (NOT EXISTS (SELECT 1 FROM turns t WHERE t.session_id = s.id) AND NOT EXISTS (SELECT 1 FROM turns_daily t WHERE t.session_id = s.id) AND ${own.length ? own.join(' AND ') : '1'}))`
+    )
+    params.push(...twParams, ...twParams, ...ownParams)
   }
   const cursor = parseSessionCursor(page.cursor, by, dir)
   const cmp = dir === 'desc' ? '<' : '>'
@@ -341,7 +361,7 @@ export function sessionsTable(
   const pageIds = shown.map((r) => r.id)
   const sessions = new Map((db.raw.prepare(`SELECT * FROM sessions WHERE id IN (${marks})`).all(...pageIds) as Record<string, unknown>[]).map((r) => [String(r['id']), r]))
   const totals = new Map(
-    (db.raw.prepare(`SELECT t.session_id AS sid, ${SUMS} FROM turns t WHERE t.session_id IN (${marks})${tw ? ` AND ${tw}` : ''} GROUP BY t.session_id`).all(...pageIds, ...twParams) as Record<string, unknown>[]).map((r) => [String(r['sid']), r])
+    (db.raw.prepare(`SELECT t.session_id AS sid, ${SUMS} FROM ${TURNS} t WHERE t.session_id IN (${marks})${tw ? ` AND ${tw}` : ''} GROUP BY t.session_id`).all(...pageIds, ...twParams) as Record<string, unknown>[]).map((r) => [String(r['sid']), r])
   )
   const links = db.raw.prepare('SELECT kind, ref FROM session_links WHERE session_id = ? ORDER BY at, kind, ref')
   const tags = db.raw.prepare('SELECT tag FROM session_tags WHERE session_id = ? ORDER BY tag')
@@ -415,7 +435,7 @@ export function spendTotals(db: AnalyticsDb, q: SpendTotalsQuery): SpendTotalRow
   const where = [...turnOnly({ ...(q.filters ?? {}), since: q.since, until: q.until }, params), ...sessionOnly(q.filters ?? {}, 't.session_id', params)]
   const sql = `
     SELECT ${group.expr} AS grp, ${SUMS}
-    FROM turns t LEFT JOIN sessions s ON s.id = t.session_id ${group.join ?? ''}
+    FROM ${TURNS} t LEFT JOIN sessions s ON s.id = t.session_id ${group.join ?? ''}
     WHERE ${where.join(' AND ')}
     GROUP BY grp
     ORDER BY usd DESC, tokens_in + tokens_out DESC, grp`
@@ -457,7 +477,7 @@ export function filterValues(db: AnalyticsDb, q: { profileId?: string; since?: n
     const params: Params = []
     const where = [...turnOnly({ since: q.since, until: q.until }, params), ...(profiled && q.profileId !== undefined ? sessionOnly({ profileId: q.profileId }, 't.session_id', params) : []), `${expr} IS NOT NULL`]
     return (
-      db.raw.prepare(`SELECT ${expr} AS v FROM turns t LEFT JOIN sessions s ON s.id = t.session_id ${join} WHERE ${where.join(' AND ')} GROUP BY v ORDER BY COUNT(*) DESC, v LIMIT ?`).all(...params, limit) as { v: unknown }[]
+      db.raw.prepare(`SELECT ${expr} AS v FROM ${TURNS} t LEFT JOIN sessions s ON s.id = t.session_id ${join} WHERE ${where.join(' AND ')} GROUP BY v ORDER BY SUM(t.n) DESC, v LIMIT ?`).all(...params, limit) as { v: unknown }[]
     ).map((r) => String(r.v))
   }
   return {
@@ -547,7 +567,7 @@ export function weeklySummary(db: AnalyticsDb, q: { profileId?: string; weekStar
   const weekEnd = end.getTime()
   const params: Params = []
   const where = [...turnOnly({ since: weekStart, until: weekEnd }, params), ...sessionOnly(q.profileId !== undefined ? { profileId: q.profileId } : {}, 't.session_id', params)]
-  const base = `FROM turns t LEFT JOIN sessions s ON s.id = t.session_id`
+  const base = `FROM ${TURNS} t LEFT JOIN sessions s ON s.id = t.session_id`
   const cond = where.join(' AND ')
   const total = db.raw.prepare(`SELECT ${SUMS} ${base} WHERE ${cond}`).get(...params) as Record<string, unknown>
   const items = (expr: string, join = '') =>
@@ -555,7 +575,7 @@ export function weeklySummary(db: AnalyticsDb, q: { profileId?: string; weekStar
       db.raw
         .prepare(
           `SELECT ${expr} AS ref, SUM(CASE WHEN t.sidechain = 0 THEN t.turn_ms ELSE 0 END) AS active_ms, TOTAL(t.usd) AS usd,
-             SUM(t.input_tokens + t.output_tokens + t.cache_write_tokens) AS tokens, COUNT(*) AS turns, COUNT(DISTINCT t.session_id) AS sessions
+             SUM(t.input_tokens + t.output_tokens + t.cache_write_tokens) AS tokens, SUM(t.n) AS turns, COUNT(DISTINCT t.session_id) AS sessions
            ${base} ${join} WHERE ${cond} AND ${expr} IS NOT NULL GROUP BY ref ORDER BY active_ms DESC, usd DESC, ref`
         )
         .all(...params) as Record<string, unknown>[]
@@ -626,6 +646,7 @@ export function runAnalyticsReport(db: AnalyticsDb, report: AnalyticsReport): Sp
 export const ANALYTICS_TABLES = [
   'sessions',
   'turns',
+  'turns_daily',
   'session_links',
   'session_tags',
   'automation_runs',
@@ -686,7 +707,7 @@ export function schemaDescription(): SchemaTable[] {
     },
     {
       name: 'turns',
-      description: 'One assistant message with usage (Codex: one token report; Kiro: one turn), read from transcripts on this computer. No message text.',
+      description: 'One assistant message with usage (Codex: one token report; Kiro: one turn), read from transcripts on this computer, for the last 12 months (older ones are summed per day in turns_daily). No message text.',
       writer: 'The transcript scan (TurnIngest), after each token spend scan.',
       columns: [
         c('id', 'INTEGER', 'Row id.'),
@@ -704,6 +725,30 @@ export function schemaDescription(): SchemaTable[] {
         c('project', 'TEXT', "The project of cwd: the deepest profile project folder holding it (a worktree counts for its repository), else its repository's root, else cwd."),
         c('turn_ms', 'INTEGER', 'Agent time: from the prompt or the previous reply to this message, at most 30 minutes; 0 for sub-agents.', { unit: 'ms' }),
         c('sidechain', 'INTEGER', '1 for a sub-agent message (its time runs inside the parent turn), else 0.')
+      ]
+    },
+    {
+      name: 'turns_daily',
+      description:
+        'Turns older than 12 months, summed per local day, session, model, folder and project (turns keeps the last 12 months only). Same columns as turns where they mean the same; add it to turns (UNION ALL, counting turns instead of rows) for totals that reach further back. Joins to sessions, session_links and session_tags like turns.',
+      writer: 'The daily storage maintenance in the main process (and Compact now in Settings), which moves the turns here and deletes them.',
+      columns: [
+        c('day', 'INTEGER', 'Local midnight of the day summed.', { unit: 'epoch_ms' }),
+        c('session_id', 'TEXT', 'The session (sessions.id).'),
+        c('agent', 'TEXT', 'claude, codex or kiro.'),
+        c('model', 'TEXT', 'The model that answered.', { nullable: 'not reported' }),
+        c('cwd', 'TEXT', 'The folder the turns worked in (see turns.cwd).'),
+        c('project', 'TEXT', 'The project of cwd (see turns.project).'),
+        c('priced', 'INTEGER', '1 when the turns had a price (usd is their sum), 0 when not (usd is null).'),
+        c('at', 'INTEGER', 'The first turn summed: the time reports place the row at.', { unit: 'epoch_ms' }),
+        c('last_at', 'INTEGER', 'The last turn summed.', { unit: 'epoch_ms' }),
+        c('input_tokens', 'INTEGER', 'Fresh input tokens, summed.', { unit: 'tokens' }),
+        c('output_tokens', 'INTEGER', 'Output tokens, summed.', { unit: 'tokens' }),
+        c('cache_write_tokens', 'INTEGER', 'Cache write tokens, summed.', { unit: 'tokens' }),
+        c('cache_read_tokens', 'INTEGER', 'Cache read tokens, summed.', { unit: 'tokens' }),
+        c('usd', 'REAL', 'Cost at list prices, summed.', { unit: 'usd', nullable: 'unpriced turns (priced = 0)' }),
+        c('turn_ms', 'INTEGER', 'Agent time, summed; sub-agent turns already left out (there is no sidechain column).', { unit: 'ms' }),
+        c('turns', 'INTEGER', 'How many turns the row sums.')
       ]
     },
     {
@@ -726,7 +771,7 @@ export function schemaDescription(): SchemaTable[] {
     },
     {
       name: 'automation_runs',
-      description: 'Every automation run, without a cap.',
+      description: 'Every automation run of the last 12 months.',
       writer: 'The automations service, each time the engine logs or updates a run.',
       columns: [
         c('id', 'TEXT', 'Run id.'),
@@ -742,7 +787,7 @@ export function schemaDescription(): SchemaTable[] {
     },
     {
       name: 'pr_events',
-      description: 'Pull request timeline: what the code host sync saw.',
+      description: 'Pull request timeline: what the code host sync saw in the last 12 months.',
       writer: 'The pull request sync (every 3 minutes per profile with a code host).',
       columns: [
         c('id', 'TEXT', 'Profile and event id.'),
@@ -759,7 +804,7 @@ export function schemaDescription(): SchemaTable[] {
     },
     {
       name: 'ticket_events',
-      description: "Ticket timeline: changes the ticket watcher saw in the active profile's assigned tickets.",
+      description: "Ticket timeline: changes the ticket watcher saw in the active profile's assigned tickets in the last 12 months.",
       writer: 'The ticket watcher (while ticket notifications are on).',
       columns: [
         c('id', 'INTEGER', 'Row id.'),

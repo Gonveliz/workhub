@@ -17,6 +17,7 @@ import { claudeSpendLine, codexSpendLine, kiroSpendFile, type ClaudeSpendState, 
 import { repoRootOf, worktreeAliases, type WorktreeLink } from '../token-spend/git-worktree'
 import { isCompressed, readRollout } from '../transcript-codex/files'
 import type { WorkhubDb } from './db'
+import { retentionState } from './retention'
 
 export type TurnAgent = 'claude' | 'codex' | 'kiro'
 type Kind = 'claude' | 'codex' | 'codex-zst' | 'kiro'
@@ -278,7 +279,10 @@ export class TurnIngest {
              output_tokens = excluded.output_tokens, cache_write_tokens = excluded.cache_write_tokens, cache_read_tokens = excluded.cache_read_tokens,
              usd = excluded.usd, cwd = excluded.cwd, project = excluded.project, turn_ms = excluded.turn_ms, sidechain = excluded.sidechain`
         )
+        // Turns of days already summed (see retention.ts) are in turns_daily: a file read again must not add them twice.
+        const summedUntil = retentionState(this.db).rolledUntil
         for (const t of rows) {
+          if (t.at < summedUntil) continue
           // A Claude message already counted under another session (a fork, a rewind) is not counted again.
           if (agent === 'claude' && elsewhere.get(t.key, sessionId)) continue
           upsert.run(sessionId, agent, t.key, t.at, t.model ?? null, t.input, t.output, t.cacheWrite, t.cacheRead, t.usd ?? null, t.cwd, projects[t.cwd] ?? t.cwd, t.ms, t.sidechain ? 1 : 0)
@@ -308,7 +312,7 @@ export class TurnIngest {
 
 /**
  * A session's totals from its turns: agent time (sub-agents' turns left out, their time runs inside
- * the parent's), first activity, the model, folder and project of its latest turn, its main project
+ * the parent's; its daily summaries count too), first activity, the model, folder and project of its latest turn, its main project
  * (the one most of its turns worked in), and for a transcript-only session its last activity as
  * `ended_at` (a Workhub session's `ended_at` is when Workhub saw it stop).
  */
@@ -316,7 +320,7 @@ export function refreshSessionTotals(db: WorkhubDb, sessionId: string): void {
   db.raw
     .prepare(
       `UPDATE sessions SET
-         active_ms = (SELECT COALESCE(SUM(turn_ms), 0) FROM turns WHERE session_id = ?1 AND sidechain = 0),
+         active_ms = (SELECT COALESCE(SUM(turn_ms), 0) FROM turns WHERE session_id = ?1 AND sidechain = 0) + (SELECT COALESCE(SUM(turn_ms), 0) FROM turns_daily WHERE session_id = ?1),
          started_at = (SELECT MIN(v) FROM (SELECT sessions.started_at AS v UNION ALL SELECT MIN(at) FROM turns WHERE session_id = ?1)),
          ended_at = CASE WHEN source = 'workhub' THEN ended_at ELSE (SELECT MAX(v) FROM (SELECT sessions.ended_at AS v UNION ALL SELECT MAX(at) FROM turns WHERE session_id = ?1)) END,
          last_model = COALESCE((SELECT model FROM turns WHERE session_id = ?1 AND model IS NOT NULL ORDER BY sidechain, at DESC LIMIT 1), last_model),

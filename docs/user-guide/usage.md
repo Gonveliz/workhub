@@ -148,6 +148,24 @@ pull request and ticket changes Workhub notices. All of it stays in `workhub.db`
 [data folder](../architecture.md#data-folder); transcripts are read in place and nothing is sent
 anywhere.
 
+### How long it is kept
+
+The per-message detail, the pull request and ticket changes and the automation runs are kept for
+12 months. Once a day (a few minutes after start, then every 24 hours) messages older than that are
+summed per day, session, model and folder and the detail is deleted; older pull request and ticket
+changes and automation runs are deleted. Sessions, their links and tags stay, so the charts,
+totals and the sessions table over a period that reaches back past 12 months add up to what they
+did before, per day (a summary counts on its day, not at the hour of each message). Older weekly
+summaries no longer list the pull requests opened, merged or reviewed and the ticket moves of
+those weeks. A transcript older than 12 months that Workhub never read before (an account added
+later) is not counted.
+
+**Settings → Advanced → Data** shows, under **What the data takes**, the rows and approximate size
+of the usage detail, the usage summaries, History's search index, the events and automation runs,
+and the app's state, the free space in the file and when the cleanup last ran. **Compact now** runs
+the cleanup at once and then rewrites the file so it shrinks to what it holds (on a large database
+this takes a while; the Usage screen's reports wait for it).
+
 ## Ask your agent about your usage
 
 An agent running in Workhub can read that data, read-only, to answer questions like "how much did I

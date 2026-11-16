@@ -615,12 +615,34 @@ export interface StorageInfo {
 
 export type StorageBackupResult = { ok: true; path: string } | { ok: false; error: string }
 
+/** A group of tables in the database: usage detail (turns, sessions, links, tags), usage summaries (`turns_daily`), History's search index, events (pull request and ticket timelines, automation runs) and app state. */
+export type StorageGroupName = 'usageDetail' | 'usageSummaries' | 'historyIndex' | 'events' | 'state'
+
+/** What the data takes in the database (Settings → Advanced → Data). */
+export interface StorageUsage {
+  groups: { group: StorageGroupName; rows: number; bytes: number | null }[]
+  /** Space deleted rows left behind, which Compact now gives back; null when not known. */
+  freeBytes: number | null
+  /** The file and its write-ahead log. */
+  fileBytes: number
+  /** Usage detail, events and automation runs are kept this many months (then daily summaries). */
+  retentionMonths: number
+  /** When the maintenance last ran; null before its first run. */
+  lastRunAt: number | null
+}
+
+export type StorageCompactResult = { ok: true; beforeBytes: number; afterBytes: number } | { ok: false; error: string }
+
 export interface StorageApi {
   info(): Promise<StorageInfo>
   /** Copies the database now, to a new `workhub-YYYY-MM-DD-HHmm.db` (the daily copy is kept apart). */
   backup(): Promise<StorageBackupResult>
   /** Opens the backups folder in the file manager. */
   revealBackups(): void
+  /** Rows and approximate size per group of data, and the retention. */
+  usage(): Promise<StorageUsage>
+  /** Runs the retention now, then VACUUM: the file shrinks to what it holds. */
+  compact(): Promise<StorageCompactResult>
 }
 
 /**

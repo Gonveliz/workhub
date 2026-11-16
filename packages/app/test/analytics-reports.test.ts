@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { runAnalyticsReport, SessionRecords, type AnalyticsReport, type WorkhubDb } from '@workhub/adapters/sqlite-store'
 import { registerAnalyticsIpc } from '../src/main/analytics-ipc'
 import { AnalyticsQueries, forkQueryWorker, ReportTimedOut, type QueryWorker } from '../src/main/analytics-queries'
-import type { WorkerInit, WorkerQuery, WorkerReply, WorkerReport } from '../src/main/analytics-worker'
+import type { WorkerInit, WorkerQuery, WorkerReply, WorkerReport, WorkerStorage } from '../src/main/analytics-worker'
 import { openTestDb } from './test-db'
 
 const DAY = 86_400_000
@@ -24,8 +24,8 @@ function seed(db: WorkhubDb): void {
 }
 
 /** A worker that answers from a script: each message gets what `answer` returns (nothing: no answer). */
-function fakeWorker(answer: (msg: WorkerInit | WorkerQuery | WorkerReport) => WorkerReply | undefined, ready: { authorizer: boolean } = { authorizer: true }) {
-  const sent: (WorkerInit | WorkerQuery | WorkerReport)[] = []
+function fakeWorker(answer: (msg: WorkerQuery | WorkerReport | WorkerStorage) => WorkerReply | undefined, ready: { authorizer: boolean } = { authorizer: true }) {
+  const sent: (WorkerInit | WorkerQuery | WorkerReport | WorkerStorage)[] = []
   let spawned = 0
   let killed = 0
   let exit: (code: number | null) => void = () => undefined

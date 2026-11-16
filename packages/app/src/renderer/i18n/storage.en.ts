@@ -11,5 +11,22 @@ export const storageEn = {
   'storage.backupNoSpace': 'The backup failed: the disk is full.',
   'storage.backupNoAccess': 'The backup failed: Workhub cannot write to the backups folder.',
   'storage.revealBackups': 'Show backups folder',
-  'storage.recovered': 'On {date} the database could not be read and was moved aside to {path}; Workhub started with an empty one. Earlier copies are in {folder} (see Troubleshooting, "The database").'
+  'storage.recovered': 'On {date} the database could not be read and was moved aside to {path}; Workhub started with an empty one. Earlier copies are in {folder} (see Troubleshooting, "The database").',
+  'storage.usage': 'What the data takes',
+  'storage.retention': 'Usage detail, pull request and ticket events and automation runs are kept for {months} months; older usage stays as daily summaries, so reports still add up. This runs once a day.',
+  'storage.group.usageDetail': 'Usage detail',
+  'storage.group.usageSummaries': 'Usage summaries',
+  'storage.group.historyIndex': 'History search index',
+  'storage.group.events': 'Events and automation runs',
+  'storage.group.state': 'App state',
+  'storage.rows': '{count} rows',
+  'storage.sizeUnknown': 'size not known',
+  'storage.free': 'Free space in the file: {size}',
+  'storage.lastRun': 'Last run: {date}',
+  'storage.usageFailed': 'The figures could not be read. Try again in a moment.',
+  'storage.compactNow': 'Compact now',
+  'storage.compacting': 'Compacting…',
+  'storage.compactHint': 'Runs the daily cleanup now, then rewrites the file to drop the free space. On a large database this can take a while.',
+  'storage.compacted': 'Database compacted: {before} → {after}',
+  'storage.compactFailed': 'Compacting failed. Try again in a moment.'
 }

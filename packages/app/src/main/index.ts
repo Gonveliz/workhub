@@ -123,6 +123,7 @@ import { CONTROL_ENV_KEYS, controlEnv, controlSocketPath, newControlToken, revie
 import { createAnalyticsControl } from './analytics-control'
 import { kiroUsageProbeEnabled } from './kiro-usage-probe'
 import { AnalyticsQueries, type QueryWorker } from './analytics-queries'
+import { registerStorageMaintenanceIpc, StorageMaintenance } from './storage-maintenance'
 import { createAutomationControl } from './automation-control'
 import { createPlanControl, resolveControlProfile } from './plan-control'
 import { FlowHistoryStore } from './flow-history'
@@ -273,6 +274,9 @@ if (firstInstance) {
   setTimeout(daily, 30_000).unref?.()
   setInterval(daily, 24 * 3_600_000).unref?.()
 }
+// 12 months of usage detail, then daily summaries; Compact now runs VACUUM with both workers stopped.
+const storageMaintenance = new StorageMaintenance({ db, stats: () => usageReports.storage(), exclusive: (task) => usageReports.exclusive(() => analyticsQueries.exclusive(task)), log: (m) => diagnostics.log.info(m) })
+if (firstInstance) storageMaintenance.start()
 
 /** Help → Export diagnostics…: logs, versions, job table, database size and the redacted config in a folder. */
 jobReports.attach(diagnostics.log)
@@ -1471,6 +1475,7 @@ function registerIpc(): void {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
+  registerStorageMaintenanceIpc(ipc, storageMaintenance)
   ipc.on('storage:revealBackups', () => {
     const folder = join(dataDir, BACKUP_FOLDER)
     mkdirSync(folder, { recursive: true, mode: 0o700 })

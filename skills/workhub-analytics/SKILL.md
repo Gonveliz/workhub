@@ -66,7 +66,13 @@ Reads are not limited to this session's profile (`usage_report` filters to it by
 - `turns`: one assistant message: `session_id`, `agent`, `at`, `model`, `input_tokens`,
   `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `usd` (list prices; null when the
   model has no price), `cwd`, `project`, `turn_ms` (agent time), `sidechain` (1 for sub-agents:
-  tokens count, `turn_ms` is 0).
+  tokens count, `turn_ms` is 0). Only the last 12 months.
+- `turns_daily`: turns older than 12 months, summed per local day, session, model, folder and
+  project: `day`, `session_id`, `agent`, `model`, `cwd`, `project`, `priced`, `at` (first turn),
+  `last_at`, the four token sums, `usd`, `turn_ms` (sub-agents left out) and `turns` (how many).
+  For a span reaching past 12 months add it to `turns` with `UNION ALL`, counting `turns` instead
+  of rows (`usage_report` already does). `pr_events`, `ticket_events` and `automation_runs` also
+  keep 12 months.
 - `session_links`: `session_id`, `kind` (`pr`, `ticket`, `branch`, `worktree`), `ref`, `source`,
   `at`. A PR `ref` is the canonical URL in lower case without a trailing slash; a ticket `ref` is
   the key in upper case.

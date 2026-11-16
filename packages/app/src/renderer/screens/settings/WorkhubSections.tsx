@@ -1,5 +1,5 @@
 import { Database, FolderCog } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { appOptions } from '@workhub/core'
 import { Button, Switch } from '../../components/atoms'
 import { SwitchRow, useToast } from '../../components/molecules'
@@ -13,6 +13,7 @@ import { VoiceSettingsGroup } from '../VoiceSettings'
 import { LanguageAppearanceGroup } from './AppearanceGroup'
 import { SettingsGroup } from './SettingsLayout'
 import { StorageRecoveredNotice, useStorageInfo } from './StorageNotice'
+import { StorageUsageRow } from './StorageUsageRow'
 import type { SectionProps } from './shared'
 
 /** "Keep running in the menu bar" says where the icon stays on each platform. */
@@ -59,6 +60,8 @@ export function GeneralSection({ snap, run }: SectionProps) {
 /** Settings → Advanced: diagnostics and help, then the data (where it is kept). */
 export function AdvancedSection({ snap }: SectionProps) {
   const { t } = useI18n()
+  // Compacting changes the file's size: the database row reads it again.
+  const [compactions, setCompactions] = useState(0)
   return (
     <div className="flex flex-col gap-6" data-testid="settings-advanced">
       <SetupEntryGroup />
@@ -73,7 +76,8 @@ export function AdvancedSection({ snap }: SectionProps) {
             {snap.dataDir}
           </code>
         </div>
-        <DatabaseRow />
+        <DatabaseRow refresh={compactions} />
+        <StorageUsageRow onCompacted={() => setCompactions((n) => n + 1)} />
       </SettingsGroup>
     </div>
   )
@@ -88,10 +92,13 @@ export function backupErrorKey(error: string): 'storage.backupNotWritten' | 'sto
 }
 
 /** The database file, its size, the last copy, "Back up now" and the backups folder (Settings → Advanced → Data). */
-function DatabaseRow() {
+function DatabaseRow({ refresh }: { refresh: number }) {
   const { t, locale } = useI18n()
   const toast = useToast()
   const [info, load] = useStorageInfo()
+  useEffect(() => {
+    if (refresh) void load()
+  }, [refresh])
   const [busy, setBusy] = useState(false)
   const backup = async () => {
     setBusy(true)

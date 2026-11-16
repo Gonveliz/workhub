@@ -176,5 +176,35 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX ticket_events_key ON ticket_events (key, at);
       CREATE INDEX ticket_events_profile_at ON ticket_events (profile_id, at);
     `
+  },
+  {
+    version: 3,
+    sql: `
+      -- Turns older than the retention (USAGE_RETENTION_MONTHS), summed per local day, session,
+      -- model, folder and project, priced or not (see retention.ts); at is the first turn's time.
+      -- The session stays in sessions, with its links and tags, so every report groups and filters
+      -- the summaries the way it did the turns, and counts each session once.
+      CREATE TABLE turns_daily (
+        day INTEGER NOT NULL,
+        session_id TEXT NOT NULL,
+        agent TEXT NOT NULL,
+        model TEXT,
+        cwd TEXT,
+        project TEXT,
+        priced INTEGER NOT NULL,
+        at INTEGER NOT NULL,
+        last_at INTEGER NOT NULL,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        usd REAL,
+        turn_ms INTEGER NOT NULL DEFAULT 0,
+        turns INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX turns_daily_at ON turns_daily (at);
+      CREATE INDEX turns_daily_session ON turns_daily (session_id, at);
+      CREATE INDEX turns_daily_day ON turns_daily (day, session_id);
+    `
   }
 ]

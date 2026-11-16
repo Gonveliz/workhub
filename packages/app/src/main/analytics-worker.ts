@@ -13,12 +13,18 @@
  * `sqlite-store/analytics`, never SQL from the renderer), on the same read-only connection; those need
  * no authorizer (their SQL is fixed), so they still run where it is missing.
  *
- * Self-contained on purpose (only `node:sqlite` and `sqlite-store/analytics`, which has type imports
- * only): the lists come in the `init` message, so tests can fork this file as is. Messages: `init` →
- * `ready`; `query` → `result` or `error`; `report` → `report` or `error`.
+ * And the rows and sizes of Settings → Advanced → Data (`storage`, `sqlite-store/storage-stats`), on a
+ * second read-only connection without the authorizer: they read `dbstat` and two pragmas, which the
+ * agents' guard refuses. That connection never runs SQL from a message.
+ *
+ * Self-contained on purpose (only `node:sqlite`, `sqlite-store/analytics` and
+ * `sqlite-store/storage-stats`, which have type imports only): the lists come in the `init` message,
+ * so tests can fork this file as is. Messages: `init` → `ready`; `query` → `result` or `error`;
+ * `report` and `storage` → `report` or `error`.
  */
 import { constants as sqliteConstants, DatabaseSync } from 'node:sqlite'
 import { runAnalyticsReport, type AnalyticsReport } from '@workhub/adapters/sqlite-store/analytics'
+import { storageStats } from '@workhub/adapters/sqlite-store/storage-stats'
 
 export interface WorkerInit {
   type: 'init'
@@ -41,6 +47,11 @@ export interface WorkerReport {
   type: 'report'
   id: number
   report: AnalyticsReport
+}
+/** The rows and sizes per group of tables (`storageStats`). */
+export interface WorkerStorage {
+  type: 'storage'
+  id: number
 }
 export type WorkerReply =
   | { type: 'ready'; authorizer: boolean }
@@ -65,6 +76,8 @@ function port(): Port | null {
 
 let config: WorkerInit | null = null
 let conn: DatabaseSync | null = null
+/** The storage figures' connection: read-only, no authorizer, fixed SQL only. */
+let statsConn: DatabaseSync | null = null
 /** Whether `conn` has the authorizer: SQL from agents runs only then. */
 let guarded = false
 let denied = new Set<string>()
@@ -123,6 +136,18 @@ function report(cfg: WorkerInit, r: WorkerReport): WorkerReply {
   }
 }
 
+function storage(cfg: WorkerInit, r: WorkerStorage): WorkerReply {
+  try {
+    if (!statsConn) {
+      statsConn = new DatabaseSync(cfg.path, { readOnly: true, timeout: 2000 })
+      statsConn.exec('PRAGMA query_only = 1')
+    }
+    return { type: 'report', id: r.id, value: storageStats({ raw: statsConn }) }
+  } catch (e) {
+    return { type: 'error', id: r.id, message: e instanceof Error ? e.message : String(e) }
+  }
+}
+
 /** A cell as a message can carry it: blobs as `{ blob: base64 }` (first 4 KB), very long text cut. */
 function cell(v: unknown, cellChars: number): unknown {
   if (typeof v === 'bigint') return Number.isSafeInteger(Number(v)) ? Number(v) : v.toString()
@@ -173,7 +198,7 @@ function run(cfg: WorkerInit, q: WorkerQuery): WorkerReply {
 
 const channel = port()
 channel?.listen((raw) => {
-  const msg = raw as WorkerInit | WorkerQuery | WorkerReport
+  const msg = raw as WorkerInit | WorkerQuery | WorkerReport | WorkerStorage
   if (msg?.type === 'init') {
     config = msg
     const authorizer = authorizerAvailable()
@@ -192,6 +217,10 @@ channel?.listen((raw) => {
   if (msg?.type === 'report') {
     if (!config) return channel.post({ type: 'error', id: msg.id, message: 'the query worker was not initialized' })
     channel.post(report(config, msg))
+  }
+  if (msg?.type === 'storage') {
+    if (!config) return channel.post({ type: 'error', id: msg.id, message: 'the query worker was not initialized' })
+    channel.post(storage(config, msg))
   }
 })
 // A forked Node process outlives a parent that died without killing it; leave with the parent.

@@ -105,8 +105,9 @@ describe('migration 2', () => {
     v1.raw.prepare("INSERT INTO kv_state (key, value, updated_at) VALUES ('k', '{}', 1)").run()
     v1.close()
     const db = openDb(dir)
-    expect(db.schemaVersion()).toBe(2)
+    expect(db.schemaVersion()).toBe(MIGRATIONS.at(-1)!.version)
     expect(count(db, 'kv_state')).toBe(1)
+    expect(count(db, 'turns_daily')).toBe(0)
   })
 
   it('describes every analytics table and column, with types, and lists what may be read', () => {
