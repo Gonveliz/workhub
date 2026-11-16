@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { installCommand, isInstallerId, type InstallerId } from '@workhub/core'
+import { installCommand, isInstallerId, type InstallContext, type InstallerId } from '@workhub/core'
 
 /** An install may download and unpack a tool: ten minutes at most. */
 export const INSTALL_TIMEOUT_MS = 10 * 60_000
@@ -30,11 +30,16 @@ export const runInShell: ShellRunner = (command, { platform, timeoutMs }) =>
 
 export interface SetupInstallerDeps {
   platform?: NodeJS.Platform
+  /** Homebrew and npm on this machine, checked again before each install (the table's methods depend on them). */
+  context?: () => Promise<Omit<InstallContext, 'platform'>>
   run?: ShellRunner
   timeoutMs?: number
 }
 
-/** Installs a missing tool with the command of the installer table, never with text from the renderer; one install at a time. */
+/**
+ * Installs a missing tool with the command of the installer table, never with text from the
+ * renderer; only a method that needs no administrator rights; one install at a time.
+ */
 export class SetupInstaller {
   private busy = false
   constructor(private readonly deps: SetupInstallerDeps = {}) {}
@@ -42,11 +47,12 @@ export class SetupInstaller {
   async install(installer: unknown): Promise<InstallResult> {
     if (!isInstallerId(installer)) return { ok: false, output: 'Unknown installer.' }
     const platform = this.deps.platform ?? process.platform
-    const command = installCommand(installer as InstallerId, platform)
-    if (!command) return { ok: false, output: 'No installer for this platform.' }
     if (this.busy) return { ok: false, output: 'Another install is running.' }
     this.busy = true
     try {
+      const found = this.deps.context ? await this.deps.context().catch(() => ({})) : {}
+      const command = installCommand(installer as InstallerId, { ...found, platform })
+      if (!command) return { ok: false, output: 'No installer Workhub can run for this system.' }
       return await (this.deps.run ?? runInShell)(command, { platform, timeoutMs: this.deps.timeoutMs ?? INSTALL_TIMEOUT_MS })
     } finally {
       this.busy = false

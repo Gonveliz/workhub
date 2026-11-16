@@ -132,7 +132,8 @@ import { accountSessionEnv, profileSessionEnv } from './profile-env'
 import { showMainOnActivate } from './activation'
 import { AgentToolsService, WORKHUB_MCP_SCRIPT, workhubMcpLaunch } from './agent-tools'
 import { SetupInstaller } from './setup-install'
-import { probe, SetupService } from './setup-service'
+import { installContext, probe, SetupService } from './setup-service'
+import { registerSignInIpc, SignInService } from './sign-in'
 import { CalendarService, usableRead } from './calendar-service'
 import { CalendarStateStore, CalendarWatcher } from './calendar-watcher'
 import { demoScenario, seedScenarioAnalytics, seedScenarioConfig, seedScenarioState } from './demo-scenario'
@@ -1104,17 +1105,29 @@ const agentTools = new AgentToolsService({
   env: () => ({ ...process.env, PATH: [sessionPath() ?? process.env['PATH'] ?? '', ...fallbackPath].filter(Boolean).join(delimiter) })
 })
 // One install at a time (the installer keeps the guard), started from the setup checklist.
-const setupInstaller = new SetupInstaller()
+const setupPath = () => [sessionPath() ?? process.env['PATH'] ?? '', ...fallbackPath].filter(Boolean).join(delimiter)
+const setupInstaller = new SetupInstaller({ context: () => installContext(probe, { ...process.env, PATH: setupPath() }, process.platform) })
 const setup = new SetupService({
   config: () => configuration.current(),
   hasSecret: (ref) => secrets.has(ref),
-  path: () => [sessionPath() ?? process.env['PATH'] ?? '', ...fallbackPath].filter(Boolean).join(delimiter),
+  path: setupPath,
+  agents: (config) => knownAgents(config),
   home: homedir(),
   agentSkills: () => agentTools.skillsSummary(),
   slackFailure: async () => {
     const snapshot = await slack.snapshot()
     return snapshot.health === 'failing' ? (snapshot.lastError ?? 'failing') : null
   }
+})
+// Signing in to a tool inside Workhub (the setup rows' "Sign in"): a terminal runtime of its own,
+// with the same PATH and bundled Claude Code as sessions, so a sign-in is never a session.
+const signIn = new SignInService({
+  config: () => configuration.current(),
+  home: homedir(),
+  path: () => [sessionPath() ?? process.env['PATH'] ?? '', ...fallbackPath].filter(Boolean).join(delimiter),
+  terminal: new TerminalRuntime({ path: sessionPath, fallbackPath }),
+  openWindow: (id, closed) => windows.openSignInWindow(id, closed),
+  openUrl: (url) => void links.open(url)
 })
 
 // Listing the history starts a process per account that reads the newest transcripts' heads: calls
@@ -1223,6 +1236,7 @@ function registerIpc(): void {
       if (pendingUsageAlerts.length) send('usage:alerts', pendingUsageAlerts.splice(0))
     }
   })
+  registerSignInIpc(ipc, signIn)
   registerSetupIpc(ipc, {
     setup,
     setupInstaller,
@@ -1233,7 +1247,17 @@ function registerIpc(): void {
     settingsWindow,
     configuration,
     loadError: () => loadError,
-    configChanged
+    configChanged,
+    folders: () => {
+      // Some Linux desktops have no Documents folder: the home folder stands in.
+      let documents = homedir()
+      try {
+        documents = app.getPath('documents')
+      } catch {
+        /* no Documents folder */
+      }
+      return { home: homedir(), documents }
+    }
   })
   openTicketWindow = registerTicketIpc({
     ipcMain: ipc,

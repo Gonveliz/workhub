@@ -1,4 +1,4 @@
-import { ArrowRight, FolderPlus } from 'lucide-react'
+import { ArrowRight, FolderPlus, TriangleAlert } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { CreditSpend, Profile } from '@workhub/core'
 import { Button, STATE_TONE, StateDot, type Tone } from '../components/atoms'
@@ -6,7 +6,7 @@ import { Card, CardBody, CardHeader, HOME_INSET_ROW, StatTile } from '../compone
 import { useI18n } from '../i18n/I18nProvider'
 import type { MessageKey } from '../i18n/translate'
 import { ATTENTION_ORDER, folderName, groupByAttention, planUsage, type Attention } from '../lib/home'
-import { moduleScreens, ticketsInProgress } from '@workhub/core'
+import { moduleScreens, setupNeeds, ticketsInProgress } from '@workhub/core'
 import { HomeTicketsCard } from '../components/organisms/HomeTickets'
 import { AgentUsageCard } from '../components/organisms/AgentUsageCard'
 import { TokenSpendCard } from '../components/organisms/TokenSpendCard'
@@ -26,6 +26,8 @@ import { HomeMeetingsCard } from './plan/HomeMeetingsCard'
 import { HomeInboxCard, HomeMilestonesCard } from './plan/HomePlannerCards'
 import { PullRequestCard, PullRequestTile } from './pullRequests/HomeCards'
 import { usageWindowNameInline } from '../lib/usage-window'
+import { useConfig } from '../configStore'
+import { useSetupProblems } from '../lib/setup'
 
 const ATTENTION: Record<Attention, { title: MessageKey; empty: MessageKey; tone: Tone; action: MessageKey }> = {
   needsReply: { title: 'home.needsReply', empty: 'home.needsReplyEmpty', tone: 'warning', action: 'home.action.answer' },
@@ -88,6 +90,9 @@ export function HomeScreen({ profile, sessions, usage: reads = [], onOpenSession
   const trackerLive = tix.status?.state === 'ready' || tix.status?.state === 'demo'
   const inProgress = ticketsInProgress(tix.tickets).length
   const hasFolders = (profile?.folders ?? []).length > 0
+  const config = useConfig()?.config
+  // Read again when what is needed changes, not on every settings save.
+  const setupProblems = useSetupProblems(config ? JSON.stringify(setupNeeds(config)) : '')
 
   // Workhub 1's Home: left-aligned up to 1240px, 16px between sections and 12px between cards.
   // Widths are the page's own (container queries), not the window's, since the sidebar takes part.
@@ -102,6 +107,20 @@ export function HomeScreen({ profile, sessions, usage: reads = [], onOpenSession
         {modules.has('health') && <HealthPills profile={profile} onOpenHealth={() => onNavigate?.('health')} onOpenSettings={onOpenSettings} />}
 
         {modules.has('planner') && <HomeMeetingsCard profile={profile} onOpenPlan={() => onNavigate?.('plan')} onOpenSettings={onOpenSettings} />}
+
+        {setupProblems !== null && setupProblems > 0 && (
+          <section data-testid="home-setup-banner" className="flex items-center gap-3 rounded-[10px] border border-border bg-surface p-3 shadow-sm">
+            <TriangleAlert className="size-6 shrink-0 text-warning" aria-hidden />
+            <div className="min-w-0 flex-1">
+              <h2 className="font-semibold">{t('setup.banner.title')}</h2>
+              <p className="text-sm text-muted">{tn('setup.banner.body', setupProblems)}</p>
+            </div>
+            <Button size="sm" variant="ghost" className="shrink-0 text-accent hover:text-accent" onClick={() => window.hub.setup.openWindow('check')}>
+              {t('setup.banner.open')}
+              <ArrowRight className="size-3.5" aria-hidden />
+            </Button>
+          </section>
+        )}
 
         {profile && !hasFolders && (
           <section className="flex items-center gap-3 rounded-[10px] border border-border bg-surface p-3 shadow-sm">

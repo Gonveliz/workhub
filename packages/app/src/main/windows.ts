@@ -2,6 +2,7 @@ import { app, BrowserWindow, nativeTheme, session, type BrowserWindowConstructor
 import { pathToFileURL } from 'node:url'
 import type { PullRequestWindowTab } from '../shared/codehost-api'
 import type { SetupPage } from '../shared/setup-api'
+import { signInHash } from '../shared/sign-in-api'
 import { TRAY_POPOVER_HASH } from '../shared/tray-api'
 import type { ChromeColors } from './chrome-colors'
 import { isTrustedRendererUrl, rendererDevServerUrl, type RendererOrigin } from './ipc-guard'
@@ -27,6 +28,7 @@ export interface AuxWindowSize {
 export const TICKET_WINDOW_SIZE: AuxWindowSize = { width: 820, height: 760, minWidth: 560, minHeight: 420 }
 export const FILE_WINDOW_SIZE: AuxWindowSize = { width: 900, height: 760, minWidth: 420, minHeight: 320 }
 export const REVIEW_LOOP_WINDOW_SIZE: AuxWindowSize = { width: 860, height: 820, minWidth: 480, minHeight: 400 }
+export const SIGN_IN_WINDOW_SIZE: AuxWindowSize = { width: 760, height: 620, minWidth: 520, minHeight: 440 }
 export const PLAN_ITEM_WINDOW_SIZE: AuxWindowSize = { width: 720, height: 780, minWidth: 460, minHeight: 400 }
 
 const SETUP_HASH: Record<SetupPage, { hash: string; size: AuxWindowSize }> = {
@@ -176,6 +178,24 @@ export function createWindows(deps: WindowsDeps) {
     created.on('closed', () => setupWindows.delete(page))
   }
 
+  /** One window per sign-in flow (sign-in.ts); closing it stops the flow's command. */
+  const signInWindows = new Map<string, BrowserWindow>()
+
+  function openSignInWindow(id: string, closed: () => void): void {
+    const open = signInWindows.get(id)
+    if (open && !open.isDestroyed()) {
+      if (open.isMinimized()) open.restore()
+      open.focus()
+      return
+    }
+    const created = createAuxWindow(signInHash(id), 'Workhub 2', SIGN_IN_WINDOW_SIZE)
+    signInWindows.set(id, created)
+    created.on('closed', () => {
+      signInWindows.delete(id)
+      closed()
+    })
+  }
+
   /** One window per pull request; opening an open one brings it to the front. */
   const prWindows = new Map<string, BrowserWindow>()
 
@@ -265,6 +285,7 @@ export function createWindows(deps: WindowsDeps) {
     loadPopover,
     openSetupWindow,
     setupWindow: (page: SetupPage) => setupWindows.get(page),
+    openSignInWindow,
     openPullRequestWindow,
     openLocalReviewWindow,
     guardWebContents,

@@ -3,12 +3,17 @@
 ## Requirements
 
 - macOS, Windows or Linux. Only macOS has been tested on real machines so far.
-- The agents you want to run, installed and on your `PATH` (for example `kiro-cli`, `opencode`,
-  `gemini`). Codex runs through `npx`, which comes with Node.js. An agent that is not installed
-  shows as **not installed** in **New session**, with how to install it.
+What you need depends on what you want to do; the setup check asks and lists only that as
+needed (see [First run](#first-run)).
+
+- The agents you choose (for example `kiro-cli`, `opencode`, `gemini`). Codex runs through `npx`
+  and Gemini CLI on Node.js, so they need Node.js; Claude sessions run on the app's own runtime and
+  need no Node.js. An agent that is not installed shows as **not installed** in **New session**,
+  with an **Install** button when Workhub can install it for you.
 - Claude Code needs no separate install: the Claude Agent SDK and its `claude` binary ship inside
   the app. Sign in with a Claude account from the setup check.
-- `gh` (GitHub CLI) signed in for pull requests, and `glab` for GitLab.
+- To work on code: `git`, and `gh` (GitHub) or `glab` (GitLab) signed in, for the code host your
+  profile uses.
 
 ## Install
 
@@ -91,25 +96,90 @@ path.
 
 ## First run
 
-1. Open **Help → Setup Check…** (or **Settings → Advanced → Diagnostics and help**, which has the same entry). It lists
-   what Workhub needs on this machine and the optional integrations. Each item shows **Ready**,
-   **Needs a look**, **Missing** or **Not set up**, with a button to fix it. Nothing in the check
-   changes a setting by itself. For a missing Claude Code, Codex, Kiro CLI or GitHub CLI the button
-   is **Install** when the tool has an official installer for your system: Workhub shows the exact
-   command, runs it in a shell on this machine only after you confirm, then checks again. Workhub
-   only runs commands from its own list of official installers. Without one, the button opens the
-   install guide or copies a command.
-2. The **Welcome…** window (Help menu) walks you through creating a first profile: a name and the
-   folders you work in. You can add more later.
-3. In **Settings → Agents**, add the agent accounts you use. A Claude account is a config folder;
-   Kiro and Codex use their own CLI sign-in. See [Profiles](profiles.md).
-4. In **Settings → Profiles**, open the profile: give it folders and a default folder on the
-   **Folders** tab, the accounts it may use on **Agents**, and turn on the screens you want
-   (Health, Slack, Automations…) on **Screens**.
-5. Optional: connect a code host, a ticket tracker, Slack and Elasticsearch. See
-   [Pull requests](pull-requests.md), [Tickets](tickets.md), [Slack](slack.md) and
-   [Health](health.md).
-6. Start a session with **New session** (⌘/Ctrl+T). See [Sessions](sessions.md).
+The first time Workhub opens, the **Welcome** window walks you through a first setup, one choice
+per screen. Every screen has **Back**; **Finish later** closes the window and keeps what you
+already chose. Open it again any time from **Help → Welcome…** or **Settings → Advanced →
+Diagnostics and help → Welcome tour**.
+
+1. **What do you want to do?** **Talk with an AI about my files**, **Work on code** (repositories,
+   pull requests, tickets) or **Both**. Workhub saves your choice at once; the setup check follows
+   it.
+2. **Pick your AI.** One card per assistant (Claude, Codex, Kiro, OpenCode, Gemini), each with what
+   Workhub found: **Ready**, **Installed, not signed in** or **Not installed**. Claude comes with
+   Workhub and needs nothing installed. For another one that is missing, **Install** shows the exact
+   command and where it downloads from, and runs it only after you confirm. Where the install needs
+   administrator rights, the card shows the command to copy into a terminal and says why.
+3. **Sign in.** **Sign in** opens the sign-in window (see [Signing in](#signing-in)). The step is
+   done when Workhub sees you signed in; it checks again every few seconds and when you come back
+   to the window. You can skip it. OpenCode and Gemini ask you to sign in in their first
+   conversation instead.
+4. **Pick a folder.** The folder the AI works with: your Documents folder when you chose files,
+   your home folder otherwise; **Choose another folder…** changes it. Workhub keeps the folder in a
+   workspace (a profile: a workspace for one kind of work, with its own conversations), named after
+   the folder unless you rename it. A folder that is already in a workspace reuses it.
+5. **Connect your code and tickets** (only for **Work on code** and **Both**). Shows whether `git`
+   and the GitHub (`gh`) or GitLab (`glab`) tool are installed and signed in, with **Install** or
+   **Sign in** where they are not, and the ticket trackers (Jira, Linear) with a button to their
+   form in Settings. You can skip it.
+6. **Ready.** A list of what is set and what is still missing, and **Start a conversation**, which
+   opens a new session with the AI you picked in your folder. **Close** ends the welcome without
+   one.
+
+Later, **Help → Setup Check…** (or **Settings → Advanced → Diagnostics and help**) shows the same
+checks in full. At the top, pick what you want to do (the same choice as the Welcome's first step).
+The check lists as **Needed** only what that goal and your choices use:
+
+- the agents your profiles offer or prefer, or that have an account (Claude Code when none is
+  chosen), with their sign-in;
+- Node.js only when a chosen agent runs on it (Codex, Gemini CLI);
+- for code: `git`, and `gh` or `glab` only for the code host a profile uses, and Linear when a
+  profile tracks tickets there;
+- a profile with folders.
+
+Everything else shows under **Optional**. Each item shows **Ready**, **Needs a look**, **Missing**
+or **Not set up**, with a button to fix it. Nothing in the check changes a setting by itself. For a
+missing tool the button is **Install** when its official install needs no administrator rights on
+your system: Workhub shows the exact command and where it downloads from, runs it on this machine
+only after you confirm, then checks again with a fresh search for installed programs. Workhub only
+runs commands from its own list of official installers, and checks whether Homebrew or npm are
+there before it offers a command that uses them (it never offers Homebrew for `gh` on Linux). Where
+the official install needs administrator rights (most Linux packages, `git` on Windows), the row
+shows the command to copy into a terminal and a link to the install page. Otherwise the button
+opens the install page. A tool that is installed but signed out (Claude, Codex, Kiro, GitHub,
+GitLab) has a **Sign in** button.
+
+While something needed is missing, Home shows a small banner that opens the setup check.
+
+Then, as you need them:
+
+- In **Settings → Agents**, add the agent accounts you use. A Claude account is a config folder;
+  Kiro and Codex use their own sign-in. See [Profiles](profiles.md).
+- In **Settings → Profiles**, open the profile: give it more folders and a default folder on the
+  **Folders** tab, the accounts it may use on **Agents**, and turn on the screens you want
+  (Health, Slack, Automations…) on **Screens**.
+- Connect a code host, a ticket tracker, Slack and Elasticsearch. See
+  [Pull requests](pull-requests.md), [Tickets](tickets.md), [Slack](slack.md) and
+  [Health](health.md).
+- Start more sessions with **New session** (⌘/Ctrl+T). See [Sessions](sessions.md).
+
+## Signing in
+
+The **Sign in** button (in the Welcome, and on the setup check's rows for Claude, Codex, Kiro,
+GitHub and GitLab) opens a small sign-in window. It
+runs the tool's own sign-in in a terminal inside Workhub, so you do not need a terminal of your
+own, and it finds Claude Code even when only Workhub's built-in copy is installed. For a Claude
+account, it signs in to that account's config folder.
+
+- When the tool prints a one-time code, the window shows it in large letters with **Copy code**
+  and **Open browser**. Open the browser, enter the code and approve. When the tool only prints a
+  web address, **Open browser** opens it.
+- The window checks every few seconds whether you are signed in, and shows **Signed in** when you
+  are. If the tool asks a question in the terminal, answer it there.
+- **Cancel** stops the sign-in; closing the window does the same.
+
+Workhub never asks for or keeps your password or token: you sign in on the tool's own web page,
+and the tool stores its sign-in as it always does. Sign-in works for Claude Code, Codex, Kiro, the
+GitHub CLI and the GitLab CLI, only from the app on this computer (not from a paired phone).
 
 Secrets you type into Settings (API tokens) are stored encrypted with the operating system keychain
 and never written to the settings file. If the system cannot encrypt, Workhub refuses to store

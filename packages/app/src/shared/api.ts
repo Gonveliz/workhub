@@ -1,9 +1,10 @@
 // Types of the preload bridge (window.hub), shared by main, preload and renderer.
 import type { AnalyticsApi } from './analytics-api'
 import type { ChatJournal } from './chat-journal'
-import type { BackgroundSpend, ChromeProfile, GroupChoice, SessionWorktree, WorktreeStatus } from '@workhub/core'
+import type { BackgroundSpend, ChromeProfile, GroupChoice, SessionWorktree, SignInTool, WorktreeStatus } from '@workhub/core'
 import type { NotificationKind, TrayApi, TrayRoute } from './tray-api'
 import type { ProfileEnvApi, SetupApi, SystemNotificationsApi } from './setup-api'
+import type { SignInPaneApi } from './sign-in-api'
 import type { AgentToolsApi } from './agent-tools-api'
 import type {
   AgentQuestion,
@@ -618,6 +619,14 @@ export interface HubApi {
   menu: MenuApi
   settings: SettingsWindowApi
   setup: SetupApi
+  /**
+   * Opens the sign-in window for a tool of the fixed list (`SIGN_IN_TOOLS`), with a Claude
+   * account's config folder when `accountId` names one. Main runs the tool's own command; false
+   * when it refused (unknown tool or account). Never offered to paired devices.
+   */
+  signIn(tool: SignInTool, accountId?: string): Promise<boolean>
+  /** The sign-in window's own calls. */
+  signInPane: SignInPaneApi
   /** Workhub's MCP server and skills for agents (Settings → Agents). */
   agentTools: AgentToolsApi
   profileEnv: ProfileEnvApi

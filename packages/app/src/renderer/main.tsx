@@ -12,6 +12,8 @@ import { TrayPopover } from './screens/TrayPopover'
 import { SessionWindowRoot, SubagentWindowRoot } from './screens/SessionWindow'
 import { parseSessionWindowHash, parseSubagentWindowHash } from './lib/windows'
 import { parseSetupHash, SetupWindow } from './screens/SetupWindows'
+import { SignInWindowRoot } from './screens/SignInWindow'
+import { parseSignInHash } from '@shared/sign-in-api'
 import { parseFileHash, parseReviewHash } from './lib/localReview'
 import { LocalReviewWindow } from './screens/LocalReviewWindow'
 import { FileViewerWindow } from './screens/FileViewerWindow'
@@ -34,7 +36,7 @@ startPerfReports()
 // a ticket, `#session?id=…` a session in its own window and `#subagent?session=…&id=…` a sub-agent's conversation.
 // `#review?session=…` a session's local review, `#file?path=…` the file viewer, `#flow-map?…` a flow map and
 // `#plan-item?profile=…&kind=inbox|milestone&id=…` a Plan inbox item or milestone, `#review-loop?id=…` a review loop and
-// `#settings?section=…` Settings (`section=general%23updates` also points at a group).
+// `#signin?id=…` a sign-in to a tool, `#settings?section=…` Settings (`section=general%23updates` also points at a group).
 function root(hash: string): ReactElement {
   if (hash === TRAY_POPOVER_HASH) return <TrayPopover />
   const session = parseSessionWindowHash(hash)
@@ -47,6 +49,8 @@ function root(hash: string): ReactElement {
   if (ticket) return <TicketWindowRoot profileId={ticket.profileId} ticketKey={ticket.key} />
   const setup = parseSetupHash(hash)
   if (setup) return <SetupWindow page={setup} />
+  const signIn = parseSignInHash(hash)
+  if (signIn) return <SignInWindowRoot id={signIn} />
   const review = parseReviewHash(hash)
   if (review) return <LocalReviewWindow sessionId={review.sessionId} />
   const file = parseFileHash(hash)
