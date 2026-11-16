@@ -1,4 +1,4 @@
-import { app, autoUpdater as nativeUpdater, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, safeStorage, screen, session, shell, utilityProcess, type BrowserWindowConstructorOptions } from 'electron'
+import { app, autoUpdater as nativeUpdater, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, safeStorage, screen, session, shell, utilityProcess, type BrowserWindowConstructorOptions } from 'electron'
 import { existsSync, mkdirSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
@@ -153,7 +153,7 @@ import { AgentToolsService, registerAgentToolsIpc, WORKHUB_MCP_SCRIPT, workhubMc
 import { SetupInstaller } from './setup-install'
 import { registerSetupInstallIpc } from './setup-ipc'
 import { probe, SetupService } from './setup-service'
-import { CalendarService } from './calendar-service'
+import { CalendarService, usableRead } from './calendar-service'
 import { CalendarStateStore, CalendarWatcher } from './calendar-watcher'
 import { demoScenario, seedScenarioAnalytics, seedScenarioConfig, seedScenarioState } from './demo-scenario'
 import { BriefService } from './plan-briefs'
@@ -1663,8 +1663,7 @@ async function demoBriefNotice(action: DueAction): Promise<void> {
 const calendarWatcher = new CalendarWatcher({
   profiles: () => calendar.plannerProfiles(),
   read: async (profileId) => {
-    const r = await calendar.read(profileId)
-    return r && (r.state === 'ready' || r.state === 'demo') ? { events: r.events, settings: r.settings } : null
+    return usableRead(await calendar.read(profileId))
   },
   store: calendarState,
   remind: meetingReminder,
@@ -2177,6 +2176,15 @@ void app.whenReady().then(async () => {
     if (isLocale(system)) trayLocale = system
   }
   calendarWatcher.start()
+  // The network is often not up yet when the laptop wakes: read the calendars again a few seconds later.
+  powerMonitor.on('resume', () => {
+    setTimeout(() => {
+      void calendar.plannerProfiles().then(async (ps) => {
+        await Promise.all(ps.map((p) => calendar.read(p.id, true).catch(() => null)))
+        await calendarWatcher.tick()
+      })
+    }, 5_000)
+  })
   planner.start()
   historyIndexer.start()
   // First run: no profile yet and the welcome was not finished.

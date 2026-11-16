@@ -69,8 +69,13 @@ describe('tray "Today" data', () => {
     expect(today.joinUrl('unknown')).toBeNull()
   })
 
-  it('lists no meetings while the calendars fail or Plan is off, and no tasks without a profile', async () => {
-    const failing = new TrayToday({ readCalendar: async () => read([event('a', NOW + MIN, NOW + 2 * MIN)], 'error'), dueToday: async () => [item('t', '2026-11-05')], now: () => NOW })
+  it('keeps listing the last good meetings while the calendars fail', async () => {
+    const failing = new TrayToday({ readCalendar: async () => read([event('a', NOW + MIN, NOW + 2 * MIN)], 'error'), dueToday: async () => [], now: () => NOW })
+    expect((await failing.read(null)).calendar.map((e) => e.id)).toEqual(['a'])
+  })
+
+  it('lists no meetings when the calendars fail with nothing cached or Plan is off, and no tasks without a profile', async () => {
+    const failing = new TrayToday({ readCalendar: async () => read([], 'error'), dueToday: async () => [item('t', '2026-11-05')], now: () => NOW })
     expect(await failing.read(null)).toEqual({ calendar: [], planDueToday: [] })
     const broken = new TrayToday({ readCalendar: async () => Promise.reject(new Error('offline')), dueToday: async () => Promise.reject(new Error('x')), now: () => NOW })
     expect(await broken.read('acme')).toEqual({ calendar: [], planDueToday: [] })

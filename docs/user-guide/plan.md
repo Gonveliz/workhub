@@ -109,6 +109,11 @@ Every timed meeting gets a notification **Default reminder** minutes before it s
 when there is none. **Settings → General → Other notifications → Meeting reminders** silences them,
 and **Pause notifications** applies too.
 
+When a calendar cannot be read (for example right after the laptop wakes, before the network is up),
+Workhub retries within seconds, waiting longer after each failure up to five minutes, and reads again
+a few seconds after the system resumes. Reminders and the tray agenda keep using the last good events
+meanwhile; the Plan screen still shows the error.
+
 **Reminder rules** change the reminder of the meetings they match. A rule matches when every
 condition you set holds:
 
