@@ -27,6 +27,18 @@ export interface RemoteDeviceView {
   online: boolean
 }
 
+/**
+ * Why the last pairing offer went wrong. `second-device`: another device answered the same QR, so
+ * the offer was cancelled. `wrong-code`: the code typed was not the one the phone showed, so the
+ * offer was cancelled. `device-outdated`: the phone (`name`) runs a version from before the
+ * pairing code and must be updated (reloaded) first.
+ */
+export interface RemotePairingAlert {
+  kind: 'second-device' | 'wrong-code' | 'device-outdated'
+  name?: string
+  at: number
+}
+
 export type RemoteConnectionState = 'off' | 'connecting' | 'online' | 'error'
 
 export interface RemoteStatusView {
@@ -46,6 +58,8 @@ export interface RemoteStatusView {
   pairing: { link: string; expiresAt: number } | null
   /** A device that answered the QR and waits for the person to confirm it. */
   request: { deviceId: string; fingerprint: string; name: string; platform: RemoteDevicePlatform } | null
+  /** Why the last pairing went wrong, until the next QR. */
+  alert: RemotePairingAlert | null
 }
 
 export interface RemoteApi {
@@ -55,7 +69,8 @@ export interface RemoteApi {
   setDesktopName(name: string): Promise<RemoteStatusView>
   startPairing(): Promise<RemoteStatusView>
   cancelPairing(): Promise<RemoteStatusView>
-  acceptPairing(deviceId: string, capabilities: RemoteCapability[]): Promise<RemoteStatusView>
+  /** `code`: the six digits the phone shows; a wrong one cancels the offer (see `alert`). */
+  acceptPairing(deviceId: string, capabilities: RemoteCapability[], code: string): Promise<RemoteStatusView>
   rejectPairing(deviceId: string): Promise<RemoteStatusView>
   setCapabilities(deviceId: string, capabilities: RemoteCapability[]): Promise<RemoteStatusView>
   revoke(deviceId: string): Promise<RemoteStatusView>

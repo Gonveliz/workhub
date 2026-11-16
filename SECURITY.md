@@ -61,8 +61,17 @@ contacts the following; see [Remote access](docs/user-guide/remote-access.md) an
   accounts; the only thing it stores is where to send push notifications.
 - **Push.** Notifications reach a phone that is offline through Web Push (the browsers' own push
   services). The body is sealed to the device's key, so the push service carries ciphertext.
+- **Pairing.** The QR code (or its link) carries a one-time secret, valid for five minutes. Since
+  anyone who sees the QR knows the secret, the phone also shows a 6-digit code made from the
+  secret, both identities and a nonce the desktop signs after the phone answered; you type it on
+  the desktop. A stranger's device gets a different code and cannot pick an identity that gives
+  yours. A wrong code, or a second device answering the same QR, cancels the offer, and Settings
+  says why.
 - **On the phone.** Its own key pair, the last answers it received, encrypted with that key, and
-  its push subscription, in the browser's storage.
+  its push subscription, in the browser's storage for the relay's origin. The key is stored as
+  an exportable seed (in local storage, mirrored to IndexedDB for the service worker): any script
+  served from that origin can copy it and act as the phone until you revoke it. Serve nothing
+  else from the relay's origin.
 - **What the relay can do.** It serves the phone app's code, so a malicious relay operator could
   ship modified code that reads the keys on the phone. Pair only with a relay you trust;
   self-hosting is the safest choice, and the pairing screen shows the relay host to check.

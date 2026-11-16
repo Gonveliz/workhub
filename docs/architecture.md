@@ -102,6 +102,18 @@ never breaks the session.
   session too large for a page on its own goes as a stub (id, label, state). The desktop names
   what it understands in its `ready` (`features`: `away`, `paging`, `activity`); a phone asks for
   pages only when `paging` is named, so an older desktop and an older phone keep working.
+- Pairing (`protocol/src/pairing.ts`, `main/remote/service.ts`, `web/remote-client.ts`): the QR's
+  offer carries `pv` (pairing version, 2). A version-2 request makes the desktop send, boxed to the
+  device, a challenge: a fresh nonce signed over both fingerprints and the offer's expiry. Both
+  ends derive the pairing code, HMAC-SHA256 keyed with the offer's secret over both fingerprints
+  and the nonce, reduced to six digits; the phone shows it and the person types it on the desktop
+  (`acceptPairing(deviceId, capabilities, code)`). The nonce is chosen after the device's identity
+  is fixed and is signed, so neither a QR viewer nor the relay can grind an identity whose code
+  matches. The offer remembers the first device that answered: another device cancels it, as does
+  a wrong code, and `RemoteStatusView.alert` says which. Versions: a phone that sees no `pv`
+  reports `desktop-outdated` instead of answering; an older phone ignores `pv`, answers with a
+  version-1 request, and the desktop, once its proof holds, shows `device-outdated` (update the
+  phone) and keeps the offer open for it.
   Sub-agents and background tasks leave the desktop without their model, tokens or cost and with
   their text cut, both in live `session:event` monitor updates and in `remote:activity` (one
   session, or a list after a reconnect; `main/remote/activity.ts`); a waiting permission

@@ -13,9 +13,9 @@ export function registerRemoteIpc(ipc: IpcRegistrar, service: RemoteService): vo
   ipc.handle('remote:setDesktopName', (_e, name: unknown) => service.setDesktopName(typeof name === 'string' ? name : ''))
   ipc.handle('remote:startPairing', () => service.startPairing())
   ipc.handle('remote:cancelPairing', () => service.cancelPairing())
-  ipc.handle('remote:acceptPairing', (_e, deviceId: unknown, capabilities: unknown) => {
+  ipc.handle('remote:acceptPairing', (_e, deviceId: unknown, capabilities: unknown, code: unknown) => {
     if (!isId(deviceId)) throw new Error('a device id is required')
-    return service.acceptPairing(deviceId, caps(capabilities))
+    return service.acceptPairing(deviceId, caps(capabilities), typeof code === 'string' ? code.slice(0, 32) : '')
   })
   ipc.handle('remote:rejectPairing', (_e, deviceId: unknown) => {
     if (!isId(deviceId)) throw new Error('a device id is required')

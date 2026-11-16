@@ -365,7 +365,7 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       setDesktopName: (name) => invoke('remote:setDesktopName', name),
       startPairing: () => invoke('remote:startPairing'),
       cancelPairing: () => invoke('remote:cancelPairing'),
-      acceptPairing: (deviceId, capabilities) => invoke('remote:acceptPairing', deviceId, capabilities),
+      acceptPairing: (deviceId, capabilities, code) => invoke('remote:acceptPairing', deviceId, capabilities, code),
       rejectPairing: (deviceId) => invoke('remote:rejectPairing', deviceId),
       setCapabilities: (deviceId, capabilities) => invoke('remote:setCapabilities', deviceId, capabilities),
       revoke: (deviceId) => invoke('remote:revoke', deviceId),

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { RelayCore, type Peer, type PushProvider, MemoryPushStore } from '@workhub/relay'
-import { MAX_FRAME_BYTES } from '@workhub/protocol'
+import { generateIdentity, makePairingOffer, MAX_FRAME_BYTES, pairingLink, PAIRING_VERSION } from '@workhub/protocol'
 import type { IpcRegistrar } from '../src/main/ipc-guard'
 import { recordIpc, RemoteHub, RemoteService, type RemoteState } from '../src/main/remote'
 import { buildHub } from '../src/shared/hub-client'
@@ -161,7 +161,10 @@ async function paired(capabilities: Parameters<RemoteService['acceptPairing']>[1
   await settle()
   const request = d.service.status().request!
   expect(request.deviceId).toBe(p.client.identity.id)
-  d.service.acceptPairing(request.deviceId, capabilities)
+  // The phone shows the code the desktop expects; the person types it there.
+  const code = p.client.status().code
+  expect(code).toMatch(/^[0-9]{6}$/)
+  d.service.acceptPairing(request.deviceId, capabilities, code!)
   await settle(6)
   expect(p.client.status().state).toBe('online')
   return { d, p }
@@ -199,6 +202,37 @@ describe('RemoteClient', () => {
       expect(p.client.openPairingLink(link)).toBe(false)
       expect(p.client.status().error).toBe('expired')
     })()
+  })
+
+  it('says which side needs an update when the link comes from a desktop on another pairing version', () => {
+    const p = phone(new RelayCore({ now: () => NOW }))
+    const offer = makePairingOffer(generateIdentity(), 'wss://relay.example.com/ws', 'Old desk', NOW)
+    // A desktop from before the pairing code puts no `pv` in its offer.
+    const { pv: _pv, ...older } = offer
+    expect(p.client.openPairingLink(pairingLink('https://relay.example.com/', older as typeof offer))).toBe(false)
+    expect(p.client.status()).toMatchObject({ error: 'desktop-outdated', offer: null })
+    expect(p.client.openPairingLink(pairingLink('https://relay.example.com/', { ...offer, pv: PAIRING_VERSION + 1 }))).toBe(false)
+    expect(p.client.status()).toMatchObject({ error: 'phone-outdated', offer: null })
+    expect(p.client.openPairingLink(pairingLink('https://relay.example.com/', offer))).toBe(true)
+  })
+
+  it('shows no code until the desktop signs a challenge, and a wrong code typed there leaves the phone unpaired', async () => {
+    const d = desktop()
+    await d.service.start()
+    await settle()
+    const link = (await d.service.startPairing()).pairing!.link
+    const p = phone(d.core)
+    expect(p.client.openPairingLink(link)).toBe(true)
+    expect(p.client.status().code).toBeNull()
+    p.client.pair()
+    await settle()
+    const code = p.client.status().code!
+    expect(code).toMatch(/^[0-9]{6}$/)
+    const wrong = String((Number(code) + 1) % 1_000_000).padStart(6, '0')
+    expect(d.service.acceptPairing(p.client.identity.id, ['sessions'], wrong).alert).toMatchObject({ kind: 'wrong-code' })
+    await settle(6)
+    expect(d.service.status().devices).toEqual([])
+    expect(p.client.status()).toMatchObject({ state: 'pairing', desktop: null })
   })
 
   it('pairs through the QR link, then calls hub methods over the encrypted channel', async () => {
@@ -374,7 +408,7 @@ describe('RemoteClient', () => {
     expect(p.client.openPairingLink(link)).toBe(true)
     p.client.pair()
     await settle()
-    work.service.acceptPairing(work.service.status().request!.deviceId, ['sessions'])
+    work.service.acceptPairing(work.service.status().request!.deviceId, ['sessions'], p.client.status().code!)
     await settle(6)
     const status = p.client.status()
     expect(status.state).toBe('online')

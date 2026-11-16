@@ -22,7 +22,10 @@ phone (web app, later a native app)  ⇄  relay (your server, or one you trust) 
   you can compare them.
 - **Pairing.** The desktop shows a QR code with its identity, the relay's address and a one-time
   secret that expires in five minutes. The phone answers through the relay with a request proving it
-  saw the QR; you confirm the device name and fingerprint on the desktop and choose what it may do.
+  saw the QR, and then shows a 6-digit pairing code; you type that code on the desktop and choose
+  what the device may do. Anyone who saw the QR (a screen share, a photo) knows its secret, but not
+  the code your phone shows: their device gets another code, and a wrong code cancels the
+  request. If a second device answers the same QR, the desktop cancels it and tells you.
 - **Capabilities.** A device gets only what you tick: sessions (view, chat, answer permissions,
   close, open a new one in a profile folder), pull requests (read-only lists), automations (their notifications only), health and alerts, Plan. A device
   can call only what the phone app itself uses: it cannot review, comment on or close a pull request, or create, edit or run an automation, whatever it was granted.
@@ -54,8 +57,15 @@ phone (web app, later a native app)  ⇄  relay (your server, or one you trust) 
    network drop, backing off up to half a minute between attempts.
 3. **Pair a device.** *Show QR code* puts a code on screen for five minutes. Scan it with the phone
    (or copy the link and open it there). When the phone answers, Settings shows its name, platform
-   and fingerprint; compare the fingerprint with the one on the phone, tick what the device may do,
-   and *Accept*. The device connects within a second and from then on reconnects by itself.
+   and fingerprint, and the phone shows a 6-digit pairing code. Type the code in Settings, tick what
+   the device may do, and *Accept* (it stays disabled until six digits are typed). The device
+   connects within a second and from then on reconnects by itself.
+   - A wrong code cancels the request and the QR: show a new one and start again.
+   - If a second device answers the same QR, pairing is cancelled and Settings says so: someone
+     else may have seen the code or its link. Show a new QR only to your phone.
+   - A phone still running the app from before pairing codes cannot show one; Settings asks you
+     to reload the page on the phone, then open the link again. A phone that opens a QR from an
+     older Workhub says the computer needs an update.
 4. **Paired devices.** Each one shows whether it is connected, when it was last seen and its
    capabilities, which you can change at any time (the device reconnects with the new set).
    *Revoke* drops it: it has to pair again to come back.
@@ -73,9 +83,10 @@ The phone opens the relay's address in its browser: the relay serves the phone a
    which has no address bar, use *Copy link* on the desktop and paste it into the pairing field
    instead: a tapped link or a scanned QR opens the browser, not the installed app. The app shows
    the computer's name and fingerprint and this phone's fingerprint; give the phone a name and
-   tap *Pair*. Back on the
-   desktop, compare the fingerprints, tick what the phone may do and *Accept*. The phone connects
-   at once and never asks again, even after the desktop, the relay or the phone restart.
+   tap *Pair*. The phone then shows a 6-digit pairing code. Back on the desktop, type that code,
+   tick what the phone may do and *Accept*. Do not read the code out or share it: whoever types
+   it on the computer pairs this phone. The phone connects at once and never asks again, even
+   after the desktop, the relay or the phone restart.
 2. **Notifications.** Asked once after pairing. *Allow* subscribes the browser to Web Push; the
    desktop's notifications then reach the phone with the body sealed to its key, whether or not
    the app is open. On iPhone add the app to the Home Screen first (Share → Add to Home Screen):
@@ -199,6 +210,10 @@ never bodies.
 - It does serve the phone app's code. A malicious relay operator could ship modified code that
   reads the keys stored on the phone, so only pair with a relay you trust. Self-hosting is the
   safest choice. When you confirm a pairing, check the relay host the phone shows.
+- The phone's key is kept in the browser's storage for the relay's address (the page reads it
+  from local storage and the service worker from IndexedDB), and it can be copied: any script
+  served from that address can read it. It is not yet held as a key the browser refuses to
+  export. Use a relay address that serves nothing but Workhub Remote.
 - Revoking a phone from the computer (Settings → Remote access) is the authoritative way to cut its
   access. Forgetting the computer on the phone also tells the computer to drop it, when the two are
   connected at that moment.

@@ -2,6 +2,7 @@ import { Check, ClipboardPaste, Smartphone } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Spinner } from '../../renderer/components/atoms'
 import { useI18n } from '../../renderer/i18n/I18nProvider'
+import type { MessageKey } from '../../renderer/i18n/translate'
 import { navigate, useClient, useClientStatus, useRoute } from '../app-context'
 import { DEVICE_NAME_KEY } from '../device'
 import { BigButton, Header, Screen } from '../ui'
@@ -15,6 +16,13 @@ function relayHost(offer: object): string | null {
   } catch {
     return null
   }
+}
+
+/** The message for a link `openPairingLink` refused, by the client's error. */
+const LINK_ERROR: Record<string, MessageKey> = {
+  expired: 'web.pair.expired',
+  'desktop-outdated': 'web.pair.desktopOutdated',
+  'phone-outdated': 'web.pair.phoneOutdated'
 }
 
 /**
@@ -49,7 +57,7 @@ export function PairScreen({ defaultName }: { defaultName: string }) {
     const link = pasted.trim()
     if (!link) return
     const ok = client.openPairingLink(link)
-    setLinkError(ok ? null : client.status().error === 'expired' ? t('web.pair.expired') : t('web.pair.invalid'))
+    setLinkError(ok ? null : t(LINK_ERROR[client.status().error ?? ''] ?? 'web.pair.invalid'))
     if (ok) setPasted('')
   }
 
@@ -58,7 +66,7 @@ export function PairScreen({ defaultName }: { defaultName: string }) {
     if (route.screen !== 'pair' || !location.hash.startsWith('#pair=')) return
     const ok = client.openPairingLink(location.href)
     navigate({ screen: 'home' }, true)
-    if (!ok) setLinkError(client.status().error === 'expired' ? t('web.pair.expired') : t('web.pair.invalid'))
+    if (!ok) setLinkError(t(LINK_ERROR[client.status().error ?? ''] ?? 'web.pair.invalid'))
   }, [client, t, route])
 
   const confirm = () => {
@@ -75,6 +83,17 @@ export function PairScreen({ defaultName }: { defaultName: string }) {
           <h1 className="text-xl font-semibold">{t('web.pair.waiting')}</h1>
           <p className="text-sm text-muted">{t('web.pair.waitingHint')}</p>
           {status.error === 'desktop-offline' && <p className="text-sm text-warning">{t('web.pair.desktopOffline')}</p>}
+          <div className="w-full rounded-xl border border-accent/40 bg-accent-soft p-4" data-testid="pair-code">
+            <div className="text-xs font-semibold tracking-wide text-muted uppercase">{t('web.pair.code')}</div>
+            {status.code ? (
+              <>
+                <div className="mt-1 font-mono text-2xl font-semibold tracking-[0.3em] text-text">{status.code}</div>
+                <div className="mt-1 text-xs text-subtle">{t('web.pair.codeHint')}</div>
+              </>
+            ) : (
+              <div className="mt-1 text-sm text-muted">{t('web.pair.codeWaiting')}</div>
+            )}
+          </div>
           <div className="w-full rounded-xl border border-border bg-surface p-4 text-left">
             <div className="text-xs font-semibold tracking-wide text-muted uppercase">{t('web.pair.thisPhone')}</div>
             <div className="fp mt-1 text-md">{status.fingerprint}</div>
