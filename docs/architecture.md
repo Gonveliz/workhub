@@ -209,7 +209,7 @@ Agents learn the endpoint two ways (Settings → Agents → Workhub tools, `agen
   Workhub, `--socket`) it sends neither session nor folder and only reads the active profile. The
   session manager hands it to every session that reaches the endpoint, with `WORKHUB_SESSION_TOKEN`
   in its environment (`StartSessionRequest.mcpServers`):
-  the native bridge passes it to the Agent SDK's `mcpServers`, the ACP runtime to `session/new`,
+  the native bridge passes it to the Agent SDK's `mcpServers`, the ACP runtime to `session/new` (or `session/load` when it resumes),
   Claude's console to `--mcp-config` (not on Windows, where ConPTY breaks the JSON quoting).
   Reviewers get none. The option `workhubMcp` (default on) turns it off.
 - **Skills**: `skills/workhub-*`, shipped in `<resources>/skills` and copied into a Claude config

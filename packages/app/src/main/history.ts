@@ -31,9 +31,12 @@ export function historyAccountKey(agentId: string, accountId: string | null | un
   return `${agentId}\u0000${accountId ?? ''}`
 }
 
-/** Whether a past session of the agent can be opened again from the history. */
+/**
+ * Whether a past session of the agent can be opened again from the history: native Claude, an
+ * agent with a console (`--resume`), or an ACP agent that loads a stored session (`session/load`).
+ */
 export function canResume(agent: AgentDefinition): boolean {
-  return agent.adapter === 'native' || agent.console !== undefined
+  return agent.adapter === 'native' || agent.console !== undefined || (agent.adapter === 'acp' && agent.capabilities.resume === true)
 }
 
 /** Sessions listed per account at first, and how many more each "older sessions" request adds. */
@@ -86,7 +89,9 @@ export async function listAllHistory(config: WorkhubConfig, home: string, source
         try {
           const { entries, truncated, complete } = await listAccount(sources[agent.id]!, { agentId: agent.id, accountId: a.accountId, configDir: a.configDir }, options)
           const resumable = canResume(agent)
-          result.entries.push(...entries.map((e): HistoryItem => ({ ...e, agentName: agent.name, resumable, accountName: a.name || undefined })))
+          // Only an agent with a console view can reopen a past session in the terminal.
+          const consoleResumable = resumable && agent.console !== undefined
+          result.entries.push(...entries.map((e): HistoryItem => ({ ...e, agentName: agent.name, resumable, consoleResumable, accountName: a.name || undefined })))
           if (complete) result.listed!.push(historyAccountKey(agent.id, a.accountId))
           if (truncated) result.truncated!.push(historyAccountKey(agent.id, a.accountId))
         } catch (err) {

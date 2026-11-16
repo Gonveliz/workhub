@@ -882,3 +882,66 @@ describe('SessionManager worktrees', () => {
     expect(clean.removed).toEqual([['/w/acme', wt('acme-feat-b'), false]])
   })
 })
+
+describe('resuming an ACP session', () => {
+  const kiroHistory = { kiro: { list: async () => [], messages: async (): Promise<HistoryMessage[]> => [{ kind: 'user', text: 'earlier question' }, { kind: 'agent', text: 'earlier answer' }] } }
+
+  function resumed(resumeFailed?: 'unsupported' | 'failed') {
+    const order: string[] = []
+    const env = setup(emptyConfig(), false, {
+      history: kiroHistory,
+      emitReplay: (_id, m) => order.push(`replay:${m.length}`),
+      emitEvent: (e) => {
+        if (e.type === 'notice') order.push(`notice:${e.kind}:${e.title}:${e.text}`)
+        if (e.type === 'message') order.push(`message:${e.text}`)
+      }
+    })
+    env.acp.start = async (r: StartSessionRequest) => {
+      env.acp.started.push(r)
+      env.acp.emit({ sessionId: r.sessionId, type: 'state', state: 'ready' })
+      return { agentName: 'Kiro', permissionMode: null, agentSessionId: resumeFailed ? 'new-session' : r.agentSessionId, ...(resumeFailed ? { resumeFailed } : {}) }
+    }
+    return { ...env, order }
+  }
+
+  it('asks the runtime to resume the stored id and replays the conversation once, with no notice', async () => {
+    const { manager, acp, order, last } = resumed()
+    const view = await manager.start({ profileId: null, agentKey: 'kiro', cwd: '/tmp/demo', resumeAgentSessionId: 'kiro-7' })
+    await settle()
+    expect(acp.started[0]).toMatchObject({ agentSessionId: 'kiro-7', resume: true })
+    expect(order).toEqual(['replay:2'])
+    expect(last(view.id)).toMatchObject({ agentSessionId: 'kiro-7', state: 'ready' })
+  })
+
+  it('shows the earlier conversation as history, then says a new conversation started, when the agent cannot resume', async () => {
+    const { manager, order, last } = resumed('unsupported')
+    const view = await manager.start({ profileId: null, agentKey: 'kiro', cwd: '/tmp/demo', resumeAgentSessionId: 'kiro-7' })
+    await settle()
+    expect(order).toEqual(['replay:2', expect.stringMatching(/^notice:warning:New conversation:This agent cannot resume/)])
+    // The session follows the new conversation.
+    expect(last(view.id)).toMatchObject({ agentSessionId: 'new-session', identity: 'new-session' })
+  })
+
+  it('says so as well when the load fails', async () => {
+    const { manager, order } = resumed('failed')
+    await manager.start({ profileId: null, agentKey: 'kiro', cwd: '/tmp/demo', resumeAgentSessionId: 'kiro-7' })
+    await settle()
+    expect(order).toEqual(['replay:2', expect.stringMatching(/^notice:warning:New conversation:The agent could not load/)])
+  })
+
+  it('resumes an ACP agent without a transcript reader when it is restored at launch', async () => {
+    const { manager, acp } = resumed()
+    await manager.start({ profileId: null, agentKey: 'gemini', cwd: '/tmp/demo', resumeAgentSessionId: 'gem-1' }, { restored: true })
+    await settle()
+    expect(acp.started[0]).toMatchObject({ agentSessionId: 'gem-1', resume: true })
+  })
+
+  it('opens the chat of an agent without a console when the terminal is asked for', async () => {
+    const { manager, acp, terminal, last } = resumed()
+    const view = await manager.start({ profileId: null, agentKey: 'kiro', cwd: '/tmp/demo', resumeAgentSessionId: 'kiro-7', mode: 'console' })
+    await settle()
+    expect(acp.started).toHaveLength(1)
+    expect(terminal.started).toEqual([])
+    expect(last(view.id).mode).toBe('app')
+  })
+})

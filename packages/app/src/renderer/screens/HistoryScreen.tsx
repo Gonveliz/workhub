@@ -294,12 +294,14 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
                 >
                   {t('history.resume')}
                 </Button>
-                <IconButton
-                  label={t('history.resumeConsole')}
-                  icon={opening === `${e.agentSessionId}:console` ? <Spinner className="size-3.5" /> : <SquareTerminal className="size-4" />}
-                  disabled={opening !== null}
-                  onClick={() => void resume(e, 'console')}
-                />
+                {e.consoleResumable !== false && (
+                  <IconButton
+                    label={t('history.resumeConsole')}
+                    icon={opening === `${e.agentSessionId}:console` ? <Spinner className="size-3.5" /> : <SquareTerminal className="size-4" />}
+                    disabled={opening !== null}
+                    onClick={() => void resume(e, 'console')}
+                  />
+                )}
               </>
             )}
           </li>
@@ -311,9 +313,11 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
                 <ContextMenu.Item className={MENU_ITEM} onSelect={() => void resume(e, 'app')}>
                   {t('history.resumeApp')}
                 </ContextMenu.Item>
-                <ContextMenu.Item className={MENU_ITEM} onSelect={() => void resume(e, 'console')}>
-                  {t('history.resumeInConsole')}
-                </ContextMenu.Item>
+                {e.consoleResumable !== false && (
+                  <ContextMenu.Item className={MENU_ITEM} onSelect={() => void resume(e, 'console')}>
+                    {t('history.resumeInConsole')}
+                  </ContextMenu.Item>
+                )}
                 <ContextMenu.Separator className="my-1 h-px bg-border" />
               </>
             )}

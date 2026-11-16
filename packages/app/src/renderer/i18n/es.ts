@@ -444,7 +444,7 @@ export const es: Record<keyof typeof en, string> = {
   'history.loading': 'Leyendo las sesiones…',
   'history.empty': 'Todavía no hay sesiones',
   'history.noMatch': 'Ninguna sesión coincide con la búsqueda o los filtros',
-  'history.emptyDescription': 'Las sesiones de Claude Code, Kiro, OpenCode y Codex aparecen aquí, agrupadas por carpeta. Solo se pueden retomar las de Claude Code.',
+  'history.emptyDescription': 'Las sesiones de Claude Code, Kiro, OpenCode y Codex aparecen aquí, agrupadas por carpeta. Las de Claude Code se retoman; las de Kiro, OpenCode y Codex, cuando el agente puede cargar una sesión guardada.',
   'history.noFolder': 'Sin carpeta',
   'history.untitled': 'Sesión sin título',
   'history.resume': 'Retomar',

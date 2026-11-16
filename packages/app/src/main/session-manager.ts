@@ -339,7 +339,8 @@ export class SessionManager {
     // A read-only reviewer has no console: the agent's own TUI would run with its usual permissions.
     if ((agent.adapter === 'terminal' || agent.console) && !input.readOnly) modes.push('console')
     modes.push('shell')
-    const engine: Engine = modes[0] === 'app' && input.mode !== 'console' ? 'app' : 'console'
+    // An agent without a console (most ACP agents) opens its chat even when the terminal is asked for.
+    const engine: Engine = modes[0] === 'app' && !(input.mode === 'console' && modes.includes('console')) ? 'app' : 'console'
     // Agents with a console share one session id between chat, console and transcript.
     const agentSessionId = input.resumeAgentSessionId ?? (agent.console || agent.adapter === 'native' ? randomUUID() : undefined)
 
@@ -433,11 +434,14 @@ export class SessionManager {
     // A session reopened (at launch, or by hand from the list) resumes its conversation only when
     // it exists (one never prompted has none, and a transcript may be gone): otherwise the same
     // session id starts fresh, as Workhub 1 does. An agent without a transcript reader cannot be
-    // checked, so a manual reopen of it keeps resuming.
+    // checked, so a manual reopen of it keeps resuming, and so does one restored at launch when it
+    // resumes over ACP (`session/load`; it falls back to a new conversation with a notice).
     const starting = async () => {
       if (placed.created && placed.worktree && this.deps.worktrees) await this.bootstrap(session, placed.worktree, placed.created.setupCommand)
       const resume = internal.restored
-        ? await this.hasTranscript(session).catch(() => false)
+        ? this.reader(session)
+          ? await this.hasTranscript(session).catch(() => false)
+          : agent.adapter === 'acp' && agent.capabilities.resume === true && Boolean(session.view.agentSessionId)
         : input.resumeAgentSessionId
           ? !this.reader(session) || (await this.hasTranscript(session).catch(() => false))
           : false
@@ -827,9 +831,21 @@ export class SessionManager {
     // The agent's own word on images (ACP) wins over its definition.
     if (started.imageInput !== undefined) patch.capabilities = { ...s.view.capabilities, imageInput: started.imageInput }
     this.update(s.view.id, patch)
+    if (opts.resume && started.resumeFailed) this.noteNewConversation(s, started.resumeFailed)
     if (started.models?.length || started.availableModes?.length) {
       this.deps.onAgentOptions?.(s.agent.id, s.account?.id ?? null, { models: started.models ?? [], modes: started.availableModes ?? [] })
     }
+  }
+
+  /**
+   * A resume that started a new conversation instead (an ACP agent without `session/load`, or a
+   * load the agent refused). Sent through `onEvent`, so while the earlier conversation is replayed
+   * it waits with the chat's own events and shows right below it: what came before stays readable
+   * as history, and the notice says the agent does not remember it.
+   */
+  private noteNewConversation(s: ManagedSession, reason: 'unsupported' | 'failed'): void {
+    const text = this.deps.text ?? ((key: string, params?: Record<string, string | number>) => translate('en', key as MessageKey, params))
+    this.onEvent({ sessionId: s.view.id, type: 'notice', noticeId: `${s.view.id}:resume`, kind: 'warning', title: text('session.resumeFailed.title'), text: text(`session.resumeFailed.${reason}`) })
   }
 
   /** The session's name and sidebar place follow it to a new identity. */

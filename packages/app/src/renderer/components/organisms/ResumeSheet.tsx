@@ -93,7 +93,7 @@ export function ResumeSheet({ folder, profileId, onClose, onOpened }: ResumeShee
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
           </Button>
-          <Button variant="secondary" disabled={!current || busy} onClick={() => void resume(current, 'console')}>
+          <Button variant="secondary" disabled={!current || busy || current.consoleResumable === false} onClick={() => void resume(current, 'console')}>
             {t('resume.resumeConsole')}
           </Button>
           <Button variant="primary" data-testid="resume-selected" disabled={!current || busy} icon={busy ? <Spinner className="size-3.5" /> : undefined} onClick={() => void resume(current, 'app')}>

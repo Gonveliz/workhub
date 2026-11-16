@@ -224,7 +224,8 @@ const capabilities = z.object({
   subagents: z.boolean(),
   permissionRequests: z.boolean(),
   imageInput: z.boolean().default(false),
-  midTurnInput: z.boolean().optional()
+  midTurnInput: z.boolean().optional(),
+  resume: z.boolean().optional()
 })
 
 const consoleLaunch = z.object({

@@ -16,6 +16,9 @@ const CLAUDE_CONSOLE: ConsoleLaunch = {
  *
  * Capabilities list only what was observed (P0 spike, spike/README.md) or what the native Claude
  * adapter and the Claude transcript reader provide (P2), plus the Kiro, OpenCode and Codex readers (P5).
+ * `resume` on the ACP agents means Workhub tries `session/load`; whether the agent takes it is its
+ * own answer to `initialize` (`loadSession`), so a version without it starts a new conversation
+ * with a notice instead of failing.
  */
 export const BUILTIN_AGENTS: readonly AgentDefinition[] = [
   {
@@ -88,7 +91,8 @@ export const BUILTIN_AGENTS: readonly AgentDefinition[] = [
       models: true,
       mcpStatus: true,
       subagents: true,
-      permissionRequests: true
+      permissionRequests: true,
+      resume: true
     },
     modeSemantics: 'persona',
     // `kiro-cli acp` takes the first session's model and effort on its command line; ACP has no effort setting.
@@ -112,7 +116,8 @@ export const BUILTIN_AGENTS: readonly AgentDefinition[] = [
       history: true,
       models: true,
       subagents: true,
-      permissionRequests: true
+      permissionRequests: true,
+      resume: true
     },
     // OpenCode's modes are agents (build, plan), not permission levels.
     modeSemantics: 'persona',
@@ -136,7 +141,8 @@ export const BUILTIN_AGENTS: readonly AgentDefinition[] = [
       planUsage: true,
       history: true,
       models: true,
-      permissionRequests: true
+      permissionRequests: true,
+      resume: true
     },
     // Codex's ACP modes are approval presets (read-only, auto, full-access); not verified live.
     modeSemantics: 'permission',
@@ -152,7 +158,7 @@ export const BUILTIN_AGENTS: readonly AgentDefinition[] = [
     // No transcript reader yet: only what the ACP stream reports.
     command: 'gemini',
     args: ['--acp'],
-    capabilities: { ...NO_CAPABILITIES, appMode: true, permissionRequests: true },
+    capabilities: { ...NO_CAPABILITIES, appMode: true, permissionRequests: true, resume: true },
     modeSemantics: 'permission',
     builtIn: true
   },

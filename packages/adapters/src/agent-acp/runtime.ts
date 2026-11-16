@@ -57,7 +57,7 @@ export interface AcpRuntimeOptions {
   /** Every raw JSON-RPC message, for debugging. */
   onRaw?: (sessionId: string, direction: AcpDirection, message: AnyMessage) => void
   /**
-   * How long an agent gets to answer `initialize`, `session/new` and the start-up mode and model
+   * How long an agent gets to answer `initialize`, `session/new` (or `session/load`) and the start-up mode and model
    * switches before it is stopped and the start fails. 60 s by default.
    */
   startTimeoutMs?: number
@@ -66,6 +66,9 @@ export interface AcpRuntimeOptions {
 }
 
 const DEFAULT_START_TIMEOUT_MS = 60_000
+
+/** The `session/update` kinds that make up a conversation, which `session/load` replays. */
+const REPLAYED_UPDATES: ReadonlySet<string> = new Set(['user_message_chunk', 'agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update', 'plan'])
 
 interface AcpSession {
   id: string
@@ -76,7 +79,12 @@ interface AcpSession {
   monitor: AcpMonitor
   pending: Map<string, (r: RequestPermissionResponse) => void>
   stopping: boolean
-  /** What the agent reported at `session/new` (or later through `config_option_update`). */
+  /**
+   * While `session/load` runs: the agent sends the stored conversation again as updates. Workhub
+   * replays it from the transcript (SessionManager.startChat), so those updates are not chat events.
+   */
+  loading: boolean
+  /** What the agent reported at `session/new` or `session/load` (or later through `config_option_update`). */
   models: ModelOption[]
   currentModelId?: string
   modelVia?: SelectVia
@@ -157,6 +165,7 @@ export class AcpRuntime implements AgentRuntime, ModelControl, SessionModeContro
       monitor,
       pending: new Map(),
       stopping: false,
+      loading: false,
       models: [],
       modes: [],
       commands: new Map(),
@@ -241,10 +250,29 @@ export class AcpRuntime implements AgentRuntime, ModelControl, SessionModeContro
       ])
       // Each agent loads its own MCP configuration (P0 finding); Workhub's server, when it is on, comes on top.
       const mcpServers: McpServer[] = (req.mcpServers ?? []).map((s) => ({ type: 'stdio' as const, name: s.name, command: s.command, args: s.args, env: Object.entries(s.env).map(([name, value]) => ({ name, value })) }))
-      const created = await Promise.race([
-        session.conn.agent.request('session/new', { cwd: req.cwd, mcpServers }),
-        startGuard
-      ])
+      // A resume continues the stored conversation through `session/load`, offered only by agents
+      // that advertise `loadSession`. Without it, or when the load fails, a new conversation starts
+      // and the session says so (`resumeFailed`): the agent does not remember the earlier one.
+      const resuming = req.resume === true && Boolean(req.agentSessionId)
+      const loadable = resuming && init.agentCapabilities?.loadSession === true
+      let loaded: Record<string, unknown> | null = null
+      if (loadable) {
+        session.loading = true
+        try {
+          // A refused load falls back to a new conversation; an agent that dies or hangs fails the start.
+          const load = session.conn.agent.request('session/load', { sessionId: req.agentSessionId!, cwd: req.cwd, mcpServers }).then(
+            (r) => (r ?? {}) as Record<string, unknown>,
+            () => null
+          )
+          loaded = await Promise.race([load, startGuard])
+        } finally {
+          session.loading = false
+        }
+      }
+      const created = loaded
+        ? { ...loaded, sessionId: req.agentSessionId! }
+        : await Promise.race([session.conn.agent.request('session/new', { cwd: req.cwd, mcpServers }), startGuard])
+      const resumeFailed = resuming && !loaded ? (loadable ? 'failed' : 'unsupported') : undefined
       session.agentSessionId = created.sessionId
       const modes = readModes(created)
       session.modes = modes.availableModes
@@ -278,6 +306,7 @@ export class AcpRuntime implements AgentRuntime, ModelControl, SessionModeContro
         availableModes,
         ...(modelIgnored ? { modelIgnored: true } : {}),
         ...(modeIgnored ? { modeIgnored: true } : {}),
+        ...(resumeFailed ? { resumeFailed } : {}),
         // Image content blocks are opt-in in ACP: only an agent that advertises them gets pasted images.
         imageInput: init.agentCapabilities?.promptCapabilities?.image === true,
         ...(session.models.length ? { models: session.models } : {}),
@@ -463,6 +492,9 @@ export class AcpRuntime implements AgentRuntime, ModelControl, SessionModeContro
 
   private onUpdate(s: AcpSession, update: unknown): void {
     const u = update as { sessionUpdate?: string; content?: { type?: string; text?: string }; currentModeId?: string } & Record<string, unknown>
+    // The stored conversation the agent sends again while it loads a session: shown from the
+    // transcript instead, so it would double the chat (and count old tool calls in the monitor).
+    if (s.loading && u.sessionUpdate && REPLAYED_UPDATES.has(u.sessionUpdate)) return
     switch (u.sessionUpdate) {
       case 'agent_message_chunk':
       case 'agent_thought_chunk':

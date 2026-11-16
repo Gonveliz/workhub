@@ -445,7 +445,7 @@ export const en = {
   'history.loading': 'Reading the sessions…',
   'history.empty': 'No sessions yet',
   'history.noMatch': 'No session matches the search or the filters',
-  'history.emptyDescription': 'The sessions of Claude Code, Kiro, OpenCode and Codex show up here, grouped by folder. Only Claude Code sessions can be resumed.',
+  'history.emptyDescription': 'The sessions of Claude Code, Kiro, OpenCode and Codex show up here, grouped by folder. Claude Code sessions resume; Kiro, OpenCode and Codex sessions resume when the agent can load a stored session.',
   'history.noFolder': 'No folder',
   'history.untitled': 'Untitled session',
   'history.resume': 'Resume',

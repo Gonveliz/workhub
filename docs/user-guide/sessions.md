@@ -159,8 +159,11 @@ brings it back; its icon shows whether the panel is open.
 ## Resume, rename, close
 
 - **Resume**: History lists past sessions of every account and agent; see
-  [History](history.md). In the sidebar, a folder's menu has **Resume session…**. Only Claude Code
-  sessions can be resumed so far.
+  [History](history.md). In the sidebar, a folder's menu has **Resume session…**. Claude Code,
+  Kiro, OpenCode and Codex sessions can be resumed. Kiro, OpenCode, Codex and Gemini CLI continue
+  the conversation only when the agent can load a past session; otherwise a new conversation starts
+  below the earlier messages, with a **New conversation** notice saying the agent does not remember
+  them.
 - **Rename**: **Rename…** in the session's menu, or double-click its name, or `/rename <name>` in
   the chat. Leave the name empty to show the agent's name again.
 - **Sign in** (Claude): `/login` in the chat opens the Terminal view and runs `/login` there, since
@@ -175,7 +178,7 @@ brings it back; its icon shows whether the panel is open.
 - **Keep my sessions in the sidebar** (**Settings → General → On open and close**, on by default):
   every session in the sidebar when Workhub quit, running or stopped, comes back in its group and
   window, **stopped**: no agent process runs and nothing is spent until you open it, which resumes
-  its conversation. **Delete session** takes one out of the sidebar for good; it stays in
+  its conversation (with the notice above when the agent cannot). **Delete session** takes one out of the sidebar for good; it stays in
   History. **Start them when Workhub starts** (off by default) runs every one again right away
   instead. Nothing is sent to the agents either way.
 
