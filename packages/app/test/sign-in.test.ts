@@ -96,6 +96,39 @@ describe('SignInFlow (fake clock)', () => {
     expect(events.filter((e) => e.type === 'view').at(-1)).toMatchObject({ view: { phase: 'cancelled' } })
   })
 
+  it('a resize after the terminal ended is ignored', async () => {
+    // node-pty throws "Cannot resize a pty that has already exited" between a cancel and the exit event.
+    const { flow, p } = flowWith('claude', async () => false)
+    await flow.start()
+    p.proc.resize = () => {
+      throw new Error('Cannot resize a pty that has already exited')
+    }
+    expect(() => flow.resize(80, 24)).not.toThrow()
+  })
+
+  it('answers the question GitHub asks before its browser step, once', async () => {
+    const { flow, p } = flowWith('github', async () => false)
+    await flow.start()
+    p.print('\x1b[32m?\x1b[0m Authenticate Git with your Git')
+    expect(p.typed).toEqual([])
+    p.print('Hub credentials? (Y/n) ')
+    expect(p.typed).toEqual(['\r'])
+    // The question stays in the output read so far: more output does not answer it again.
+    p.print('\r\n! First copy your one-time code: AB12-CD34\r\n')
+    expect(p.typed).toEqual(['\r'])
+    expect(flow.view().prompt.code).toBe('AB12-CD34')
+  })
+
+  it('keeps the filled-in answer of the question GitLab asks first', async () => {
+    const p = fakeProcess()
+    const flow = new SignInFlow({ tool: 'gitlab', accountName: '', spawn: p.spawn, check: async () => false, emit: () => undefined, openUrl: () => undefined, pollMs: POLL })
+    await flow.start()
+    p.print('- Signing into gitlab.com\r\n┃ What domains does this host use for the container registry and image dependency proxy? \r\n┃ > gitlab.com,gitlab.com:443,registry.gitlab.com')
+    // The form redraws itself: the same question printed again is not answered twice.
+    p.print('\x1b[2K┃ What domains does this host use for the container registry and image dependency proxy? ')
+    expect(p.typed).toEqual(['\r'])
+  })
+
   it('a command that cannot start fails without polling', async () => {
     const check = vi.fn(async () => true)
     const flow = new SignInFlow({ tool: 'claude', accountName: '', spawn: () => Promise.reject(new Error('not found')), check, emit: () => undefined, openUrl: () => undefined, pollMs: POLL })

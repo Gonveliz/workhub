@@ -12,7 +12,7 @@
  */
 import { BUILTIN_AGENTS } from '../domain/builtin-agents'
 
-export type ManagedToolId = 'node' | 'git' | 'github' | 'gitlab' | 'opencode' | 'gemini' | 'codexAdapter'
+export type ManagedToolId = 'node' | 'git' | 'github' | 'gitlab' | 'opencode' | 'gemini' | 'codex' | 'codexAdapter'
 export type ManagedPlatform = 'darwin' | 'linux' | 'win32'
 export type ManagedArch = 'x64' | 'arm64'
 export type ArchiveFormat = 'zip' | 'tar.gz'
@@ -54,6 +54,8 @@ export interface NpmTool {
   mode: 'global' | 'warm'
   /** About how much npm downloads (the package and its platform binary), for the list shown first. */
   bytes: number
+  /** About how much it takes once installed, where that is far more than the download. */
+  diskBytes?: number
   page: string
 }
 
@@ -163,9 +165,15 @@ export const MANAGED_TOOLS: Record<ManagedToolId, ManagedTool> = {
     }
   },
   // https://opencode.ai/docs/ (npm package opencode-ai; its postinstall links the platform binary), checked 2026-11-16.
-  opencode: { kind: 'npm', id: 'opencode', spec: 'opencode-ai', packageName: 'opencode-ai', mode: 'global', bytes: 65_000_000, page: 'https://opencode.ai/docs/' },
+  // Sizes of 1.19.5 on Windows x64, the largest: npm fetches the binary package and its baseline
+  // twin (80 MB each) and the install keeps both plus the linked copy (about 200 MB each).
+  opencode: { kind: 'npm', id: 'opencode', spec: 'opencode-ai', packageName: 'opencode-ai', mode: 'global', bytes: 160_000_000, diskBytes: 610_000_000, page: 'https://opencode.ai/docs/' },
   // https://github.com/google-gemini/gemini-cli (npm install -g @google/gemini-cli), checked 2026-11-16.
   gemini: { kind: 'npm', id: 'gemini', spec: '@google/gemini-cli', packageName: '@google/gemini-cli', mode: 'global', bytes: 30_000_000, page: 'https://github.com/google-gemini/gemini-cli' },
+  // https://github.com/openai/codex (npm install -g @openai/codex), checked 2026-11-16. Codex's own
+  // command line: sessions do not start it (they use the adapter below), but `codex login` is how a
+  // person signs in. Sizes of 0.169.0 on Windows x64.
+  codex: { kind: 'npm', id: 'codex', spec: '@openai/codex', packageName: '@openai/codex', mode: 'global', bytes: 190_000_000, diskBytes: 515_000_000, page: 'https://github.com/openai/codex' },
   // The ACP adapter Codex sessions start with `npx -y <spec>`: fetched ahead into npm's cache so the
   // first session does not wait on it.
   codexAdapter: {

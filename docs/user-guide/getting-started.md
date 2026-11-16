@@ -158,7 +158,9 @@ GitLab) has a **Sign in** button.
 button, one after another. First it lists what it will download, from where and about how large,
 and waits for you to confirm. Each item then shows a line: downloading, checking the download,
 unpacking, installing, done, or failed with the reason in plain words and **Try again**. **Cancel**
-stops it; an install that was stopped or failed leaves nothing half installed.
+stops it; an install that was stopped or failed leaves nothing half installed. When the last one
+ends, the lines stay on screen with a closing line (everything was installed, or not everything),
+and the list is checked again.
 
 ### Tools Workhub installs for itself
 
@@ -174,12 +176,15 @@ on Linux). Workhub puts it first on the `PATH` of its sessions, terminals, sign-
 | Git (MinGit) | Windows | Git for Windows releases on github.com | the SHA-256 from the release notes |
 | GitHub CLI (`gh`) | Windows, macOS, Linux | GitHub CLI releases on github.com | the published checksums file |
 | GitLab CLI (`glab`) | Windows, macOS, Linux | GitLab CLI releases on gitlab.com | the published `checksums.txt` |
-| OpenCode, Gemini CLI | Windows, macOS, Linux | the npm registry, with Workhub's Node.js | npm's integrity check |
+| OpenCode, Gemini CLI, the Codex CLI | Windows, macOS, Linux | the npm registry, with Workhub's Node.js | npm's integrity check |
 | Codex's session adapter | Windows, macOS, Linux | fetched ahead into npm's cache, so the first Codex session does not wait | npm's integrity check |
 
 On macOS and Linux, `git` stays what you have (Homebrew, Apple's tools, your distribution): there is
-no official archive to unpack. Claude Code, the Codex CLI and Kiro keep their official install
-scripts, which publish no checksum. **Settings → Advanced → Tools installed by Workhub** lists what
+no official archive to unpack. Claude Code and Kiro keep their official install scripts, which
+publish no checksum. The Codex CLI is what signs Codex in: a Codex row with no saved sign-in and no
+Codex CLI asks to install it first, then offers **Sign in**. For large tools the list shows the
+download and the space they take once installed (OpenCode: about 160 MB to download, about 610 MB
+installed). **Settings → Advanced → Tools installed by Workhub** lists what
 is in the folder, with its version and size, and **Remove** for each one (removing Node.js removes
 the agents installed with it).
 
@@ -209,7 +214,9 @@ account, it signs in to that account's config folder.
   and **Open browser**. Open the browser, enter the code and approve. When the tool only prints a
   web address, **Open browser** opens it.
 - The window checks every few seconds whether you are signed in, and shows **Signed in** when you
-  are. If the tool asks a question in the terminal, answer it there.
+  are. Workhub answers the questions GitHub and GitLab ask before their browser step, with their
+  own default (GitHub: let Git use this sign-in; GitLab: its usual registry addresses). If the
+  tool asks anything else in the terminal, answer it there.
 - **Cancel** stops the sign-in; closing the window does the same.
 
 Workhub never asks for or keeps your password or token: you sign in on the tool's own web page,

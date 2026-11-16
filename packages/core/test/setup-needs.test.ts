@@ -127,6 +127,18 @@ describe('new rows', () => {
     expect(codexItem(ok('10.9.0'), ok('v22.3.0'), undefined, NONE)).toMatchObject({ status: 'ok', code: 'codexReady' })
   })
 
+  it('codex: without its command, a missing saved sign-in asks to install the command that signs in', () => {
+    const win = { platform: 'win32', arch: 'x64', brew: false, npm: false }
+    // No command and no saved sign-in: a session would end with "Authentication required".
+    expect(codexItem(ok('10.9.0'), ok('v22.3.0'), win, NONE, false)).toMatchObject({ status: 'missing', code: 'codexNeedsCli', fix: { kind: 'install', installer: 'codex', managed: true } })
+    // A saved sign-in found, or not looked at: ready.
+    expect(codexItem(ok('10.9.0'), ok('v22.3.0'), win, NONE, true)).toMatchObject({ status: 'ok', code: 'codexReady' })
+    expect(codexItem(ok('10.9.0'), ok('v22.3.0'), win, NONE, null)).toMatchObject({ status: 'ok', code: 'codexReady' })
+    // The command answers: its word wins over the file.
+    expect(codexItem(ok('10.9.0'), ok('v22.3.0'), win, ok('Logged in using ChatGPT'), false)).toMatchObject({ status: 'ok', code: 'codexReady' })
+    expect(codexItem(ok('10.9.0'), ok('v22.3.0'), win, FAILED, true)).toMatchObject({ status: 'missing', code: 'codexNotSignedIn' })
+  })
+
   it('opencode and gemini: version, missing with the right install, timeout', () => {
     expect(agentItem('opencode', ok('0.15.2'))).toMatchObject({ status: 'ok', params: { version: '0.15.2' } })
     expect(agentItem('opencode', NONE, 'linux')).toMatchObject({ status: 'missing', code: 'opencodeMissing', fix: { kind: 'install', installer: 'opencode' } })
@@ -151,6 +163,9 @@ describe('new rows', () => {
     expect(gitlabItem(ok('glab 1.50.0'), FAILED)).toMatchObject({ status: 'missing', code: 'glabNotSignedIn', fix: { kind: 'signIn', tool: 'gitlab' } })
     expect(gitlabItem(ok('glab 1.50.0'), ok('gitlab.com\n  ✓ Logged in to gitlab.com as octo (/home/x/.config/glab-cli/config.yml)'))).toMatchObject({ status: 'ok', code: 'ghSignedIn', params: { login: 'octo' } })
     expect(gitlabItem(ok('glab 1.50.0'), ok('ok'))).toMatchObject({ status: 'ok', code: 'signedIn' })
+    // GitLab does not answer: the sign-in is unread, and still offered.
+    expect(gitlabItem(ok('glab 1.50.0'), TIMEOUT)).toMatchObject({ status: 'warning', code: 'timeout', params: { command: 'glab auth status' }, fix: { kind: 'signIn', tool: 'gitlab' } })
+    expect(gitlabItem(TIMEOUT, null).fix).toBeUndefined()
     expect(gitlabItem(ok('glab 1.50.0'), TIMEOUT)).toMatchObject({ status: 'warning', params: { command: 'glab auth status' } })
   })
 

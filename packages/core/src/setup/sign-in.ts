@@ -37,6 +37,11 @@ export interface SignInCommand {
   env?: Record<string, string>
   /** The page that takes the one-time code, for a flow that prints the code but not a full address. */
   deviceUrl?: string
+  /**
+   * Questions the tool asks before its browser step, each answered once with the keys given: the
+   * pane shows a code and a button, and a person waiting there does not see a question to type at.
+   */
+  answers?: readonly { question: string; keys: string }[]
 }
 
 /** The only commands the sign-in pane runs. Accounts only change the environment (Claude's config folder). */
@@ -55,12 +60,20 @@ export const SIGN_IN_COMMANDS: Record<SignInTool, SignInCommand> = {
     // no-op browser command keeps gh from opening a second tab (when it cannot run one, gh prints
     // the address and goes on waiting).
     env: { GH_BROWSER: 'true' },
-    deviceUrl: 'https://github.com/login/device'
+    deviceUrl: 'https://github.com/login/device',
+    // With https and git installed, gh first asks "Authenticate Git with your GitHub credentials? (Y/n)"
+    // (seen with gh 2.104.0 on Windows) and prints no code until it is answered. Enter takes its
+    // default, yes: git then pushes and pulls with this sign-in, which is what a session needs.
+    answers: [{ question: 'Authenticate Git with your GitHub credentials?', keys: '\r' }]
   },
   gitlab: {
     command: 'glab',
     args: ['auth', 'login', '--hostname', 'gitlab.com', '--git-protocol', 'https', '--web'],
-    status: { command: 'glab', args: ['auth', 'status', '--hostname', 'gitlab.com'] }
+    status: { command: 'glab', args: ['auth', 'status', '--hostname', 'gitlab.com'] },
+    // glab 1.130.0 first asks "What domains does this host use for the container registry and image
+    // dependency proxy?" with the answer filled in; Enter keeps it. (Its `--container-registry-domains`
+    // flag would skip the question, but an older glab a person installed does not know it.)
+    answers: [{ question: 'container registry and image dependency proxy', keys: '\r' }]
   }
 }
 
@@ -98,6 +111,8 @@ const CODE = '([A-Z0-9]{4,}(?:-[A-Z0-9]{4,})+)'
 const CODE_SHAPES = [
   // GitHub CLI: "! First copy your one-time code: ABCD-1234"
   new RegExp(`one-time code:\\s*${CODE}\\b`),
+  // GitHub CLI 2.104: "! One-time code (ABCD-1234) copied to clipboard"
+  new RegExp(`[Oo]ne-time code \\(${CODE}\\)`),
   // Codex device flow: "2. Enter this one-time code (expires in 15 minutes)\n   ABCD-12345"
   new RegExp(`one-time code[^\\n]*\\n\\s*${CODE}\\b`),
   // AWS-style device flows (Kiro): "Code: ABCD-EFGH" or "user code: ABCD-EFGH"

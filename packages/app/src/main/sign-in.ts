@@ -3,6 +3,7 @@ import type { WebContents } from 'electron'
 import {
   isSignInTool,
   parseSignInPrompt,
+  plainTerminalText,
   SIGN_IN_COMMANDS,
   signInReady,
   NO_CAPABILITIES,
@@ -59,6 +60,8 @@ export class SignInFlow {
   private exited = false
   /** The keys after "Open browser" go once: a second Enter could answer the tool's next question. */
   private typedAfterOpen = false
+  /** The questions already answered (`answers` of the command): each one once. */
+  private readonly answered = new Set<string>()
 
   constructor(private readonly deps: SignInFlowDeps) {}
 
@@ -88,7 +91,12 @@ export class SignInFlow {
   }
 
   resize(cols: number, rows: number): void {
-    if (!this.exited && cols > 0 && rows > 0) this.proc?.resize(cols, rows)
+    if (this.exited || !(cols > 0 && rows > 0)) return
+    try {
+      this.proc?.resize(cols, rows)
+    } catch {
+      // A cancel ends the terminal before its exit is reported: a resize in between has nothing to resize.
+    }
   }
 
   /** Opens the printed address (or the tool's device page once a code is printed), then types what the tool waits for. */
@@ -113,11 +121,24 @@ export class SignInFlow {
   private onOutput(data: string): void {
     this.deps.emit({ type: 'output', data })
     this.tail = (this.tail + data).slice(-OUTPUT_TAIL)
+    this.answerQuestions()
     const next = parseSignInPrompt(this.tail)
     if (next.url === this.prompt.url && next.code === this.prompt.code) return
     // An address or code once read stays until the tool prints a new one.
     this.prompt = { url: next.url ?? this.prompt.url, code: next.code ?? this.prompt.code }
     this.deps.emit({ type: 'view', view: this.view() })
+  }
+
+  /** Types the answer to a question the tool asks before its browser step, once each. */
+  private answerQuestions(): void {
+    const answers = SIGN_IN_COMMANDS[this.deps.tool].answers
+    if (!answers || this.phase !== 'running') return
+    const text = plainTerminalText(this.tail)
+    for (const { question, keys } of answers) {
+      if (this.answered.has(question) || !text.includes(question)) continue
+      this.answered.add(question)
+      this.write(keys)
+    }
   }
 
   private async onExit(): Promise<void> {

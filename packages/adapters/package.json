@@ -21,6 +21,7 @@
     "./git-hardening": "./src/git-hardening.ts",
     "./session-files": "./src/session-files/index.ts",
     "./login-path": "./src/shared/login-path.ts",
+    "./spawn-plan": "./src/agent-acp/spawn-plan.ts",
     "./notification-permission": "./src/shared/notification-permission.ts",
     "./tracker-jira": "./src/tracker-jira/index.ts",
     "./tracker-github": "./src/tracker-github/index.ts",

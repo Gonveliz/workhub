@@ -169,7 +169,10 @@ export function githubItem(version: Probe, user: Probe | null, token: Probe | nu
 /** Installed (`glab --version`), then signed in (`glab auth status` ends well and names the user). */
 export function gitlabItem(version: Probe, auth: Probe | null, context?: InstallContext | string): SetupItem {
   if (version.result === 'notFound') return item('gitlab', 'missing', 'glabMissing', {}, { fix: installFix('gitlab', context) })
-  if (version.result === 'timeout' || auth?.result === 'timeout') return item('gitlab', 'warning', 'timeout', { command: version.result === 'timeout' ? 'glab --version' : 'glab auth status' })
+  if (version.result === 'timeout') return item('gitlab', 'warning', 'timeout', { command: 'glab --version' })
+  // GitLab not answering (a rate limit, say) leaves the sign-in unread: the row still offers it, or a
+  // person who is signed out could not sign in from here until GitLab answers again.
+  if (auth?.result === 'timeout') return item('gitlab', 'warning', 'timeout', { command: 'glab auth status' }, { fix: { kind: 'signIn', tool: 'gitlab' } })
   if (auth?.result === 'ok') {
     const login = /Logged in to \S+ as (\S+)/i.exec(auth.output)?.[1] ?? ''
     return login ? item('gitlab', 'ok', 'ghSignedIn', { login }) : item('gitlab', 'ok', 'signedIn')
@@ -181,11 +184,14 @@ export function gitlabItem(version: Probe, auth: Probe | null, context?: Install
  * Codex sessions start the ACP adapter with `npx`, which comes with Node.js: the row checks those,
  * not a `codex` command. The first session downloads the adapter. `auth` is `codex login status`
  * when the `codex` command is there: signed out, the row signs in inside Workhub; without the
- * command (null or not found) the sign-in cannot be read and the row stays ready.
+ * command (null or not found) the sign-in is read from `signedIn`: whether Codex's saved sign-in
+ * (or an API key) was found. False: the row asks to install the command, which is what signs in;
+ * null (not looked at) leaves the row ready.
  */
-export function codexItem(npx: Probe, node: Probe, context?: InstallContext | string, auth: Probe | null = null): SetupItem {
+export function codexItem(npx: Probe, node: Probe, context?: InstallContext | string, auth: Probe | null = null, signedIn: boolean | null = null): SetupItem {
   if (npx.result === 'ok' && node.result === 'ok') {
     if (auth?.result === 'failed') return item('codex', 'missing', 'codexNotSignedIn', {}, { fix: { kind: 'signIn', tool: 'codex' } })
+    if (auth?.result !== 'ok' && signedIn === false) return item('codex', 'missing', 'codexNeedsCli', {}, { fix: installFix('codex', context) })
     return item('codex', 'ok', 'codexReady', { version: /v\d+\.\d+\.\d+/.exec(node.output)?.[0] ?? firstLine(node.output) })
   }
   if (npx.result === 'timeout' || node.result === 'timeout') return item('codex', 'warning', 'timeout', { command: npx.result === 'timeout' ? 'npx --version' : 'node --version' })

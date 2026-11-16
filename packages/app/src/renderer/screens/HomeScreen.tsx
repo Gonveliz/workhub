@@ -91,8 +91,9 @@ export function HomeScreen({ profile, sessions, usage: reads = [], onOpenSession
   const inProgress = ticketsInProgress(tix.tickets).length
   const hasFolders = (profile?.folders ?? []).length > 0
   const config = useConfig()?.config
-  // Read again when what is needed changes, not on every settings save.
-  const setupProblems = useSetupProblems(config ? JSON.stringify(setupNeeds(config)) : '')
+  // Read again when what is needed changes (or a workspace gets its folders: the welcome's last
+  // step), not on every settings save.
+  const setupProblems = useSetupProblems(config ? `${JSON.stringify(setupNeeds(config))}|${config.profiles.map((p) => p.folders?.length ?? 0).join(',')}` : '')
 
   // Workhub 1's Home: left-aligned up to 1240px, 16px between sections and 12px between cards.
   // Widths are the page's own (container queries), not the window's, since the sidebar takes part.

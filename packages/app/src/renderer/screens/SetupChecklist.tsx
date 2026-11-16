@@ -21,7 +21,12 @@ export function FixNotes({ fix }: { fix: SetupFix }) {
   const { t } = useI18n()
   return (
     <>
-      {(fix.kind === 'command' || fix.kind === 'install' || fix.kind === 'adminCommand') && <code className="mt-1 block truncate rounded-sm bg-surface-hover px-2 py-1 text-xs text-muted">{fix.command}</code>}
+      {fix.kind === 'install' && fix.managed ? (
+        // Workhub installs it itself: an `npm install` line would read as something to type, on a machine that may have no npm.
+        <p className="mt-1 text-xs text-subtle">{t('setup.install.managedNote')}</p>
+      ) : (
+        (fix.kind === 'command' || fix.kind === 'install' || fix.kind === 'adminCommand') && <code className="mt-1 block truncate rounded-sm bg-surface-hover px-2 py-1 text-xs text-muted">{fix.command}</code>
+      )}
       {(fix.kind === 'adminCommand' || (fix.kind === 'link' && fix.admin)) && (
         <p className="mt-1 text-xs text-subtle">
           {t(fix.kind === 'adminCommand' ? 'setup.adminCommand' : 'setup.adminPage')}{' '}
@@ -130,7 +135,7 @@ export function SetupChecklist({ state, actions }: { state: SetupState; actions?
         </Button>
       </div>
       <GoalPicker onChanged={run} />
-      {!running && <InstallMissing installers={missingInstallers(items)} onDone={run} />}
+      <InstallMissing installers={missingInstallers(items)} busy={running} onDone={run} />
       <Section title={t('setup.required')} items={items.filter((i) => !i.optional)} onInstalled={run} />
       <Section title={t('setup.optional')} items={items.filter((i) => i.optional)} onInstalled={run} />
     </div>

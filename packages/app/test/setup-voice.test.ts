@@ -1,10 +1,13 @@
-import { resolve } from 'node:path'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { Profile, SecretStore, SetupItem, WorkhubConfig } from '@workhub/core'
 import { expandEnvValue, profileSessionEnv, saveProfileEnv, storedProfileEnvNames } from '../src/main/profile-env'
 import { probe, SetupService } from '../src/main/setup-service'
 import { DICTIONARIES } from '../src/renderer/i18n/translate'
-import { fixLabel, itemDetail, itemTitle } from '../src/renderer/lib/setup'
+import { fixLabel, itemDetail, itemTitle, recheckOnFocus, SETUP_PROBLEMS_RECHECK_MS } from '../src/renderer/lib/setup'
+import { installOutcome, keepLinesForCheck } from '../src/renderer/components/organisms/InstallMissing'
 import { isStopSpeakingShortcut, lastFinishedReply, readsAloudByDefault, wpmToRate } from '../src/renderer/lib/readAloud'
 import { envChanges, envNamesToSave, prunedFolderOptions } from '../src/renderer/screens/ProfileExtraSettings'
 import { voiceOptions } from '../src/renderer/screens/VoiceSettings'
@@ -20,6 +23,48 @@ describe('probe', () => {
     expect(await probe('workhub-no-such-command', [])).toMatchObject({ result: 'notFound' })
     expect(await probe(process.execPath, ['-e', 'console.log("bad"); process.exit(3)'])).toEqual({ result: 'failed', output: 'bad' })
     expect(await probe(process.execPath, ['-e', 'setTimeout(()=>{}, 5000)'], { timeoutMs: 150 })).toMatchObject({ result: 'timeout' })
+  })
+
+  // npm's shims (`npx.cmd`, `opencode.cmd`) usually sit under "Program Files" or Workhub's own data
+  // folder, both with a space in the name. The shim is shaped like npm's: it forwards `%*`, which
+  // is why the arguments are escaped for two rounds of parsing.
+  it.runIf(process.platform === 'win32')('runs a command shim found in a folder with a space in its name', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'workhub probe '))
+    try {
+      writeFileSync(join(dir, 'tool.cmd'), `@"${process.execPath}" -e "console.log(process.argv[1] + ' 1.2.3')" %*\r\n`)
+      const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.toUpperCase() !== 'PATH'))
+      expect(await probe('tool', ['a b'], { env: { ...env, PATH: `${dir};${process.env['PATH'] ?? ''}` } })).toEqual({ result: 'ok', output: 'a b 1.2.3' })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('installOutcome', () => {
+  it('says how a finished queue ended, and nothing while it runs or before any install', () => {
+    expect(installOutcome(null)).toBeNull()
+    expect(installOutcome({ running: false, items: [] })).toBeNull()
+    expect(installOutcome({ running: true, items: [{ installer: 'node', state: 'done' }] })).toBeNull()
+    expect(installOutcome({ running: false, items: [{ installer: 'node', state: 'done' }, { installer: 'codexAdapter', state: 'done' }] })).toBe('done')
+    expect(installOutcome({ running: false, items: [{ installer: 'node', state: 'done' }, { installer: 'opencode', state: 'failed', reason: 'npm' }] })).toBe('incomplete')
+    expect(installOutcome({ running: false, items: [{ installer: 'node', state: 'canceled' }] })).toBe('incomplete')
+  })
+})
+
+describe('keepLinesForCheck', () => {
+  it('keeps the lines through the check the queue starts and drops them at the next one', () => {
+    expect(keepLinesForCheck(1)).toBe(true)
+    expect(keepLinesForCheck(2)).toBe(false)
+  })
+})
+
+describe('recheckOnFocus', () => {
+  it('reads the check again only while a problem shows, and not right after the last read', () => {
+    const now = 1_000_000
+    expect(recheckOnFocus(null, now)).toBe(false)
+    expect(recheckOnFocus({ at: now - SETUP_PROBLEMS_RECHECK_MS * 10, count: 0 }, now)).toBe(false)
+    expect(recheckOnFocus({ at: now - SETUP_PROBLEMS_RECHECK_MS + 1, count: 2 }, now)).toBe(false)
+    expect(recheckOnFocus({ at: now - SETUP_PROBLEMS_RECHECK_MS, count: 2 }, now)).toBe(true)
   })
 })
 
@@ -79,7 +124,7 @@ describe('setup wording', () => {
     expect(itemDetail(t, tn, item({ code: 'nodeMissingFor', params: { names: 'Codex, Gemini CLI' } }))).toBe('Not found. Codex, Gemini CLI runs on Node.js: install it, then check again.')
   })
   it('every message code the checks can produce has copy', () => {
-    for (const code of ['version', 'claudeMissing', 'timeout', 'commandFailed', 'installClaudeFirst', 'authUnreadable', 'notSignedIn', 'signedIn', 'nodeMissingFor', 'nodeNotNeeded', 'gitMissing', 'ghMissing', 'ghNoAnswer', 'ghNotSignedIn', 'ghSignedIn', 'glabMissing', 'glabNotSignedIn', 'codexReady', 'codexNeedsNode', 'codexNotSignedIn', 'kiroMissing', 'kiroNotSignedIn', 'opencodeMissing', 'geminiMissing', 'linearConnected', 'linearNoKey', 'linearOff', 'noFolders', 'jiraConnected', 'jiraNoToken', 'jiraOff', 'slackOff', 'slackFailing', 'healthConfigured', 'healthIncomplete', 'healthOff', 'usageOn', 'usageOff']) {
+    for (const code of ['version', 'claudeMissing', 'timeout', 'commandFailed', 'installClaudeFirst', 'authUnreadable', 'notSignedIn', 'signedIn', 'nodeMissingFor', 'nodeNotNeeded', 'gitMissing', 'ghMissing', 'ghNoAnswer', 'ghNotSignedIn', 'ghSignedIn', 'glabMissing', 'glabNotSignedIn', 'codexReady', 'codexNeedsNode', 'codexNeedsCli', 'codexNotSignedIn', 'kiroMissing', 'kiroNotSignedIn', 'opencodeMissing', 'geminiMissing', 'linearConnected', 'linearNoKey', 'linearOff', 'noFolders', 'jiraConnected', 'jiraNoToken', 'jiraOff', 'slackOff', 'slackFailing', 'healthConfigured', 'healthIncomplete', 'healthOff', 'usageOn', 'usageOff']) {
       expect(DICTIONARIES.en[`setup.msg.${code}` as keyof typeof DICTIONARIES.en], code).toBeTruthy()
     }
   })
