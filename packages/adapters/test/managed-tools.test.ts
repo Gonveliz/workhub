@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { managedDownload, privateNode } from '@workhub/core'
+import { managedDownload, npmPrefixOf, privateNode } from '@workhub/core'
 import { ArchiveError, classifyFailure, entryTarget, extractTarGz, extractZip, HttpError, ManagedToolsInstaller, type Fetcher, type ProgramRunner } from '../src/managed-tools'
 
 // --- tiny archive builders -------------------------------------------------------------------------
@@ -117,7 +117,7 @@ describe('archives', () => {
 
   it('entryTarget drops the stripped folders and refuses `..`', () => {
     expect(entryTarget('/x', 'top/', 1)).toBeNull()
-    expect(entryTarget('/x', 'top/a/b', 1)).toBe(join('/x', 'a', 'b'))
+    expect(entryTarget('/x', 'top/a/b', 1)).toBe(resolve('/x', 'a', 'b'))
     expect(() => entryTarget('/x', 'top/a/../../b', 1)).toThrow(ArchiveError)
   })
 })
@@ -237,8 +237,9 @@ describe('ManagedToolsInstaller', () => {
     expect(install.file).toBe(node)
     expect(install.args[0]).toBe(npmCli)
     expect(install.args).toContain('--allow-scripts=opencode-ai')
-    expect(install.args).toContain(`--prefix=${join(tools, 'npm')}`)
-    expect(install.path?.split(':')[0]).toBe(join(tools, 'node', 'bin'))
+    // Paths are built for the target platform, not the host: compare with the same helpers.
+    expect(install.args).toContain(`--prefix=${npmPrefixOf(tools, 'linux')}`)
+    expect(install.path?.startsWith(`${node.slice(0, node.lastIndexOf('/'))}:`)).toBe(true)
     expect(await installer.installed()).toEqual([{ id: 'opencode', version: '1.2.3', bytes: expect.any(Number) }])
   })
 
