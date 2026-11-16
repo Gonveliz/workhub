@@ -17,6 +17,7 @@ import {
   largestSeries,
   customAdjusted,
   DEFAULT_REPORT_STATE,
+  escapeCell,
   formatActive,
   groupLabel,
   OTHER_KEY,
@@ -438,6 +439,15 @@ const WEEK: WeeklyReport = {
   prsReviewed: [],
   ticketMoves: []
 }
+
+describe('escapeCell', () => {
+  it('escapes backslashes before pipes so a cell never leaks into the next one', () => {
+    expect(escapeCell('notes|web')).toBe('notes\\|web')
+    expect(escapeCell('trailing\\')).toBe('trailing\\\\')
+    expect(escapeCell('a\\|b')).toBe('a\\\\\\|b')
+    expect(escapeCell('plain')).toBe('plain')
+  })
+})
 
 describe('weekly summary', () => {
   it('writes self-contained Markdown: totals, a table per project by folder name, PRs and tickets', () => {

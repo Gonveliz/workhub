@@ -145,7 +145,8 @@ export function slugId(value: string, fallback: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/^[^a-z0-9]+/, '')
-    .replace(/-+$/, '')
-    .slice(0, 64)
-  return slug || fallback
+  // Trailing dashes go in a loop: `/-+$/` rescans every run of dashes not at the end (quadratic).
+  let end = slug.length
+  while (end > 0 && slug[end - 1] === '-') end--
+  return slug.slice(0, end).slice(0, 64) || fallback
 }

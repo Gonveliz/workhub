@@ -401,6 +401,11 @@ describe('spendSeries', () => {
     expect(turns('C:\\w')).toBe(1)
     expect(turns('C:\\w\\ac')).toBe(0)
     expect(turns('c:\\w\\acme')).toBe(0)
+    // Trailing separators are trimmed in linear time, however many there are.
+    const started = performance.now()
+    expect(turns(`C:\\w\\acme${'\\/'.repeat(50_000)}`)).toBe(1)
+    expect(turns(`C:\\w\\acme${'\\'.repeat(100_000)}x`)).toBe(0)
+    expect(performance.now() - started).toBeLessThan(500)
   })
 })
 

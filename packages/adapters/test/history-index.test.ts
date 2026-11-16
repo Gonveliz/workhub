@@ -191,6 +191,12 @@ describe('SqliteHistoryIndex', () => {
     expect(ids(index.match('common', { cwdPrefixes: ['/w/acme/web/'] })).sort()).toEqual(['p1', 'p3'])
     expect(index.match('common', { cwdPrefixes: ['/w/acme/we'] })).toEqual([])
     expect(index.match('common', { cwdPrefixes: [] })).toEqual([])
+    // Trailing separators are trimmed in linear time, however many there are.
+    const started = performance.now()
+    expect(ids(index.match('common', { cwdPrefixes: [`/w/acme/web${'/'.repeat(100_000)}`] })).sort()).toEqual(['p1', 'p3'])
+    expect(index.match('common', { cwdPrefixes: [`/w/acme/web${'/'.repeat(100_000)}x`] })).toEqual([])
+    expect(index.match('common', { cwdPrefixes: ['/'.repeat(100_000)] })).toEqual([])
+    expect(performance.now() - started).toBeLessThan(500)
     expect(ids(index.match('common', { keys: ['claude:p2', 'claude:none'] }))).toEqual(['p2'])
     expect(index.match('common', { since: T + 3 })).toHaveLength(2)
     expect(index.match('common', { until: T + 1 })).toHaveLength(2)

@@ -97,9 +97,19 @@ const SUMS = `SUM(t.input_tokens) AS tokens_in, SUM(t.output_tokens) AS tokens_o
   SUM(CASE WHEN t.usd IS NULL THEN t.input_tokens + t.output_tokens + t.cache_write_tokens + t.cache_read_tokens ELSE 0 END) AS unpriced,
   SUM(CASE WHEN t.sidechain = 0 THEN t.turn_ms ELSE 0 END) AS active_ms, SUM(t.n) AS turns, COUNT(DISTINCT t.session_id) AS sessions`
 
+/**
+ * A folder without its trailing separators. A loop rather than `/[\\/]+$/`, which rescans every run
+ * of separators that is not at the end (quadratic on a crafted folder).
+ */
+function trimSeparators(path: string): string {
+  let end = path.length
+  while (end > 0 && (path[end - 1] === '/' || path[end - 1] === '\\')) end--
+  return path.slice(0, end)
+}
+
 /** `column` is `prefix` or below it, with either separator; plain comparisons, so case is compared as stored. */
 function under(column: string, prefix: string, params: Params): string {
-  const p = prefix.replace(/[\\/]+$/, '')
+  const p = trimSeparators(prefix)
   params.push(p, `${p}/`, `${p}/`, `${p}\\`, `${p}\\`)
   return `(${column} = ? OR substr(${column}, 1, length(?)) = ? OR substr(${column}, 1, length(?)) = ?)`
 }

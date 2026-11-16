@@ -71,7 +71,9 @@ function stripPrefix(path: string): string {
 
 /** The path of a `--- ` / `+++ ` line: git appends a tab after a name with spaces. Null for `/dev/null`. */
 function markerPath(rest: string): string | null {
-  const path = rest.replace(/\t.*$/, '')
+  // A cut at the first tab, not `/\t.*$/`, which backtracks over every tab before a `\r` (quadratic).
+  const tab = rest.indexOf('\t')
+  const path = tab < 0 ? rest : rest.slice(0, tab)
   return path === '/dev/null' ? null : stripPrefix(path)
 }
 

@@ -112,7 +112,9 @@ export function decodePairingOffer(encoded: string): PairingOffer | null {
 
 /** The link the QR shows: the web client, with the offer in the fragment. */
 export function pairingLink(webClientUrl: string, offer: PairingOffer): string {
-  const base = webClientUrl.replace(/#.*$/, '')
+  // A cut at the first `#`, not a regex: `/#.*$/` backtracks over every `#` on crafted input.
+  const hash = webClientUrl.indexOf('#')
+  const base = hash < 0 ? webClientUrl : webClientUrl.slice(0, hash)
   return `${base}#pair=${encodePairingOffer(offer)}`
 }
 

@@ -443,8 +443,13 @@ export function projectNames(paths: readonly string[]): Map<string, string> {
   )
 }
 
-function escapeCell(text: string): string {
-  return text.replace(/\|/g, '\\|')
+/**
+ * Makes text safe inside a Markdown table cell. The backslash is escaped along with the pipe: a
+ * name ending in `\` would otherwise escape the cell's closing pipe, and `a\|b` would turn into
+ * `a\\|b`, an escaped backslash followed by a pipe that splits the cell.
+ */
+export function escapeCell(text: string): string {
+  return text.replace(/[\\|]/g, '\\$&')
 }
 
 /**

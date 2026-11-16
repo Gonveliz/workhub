@@ -44,6 +44,15 @@ describe('pairing', () => {
     expect(decodePairingOffer(encodePairingOffer({ ...offer, secret: 'A'.repeat(43) }))).not.toBeNull()
   })
 
+  it('replaces the fragment of the web client address in linear time', () => {
+    expect(pairingLink('https://remote.example.com/app/', offer).startsWith('https://remote.example.com/app/#pair=')).toBe(true)
+    expect(pairingLink('https://remote.example.com/app/#a#b', offer).startsWith('https://remote.example.com/app/#pair=')).toBe(true)
+    const started = performance.now()
+    const link = pairingLink(`https://remote.example.com/app/${'#'.repeat(100_000)}\n`, offer)
+    expect(performance.now() - started).toBeLessThan(500)
+    expect(link.startsWith('https://remote.example.com/app/#pair=')).toBe(true)
+  })
+
   it('accepts a request made with the secret from the QR, before the offer expires', () => {
     const request = answerPairingOffer(phone, offer, 'Ana’s phone', 'ios')
     expect(verifyPairRequest(offer, request, NOW + 1000)).toEqual({ ok: true, deviceId: phone.id })

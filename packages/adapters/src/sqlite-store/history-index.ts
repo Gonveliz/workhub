@@ -361,7 +361,7 @@ export class SqliteHistoryIndex {
       args.push(JSON.stringify(scope.keys))
     }
     if (scope.cwdPrefixes) {
-      const folders = scope.cwdPrefixes.map((f) => f.replace(/[\\/]+$/, '')).filter(Boolean)
+      const folders = scope.cwdPrefixes.map(trimSeparators).filter(Boolean)
       if (!folders.length) return []
       where.push(`(${folders.map(() => '(h.cwd = ? OR substr(h.cwd, 1, ?) = ?)').join(' OR ')})`)
       for (const f of folders) args.push(f, f.length + 1, `${f}/`)
@@ -429,4 +429,14 @@ export class SqliteHistoryIndex {
     })
     return { hits, total: keys.length, ...(offset + limit < keys.length ? { nextCursor: String(offset + limit) } : {}) }
   }
+}
+
+/**
+ * A folder without its trailing separators. A loop rather than `/[\\/]+$/`, which rescans every run
+ * of separators that is not at the end (quadratic on a crafted folder).
+ */
+function trimSeparators(path: string): string {
+  let end = path.length
+  while (end > 0 && (path[end - 1] === '/' || path[end - 1] === '\\')) end--
+  return path.slice(0, end)
 }

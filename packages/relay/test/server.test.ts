@@ -1,6 +1,6 @@
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { generateIdentity, makeAuth, MAX_FRAME_BYTES, PUSH_MAX_AGE_MS, type RelayMessage } from '@workhub/protocol'
@@ -160,6 +160,33 @@ describe('resolveStatic', () => {
     expect(resolveStatic(webDir, '/%2e%2e/%2e%2e/etc/passwd')).toBeNull()
     expect(resolveStatic(webDir, '/')?.path).toBe(join(webDir, 'index.html'))
     expect(resolveStatic(webDir, '/anything?x=1')?.path).toBe(join(webDir, 'index.html'))
+  })
+
+  it('rejects traversal in every encoding', () => {
+    // A file next to the root, with an extension so a miss is null rather than the index fallback.
+    const outside = join(webDir, '..', `${basename(webDir)}-secret.txt`)
+    writeFileSync(outside, 'secret')
+    const name = basename(outside)
+    expect(resolveStatic(webDir, `/../${name}`)).toBeNull()
+    expect(resolveStatic(webDir, `/assets/../../${name}`)).toBeNull()
+    expect(resolveStatic(webDir, `/%2e%2e/${name}`)).toBeNull()
+    expect(resolveStatic(webDir, `/%2E%2E%2F${name}`)).toBeNull()
+    expect(resolveStatic(webDir, `/%252e%252e/${name}`)).toBeNull()
+    expect(resolveStatic(webDir, `/..%5c${name}`)).toBeNull()
+    expect(resolveStatic(webDir, `/..\\${name}`)).toBeNull()
+    expect(resolveStatic(webDir, `/index.html%00.js`)).toBeNull()
+    expect(resolveStatic(webDir, '/assets/app-abc123.js\0')).toBeNull()
+    expect(resolveStatic(webDir, outside)).toBeNull()
+    expect(resolveStatic(webDir, `/${encodeURIComponent(outside)}`)).toBeNull()
+    expect(resolveStatic(webDir, `//${outside}`)).toBeNull()
+    expect(resolveStatic(webDir, '/assets/app-abc123.js')?.path).toBe(join(webDir, 'assets', 'app-abc123.js'))
+  })
+
+  it.skipIf(process.platform === 'win32')('does not follow a symlink out of the root', () => {
+    const outsideDir = mkdtempSync(join(tmpdir(), 'relay-outside-'))
+    writeFileSync(join(outsideDir, 'leak.txt'), 'secret')
+    symlinkSync(outsideDir, join(webDir, 'linked'))
+    expect(resolveStatic(webDir, '/linked/leak.txt')).toBeNull()
   })
 })
 

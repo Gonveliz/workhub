@@ -360,6 +360,13 @@ describe('parseUnifiedDiff', () => {
     expect(mode!.oldPath).toBeUndefined()
     expect(bin).toMatchObject({ path: 'img/big pic.png', binary: true })
   })
+  it('cuts a marker line at its first tab in linear time', () => {
+    const tabs = '\t'.repeat(100_000)
+    const started = Date.now()
+    const [f] = parseUnifiedDiff(['diff --git a/x.txt b/x.txt', `--- a/x.txt${tabs}\u2028`, `+++ b/x.txt${tabs}\u2028`, '@@ -1 +1 @@', '-a', '+b'].join('\n'))
+    expect(Date.now() - started).toBeLessThan(500)
+    expect(f).toMatchObject({ path: 'x.txt', status: 'modified', additions: 1, deletions: 1 })
+  })
   it('decodes git C-quoted names, octal bytes as UTF-8', () => {
     const [a, b, c] = parseUnifiedDiff(
       [
