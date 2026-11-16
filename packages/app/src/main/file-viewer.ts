@@ -10,6 +10,7 @@ import type { BrowserWindow, IpcMainInvokeEvent, IpcMainEvent } from 'electron'
 import { absoluteFilePath, fileKindOfPath, lineCount, mimeOfPath, TEXT_VIEW_LIMIT } from '@workhub/core'
 import type { FileContent, FileRead, FileStamp } from '../shared/local-review-api'
 import type { IpcRegistrar } from './ipc-guard'
+import { opensAsProgram } from './local-review'
 import { cachePastedImages } from './pasted-images'
 
 /** Images and PDFs larger than this are not drawn. */
@@ -162,7 +163,11 @@ export function registerFileViewerIpc(ipc: IpcRegistrar, deps: FileViewerDeps): 
   })
   ipc.handle('files:openDefault', async (e, path: unknown) => {
     const p = own(e, path)
-    if (p) await deps.openPath(p)
+    if (!p) return
+    // Anything that could run (a script, an app bundle, an executable) is shown in its folder instead.
+    const info = await stat(p).catch(() => null)
+    if (info && opensAsProgram(p, { isDirectory: info.isDirectory(), mode: info.mode })) deps.showItemInFolder(p)
+    else await deps.openPath(p)
   })
   return { open }
 }

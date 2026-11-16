@@ -14,6 +14,14 @@ export interface RendererOrigin {
   devServerUrl?: string
 }
 
+/**
+ * The dev server address from the environment, only for an app that is not packaged: a packaged
+ * app never loads a page, or trusts an IPC origin, named by a variable the user's shell set.
+ */
+export function rendererDevServerUrl(env: Record<string, string | undefined>, isPackaged: boolean): string | undefined {
+  return isPackaged ? undefined : env['ELECTRON_RENDERER_URL'] || undefined
+}
+
 function parse(url: string): URL | null {
   try {
     return new URL(url)

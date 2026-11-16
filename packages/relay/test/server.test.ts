@@ -3,11 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
-import { generateIdentity, makeAuth, MAX_FRAME_BYTES, type RelayMessage } from '@workhub/protocol'
+import { generateIdentity, makeAuth, MAX_FRAME_BYTES, PUSH_MAX_AGE_MS, type RelayMessage } from '@workhub/protocol'
 import { addressOf, createRelayServer, type RelayServer } from '../src/server'
-import { resolveStatic } from '../src/static'
+import { PassThrough, Readable, Writable } from 'node:stream'
+import { resolveStatic, sendStream } from '../src/static'
 import { FilePushStore } from '../src/push-store'
-import { pushEndpointAllowed } from '../src/push'
+import { PUSH_TTL_SECONDS, pushEndpointAllowed } from '../src/push'
 
 let server: RelayServer
 let base: string
@@ -163,5 +164,45 @@ describe('FilePushStore', () => {
     b.delete('d1')
     b.flush()
     expect(new FilePushStore(path).size()).toBe(0)
+  })
+})
+
+describe('push TTL', () => {
+  it('stays inside the window in which the phone still shows a push', () => {
+    expect(PUSH_TTL_SECONDS).toBeGreaterThan(0)
+    expect(PUSH_TTL_SECONDS * 1000).toBeLessThan(PUSH_MAX_AGE_MS)
+  })
+})
+
+describe('sendStream', () => {
+  const sink = () => {
+    const res = new Writable({ write: (_c, _e, cb) => cb() })
+    return res as Writable & { destroyed: boolean }
+  }
+
+  it('does not throw on a read error and cuts the response short', async () => {
+    const res = sink()
+    const source = new Readable({ read() {} })
+    sendStream(source, res as never)
+    source.destroy(new Error('EIO'))
+    await new Promise((r) => setTimeout(r, 10))
+    expect(res.destroyed).toBe(true)
+  })
+
+  it('closes the file when the client goes away', async () => {
+    const res = sink()
+    const source = new PassThrough()
+    sendStream(source, res as never)
+    res.destroy()
+    await new Promise((r) => setTimeout(r, 10))
+    expect(source.destroyed).toBe(true)
+  })
+
+  it('ends the response after a complete read', async () => {
+    const chunks: string[] = []
+    const res = new Writable({ write: (c, _e, cb) => (chunks.push(String(c)), cb()) })
+    sendStream(Readable.from(['a', 'b']), res as never)
+    await new Promise((r) => res.on('finish', r))
+    expect(chunks.join('')).toBe('ab')
   })
 })

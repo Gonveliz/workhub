@@ -1,6 +1,7 @@
 // Web Push through VAPID. The relay only ever pushes a sealed box the desktop made for the device,
 // so the push service, and the relay, see ciphertext.
 import { generateVAPIDKeys, sendNotification } from 'web-push'
+import { PUSH_MAX_AGE_MS } from '@workhub/protocol'
 import type { PushProvider, PushSubscriptionRecord } from './core'
 
 export interface VapidKeys {
@@ -19,6 +20,12 @@ export function generateVapidKeys(): { publicKey: string; privateKey: string } {
  * would otherwise POST, with its VAPID identity, to any address a client names (its own network
  * included). More hosts come from `PUSH_ENDPOINT_HOSTS`, for a push service this list lacks.
  */
+/**
+ * How long a push service keeps an undelivered push. Half the window in which the service worker
+ * still shows one (PUSH_MAX_AGE_MS): a longer TTL would deliver pushes the phone then drops unseen.
+ */
+export const PUSH_TTL_SECONDS = Math.floor(PUSH_MAX_AGE_MS / 2000)
+
 export const DEFAULT_PUSH_HOSTS = ['fcm.googleapis.com', 'android.googleapis.com', 'updates.push.services.mozilla.com', 'web.push.apple.com', 'notify.windows.com']
 
 /** Whether the endpoint's host is one of `hosts` or a subdomain of one (https only). */
@@ -58,7 +65,7 @@ export class WebPushProvider implements PushProvider {
     try {
       await sendNotification(sub, payload, {
         vapidDetails: { subject: this.keys.subject, publicKey: this.keys.publicKey, privateKey: this.keys.privateKey },
-        TTL: 60 * 60,
+        TTL: PUSH_TTL_SECONDS,
         urgency: 'high',
         timeout: this.timeoutMs
       })

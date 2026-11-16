@@ -2,6 +2,8 @@
 // as an app. Unknown paths without an extension fall back to index.html (the client routes by hash
 // and fragment, but a bare path like /pair should still load).
 import { createReadStream, statSync } from 'node:fs'
+import { pipeline } from 'node:stream'
+import type { Readable } from 'node:stream'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { extname, join, normalize, resolve, sep } from 'node:path'
 
@@ -57,6 +59,17 @@ export function serveStatic(root: string, req: IncomingMessage, res: ServerRespo
     res.end()
     return true
   }
-  createReadStream(found.path).pipe(res)
+  sendStream(createReadStream(found.path), res)
   return true
+}
+
+/**
+ * Pipes a file to the response. `pipeline` closes the file when the client goes away and reports a
+ * read error instead of leaving it unhandled (which would crash the process); on an error the
+ * response is cut short, as headers are already out.
+ */
+export function sendStream(stream: Readable, res: ServerResponse): void {
+  pipeline(stream, res, (err) => {
+    if (err && !res.destroyed) res.destroy()
+  })
 }

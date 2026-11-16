@@ -31,6 +31,10 @@ To skip it, install from a terminal instead; the same line updates later:
 | **Windows** | PowerShell | `irm https://raw.githubusercontent.com/SoldierIced/workhub/main/scripts/install.ps1 \| iex` |
 | **macOS** | Terminal | `curl -fsSL https://raw.githubusercontent.com/SoldierIced/workhub/main/scripts/install.sh \| bash` |
 
+Both installers check the download against its published SHA-256 and stop if the checksum cannot
+be fetched or does not match. To install without the check anyway, set `WORKHUB_SKIP_CHECKSUM=1`
+(macOS: `curl ... | WORKHUB_SKIP_CHECKSUM=1 bash`; Windows: `$env:WORKHUB_SKIP_CHECKSUM = '1'` first).
+
 Then follow [Getting started](docs/user-guide/getting-started.md).
 
 ## Features
