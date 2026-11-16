@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "node scripts/lint.mjs",
     "test": "vitest run",
     "build": "npm run build --workspaces --if-present",
     "dev": "npm run dev -w @workhub/app",

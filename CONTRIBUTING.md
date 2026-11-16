@@ -42,6 +42,7 @@ Run these before opening a pull request; CI runs them on macOS, Windows and Linu
 
 ```sh
 npm run typecheck
+npm run lint
 npm test
 npm run build
 ```

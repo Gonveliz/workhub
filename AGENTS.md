@@ -24,6 +24,7 @@ Workspace packages ship TypeScript source and the app bundles them; there is no 
 ```sh
 npm ci               # install; downloads Electron and prepares node-pty
 npm run typecheck    # tsc on every package
+npm run lint         # ESLint, bug-catching rules only (its dependencies live in tools/lint)
 npx vitest run       # all tests (npm test does the same)
 npm run build        # electron-vite build of the app
 npm run build:web -w @workhub/app   # phone app (Workhub Remote) into packages/relay/web-client
