@@ -111,6 +111,11 @@ describe('setup checks', () => {
     expect(nodeItem(NONE)).toMatchObject({ status: 'missing', code: 'nodeNotNeeded', fix: { kind: 'link', title: 'downloadNode' } })
     expect(githubItem(ok('gh version 2.5'), ok('octo\n'), null)).toMatchObject({ status: 'ok', params: { login: 'octo' } })
     expect(githubItem(ok('gh'), { result: 'failed', output: '' }, ok('tok'))).toMatchObject({ status: 'warning', code: 'ghNoAnswer' })
+    // A token is stored but gh or GitHub refuses it (settings gone, token revoked or expired): signed out, not a network problem.
+    expect(githubItem(ok('gh'), { result: 'failed', output: 'To get started with GitHub CLI, please run:  gh auth login' }, ok('tok'))).toMatchObject({ status: 'missing', code: 'ghNotSignedIn', fix: { kind: 'signIn', tool: 'github' } })
+    expect(githubItem(ok('gh'), { result: 'failed', output: 'gh: Bad credentials (HTTP 401)' }, ok('tok'))).toMatchObject({ status: 'missing', code: 'ghNotSignedIn' })
+    expect(githubItem(ok('gh'), { result: 'failed', output: 'error connecting to api.github.com' }, ok('tok'))).toMatchObject({ status: 'warning', code: 'ghNoAnswer' })
+    expect(githubItem(ok('gh'), { result: 'timeout', output: '' }, ok('tok'))).toMatchObject({ status: 'warning', code: 'ghNoAnswer' })
     expect(githubItem(ok('gh'), { result: 'failed', output: '' }, { result: 'failed', output: '' })).toMatchObject({ status: 'missing', code: 'ghNotSignedIn', fix: { kind: 'signIn', tool: 'github' } })
     expect(githubItem(NONE, null, null)).toMatchObject({ status: 'missing', code: 'ghMissing', fix: { kind: 'link', url: 'https://cli.github.com/' } })
   })

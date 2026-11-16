@@ -1148,7 +1148,8 @@ const signIn = new SignInService({
   path: () => [sessionPath() ?? process.env['PATH'] ?? '', ...fallbackPath].filter(Boolean).join(delimiter),
   terminal: new TerminalRuntime({ path: sessionPath, fallbackPath }),
   openWindow: (id, closed) => windows.openSignInWindow(id, closed),
-  openUrl: (url) => void links.open(url)
+  openUrl: (url) => void links.open(url),
+  signedIn: () => broadcast.toWindows('setup:changed')
 })
 
 // Listing the history starts a process per account that reads the newest transcripts' heads: calls
@@ -1263,7 +1264,7 @@ function registerIpc(): void {
     installs: {
       install: async (id) => {
         const done = installs.start([id])
-        if (!done) return { ok: false, output: 'Another install is running.' }
+        if (!done) return { ok: false, output: '', reason: 'busy' }
         const item = (await done).items[0]
         return item?.state === 'done' ? { ok: true, output: '' } : { ok: false, output: item?.detail ?? '', ...(item?.reason ? { reason: item.reason } : {}) }
       },
@@ -1284,6 +1285,8 @@ function registerIpc(): void {
         remove: async (id) => {
           const result = await managedTools.remove(id)
           await refreshCliPath()
+          // An open setup check or welcome still shows the tool as installed.
+          if (result.ok) broadcast.toWindows('setup:changed')
           return result
         }
       }

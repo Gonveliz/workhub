@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isSignInTool, parseSignInPrompt, plainTerminalText, SIGN_IN_COMMANDS, SIGN_IN_TOOLS, signInReady } from '../src/setup/sign-in'
+import { isSignInTool, parseSignInPrompt, plainTerminalText, SIGN_IN_COMMANDS, SIGN_IN_TOOLS, signInReady, hideOutputLines } from '../src/setup/sign-in'
 
 const ESC = '\x1b'
 
@@ -117,5 +117,30 @@ describe('signInReady', () => {
     expect(signInReady('codex', { result: 'failed', output: 'Not logged in' })).toBe(false)
     expect(signInReady('gitlab', { result: 'notFound', output: '' })).toBe(false)
     expect(signInReady('kiro', { result: 'timeout', output: '' })).toBe(false)
+  })
+})
+
+describe('hideOutputLines', () => {
+  const hidden = ['Failed opening a browser at', 'Encountered error: exec:']
+
+  it('drops whole lines that start with a hidden text, in whatever pieces they arrive', () => {
+    const show = hideOutputLines(hidden)
+    expect(show('- Signing into gitlab.example.com\r\n')).toBe('- Signing into gitlab.example.com\r\n')
+    // The start of a hidden line is held back until the line ends.
+    expect(show('Failed opening a brow')).toBe('')
+    expect(show('ser at https://gitlab.example.com/oauth/authorize?state=abc\r\nEncountered error: exec: "x": not found\r\n')).toBe('')
+    expect(show('Waiting for the browser\r\n')).toBe('Waiting for the browser\r\n')
+  })
+
+  it('shows an unfinished line at once when it cannot become a hidden one', () => {
+    const show = hideOutputLines(hidden)
+    expect(show('? What domains does this host use? ')).toBe('? What domains does this host use? ')
+    // A line that only looked like a hidden one is shown once it differs.
+    expect(show('\nFailed')).toBe('\n')
+    expect(show(' to parse the answer\n')).toBe('Failed to parse the answer\n')
+  })
+
+  it('reads the line through its colors', () => {
+    expect(hideOutputLines(hidden)('\x1b[31mFailed opening a browser at\x1b[0m https://a.example.com\n')).toBe('')
   })
 })

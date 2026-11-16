@@ -18,7 +18,7 @@ export type ManagedArch = 'x64' | 'arm64'
 export type ArchiveFormat = 'zip' | 'tar.gz'
 
 /** Why an install ended badly, for a plain message in the person's language. */
-export type ManagedFailure = 'offline' | 'proxy' | 'http' | 'checksum' | 'locked' | 'diskFull' | 'canceled' | 'badArchive' | 'npm' | 'needsNode' | 'unsupported' | 'failed'
+export type ManagedFailure = 'offline' | 'proxy' | 'http' | 'checksum' | 'locked' | 'diskFull' | 'canceled' | 'badArchive' | 'npm' | 'needsNode' | 'unsupported' | 'busy' | 'failed'
 export type ManagedPhase = 'downloading' | 'verifying' | 'unpacking' | 'installing'
 
 export interface ArchiveDownload {

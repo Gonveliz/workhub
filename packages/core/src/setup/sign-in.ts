@@ -42,6 +42,16 @@ export interface SignInCommand {
    * pane shows a code and a button, and a person waiting there does not see a question to type at.
    */
   answers?: readonly { question: string; keys: string }[]
+  /**
+   * Workhub opens the address the tool prints, once, as soon as it is printed whole: for a tool
+   * whose own browser launch is turned off (`env`) so the pane can show the address and its button.
+   */
+  openWhenPrinted?: boolean
+  /**
+   * Lines of the tool's output the pane does not show, by how they start: what the tool prints
+   * about its own browser launch being off, which reads as a failure when nothing failed.
+   */
+  hiddenLines?: readonly string[]
 }
 
 /** The only commands the sign-in pane runs. Accounts only change the environment (Claude's config folder). */
@@ -70,6 +80,13 @@ export const SIGN_IN_COMMANDS: Record<SignInTool, SignInCommand> = {
     command: 'glab',
     args: ['auth', 'login', '--hostname', 'gitlab.com', '--git-protocol', 'https', '--web'],
     status: { command: 'glab', args: ['auth', 'status', '--hostname', 'gitlab.com'] },
+    // glab opens the browser itself and then prints nothing a person could use if that failed. A
+    // browser command that does not exist makes it print the address ("Failed opening a browser
+    // at https://gitlab.com/oauth/authorize?…", seen with glab 1.130.0) and go on waiting; Workhub
+    // opens that address itself, and "Open browser" opens it again.
+    env: { BROWSER: 'workhub-opens-the-browser' },
+    openWhenPrinted: true,
+    hiddenLines: ['Failed opening a browser at', 'Encountered error: exec:', 'Try entering the URL in your browser manually'],
     // glab 1.130.0 first asks "What domains does this host use for the container registry and image
     // dependency proxy?" with the answer filled in; Enter keeps it. (Its `--container-registry-domains`
     // flag would skip the question, but an older glab a person installed does not know it.)
@@ -92,6 +109,31 @@ const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z
 /** Terminal output as plain text: escapes gone, carriage returns as line breaks. */
 export function plainTerminalText(text: string): string {
   return text.replace(ANSI, '').replace(/\r\n?/g, '\n')
+}
+
+/**
+ * A filter for a tool's output as it arrives in pieces: what it returns is what the pane shows.
+ * Whole lines that start with one of `hidden` are dropped; the unfinished last line is held back
+ * only while it may still become one of them, so a question without a line break shows at once.
+ */
+export function hideOutputLines(hidden: readonly string[]): (data: string) => string {
+  let held = ''
+  const start = (line: string) => plainTerminalText(line).trimStart()
+  return (data) => {
+    const lines = (held + data).split('\n')
+    const last = lines.pop() ?? ''
+    let shown = lines
+      .filter((line) => !hidden.some((h) => start(line).startsWith(h)))
+      .map((line) => `${line}\n`)
+      .join('')
+    const text = start(last)
+    if (text !== '' && hidden.some((h) => h.startsWith(text) || text.startsWith(h))) held = last
+    else {
+      shown += last
+      held = ''
+    }
+    return shown
+  }
 }
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '::1', '0.0.0.0'])

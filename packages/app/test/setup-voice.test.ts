@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { Profile, SecretStore, SetupItem, WorkhubConfig } from '@workhub/core'
 import { expandEnvValue, profileSessionEnv, saveProfileEnv, storedProfileEnvNames } from '../src/main/profile-env'
-import { probe, SetupService } from '../src/main/setup-service'
+import { probe, SETUP_NETWORK_TIMEOUT_MS, SetupService } from '../src/main/setup-service'
 import { DICTIONARIES } from '../src/renderer/i18n/translate'
 import { fixLabel, itemDetail, itemTitle, recheckOnFocus, SETUP_PROBLEMS_RECHECK_MS } from '../src/renderer/lib/setup'
 import { installOutcome, keepLinesForCheck } from '../src/renderer/components/organisms/InstallMissing'
@@ -77,7 +77,7 @@ describe('SetupService', () => {
     profiles: []
   }
   it('runs every check, one sign-in row per Claude login, with the account folder in the environment', async () => {
-    const calls: { cmd: string; args: string[]; dir?: string }[] = []
+    const calls: { cmd: string; args: string[]; dir?: string; timeoutMs?: number }[] = []
     const service = new SetupService({
       config: async () => config,
       hasSecret: async () => false,
@@ -85,7 +85,7 @@ describe('SetupService', () => {
       home: '/tmp/workhub-test-home',
       slackFailure: async () => null,
       run: async (cmd, args, options) => {
-        calls.push({ cmd, args, dir: options?.env?.['CLAUDE_CONFIG_DIR'] })
+        calls.push({ cmd, args, dir: options?.env?.['CLAUDE_CONFIG_DIR'], timeoutMs: options?.timeoutMs })
         if (cmd === 'claude' && args[0] === 'auth') return { result: 'ok', output: '{"loggedIn":true,"email":"a@b.c"}' }
         if (cmd === 'gh' && args[0] === 'api') return { result: 'ok', output: 'octo' }
         if (cmd === 'glab' || cmd === 'opencode') return { result: 'notFound', output: '' }
@@ -103,6 +103,9 @@ describe('SetupService', () => {
     expect(calls.filter((c) => c.cmd === 'kiro-cli').map((c) => c.args)).toEqual([['--version'], ['whoami']])
     expect(calls.find((c) => c.args[0] === 'auth' && c.dir)?.dir).toBe(resolve('/tmp/workhub-test-claude-work'))
     expect(items.find((i) => i.id === 'github')).toMatchObject({ status: 'ok', params: { login: 'octo' } })
+    // A check that asks a server waits less than the others: one host not answering must not hold every row.
+    expect(calls.find((c) => c.cmd === 'gh' && c.args[0] === 'api')?.timeoutMs).toBe(SETUP_NETWORK_TIMEOUT_MS)
+    expect(calls.find((c) => c.cmd === 'gh' && c.args[0] === '--version')?.timeoutMs).toBeUndefined()
     expect(items.find((i) => i.id === 'profile')).toMatchObject({ status: 'missing' })
   })
 })

@@ -253,6 +253,20 @@ describe('ManagedToolsInstaller', () => {
     expect(await new ManagedToolsInstaller({ toolsDir: tools, platform: 'linux', arch: 'x64', fetch: fakeFetch({}), run }).install('gemini')).toMatchObject({ ok: false, reason: 'diskFull' })
   })
 
+  it('removing a scoped npm tool leaves no empty scope folder', async () => {
+    const tools = join(dir, 'tools')
+    const scope = join(tools, 'npm', 'lib', 'node_modules', '@openai')
+    mkdirSync(join(scope, 'codex'), { recursive: true })
+    writeFileSync(join(scope, 'codex', 'package.json'), '{"version":"1.0.0"}')
+    expect(await new ManagedToolsInstaller({ toolsDir: tools, platform: 'linux', arch: 'x64', fetch: fakeFetch({}) }).remove('codex')).toEqual({ ok: true })
+    expect(existsSync(scope)).toBe(false)
+    // Another package of the same scope keeps the folder.
+    mkdirSync(join(scope, 'codex'), { recursive: true })
+    mkdirSync(join(scope, 'other'), { recursive: true })
+    expect(await new ManagedToolsInstaller({ toolsDir: tools, platform: 'linux', arch: 'x64', fetch: fakeFetch({}) }).remove('codex')).toEqual({ ok: true })
+    expect(existsSync(join(scope, 'other'))).toBe(true)
+  })
+
   it('removing Node.js takes the npm agents along', async () => {
     const tools = join(dir, 'tools')
     mkdirSync(join(tools, 'node', 'bin'), { recursive: true })

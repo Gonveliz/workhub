@@ -69,7 +69,7 @@ export class SetupInstaller {
   async install(installer: unknown, options: InstallOptions = {}): Promise<InstallResult> {
     if (!isInstallerId(installer)) return { ok: false, output: 'Unknown installer.' }
     const platform = this.deps.platform ?? process.platform
-    if (this.busy) return { ok: false, output: 'Another install is running.' }
+    if (this.busy) return { ok: false, output: '', reason: 'busy' }
     this.busy = true
     try {
       const found = this.deps.context ? await this.deps.context().catch(() => ({})) : {}

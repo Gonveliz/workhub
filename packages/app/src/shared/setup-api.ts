@@ -16,6 +16,8 @@ export interface SetupApi {
   retryInstall(installer: InstallerId): Promise<InstallQueueSnapshot>
   cancelInstalls(): void
   onInstallProgress(cb: (snapshot: InstallQueueSnapshot) => void): () => void
+  /** What the check would find changed outside this window: a sign-in finished, or a tool was removed in Settings. */
+  onChanged(cb: () => void): () => void
   /** The tools Workhub installed into its own folder (Settings), and where that folder is. */
   tools(): Promise<{ folder: string; tools: ManagedToolView[] }>
   removeTool(id: ManagedToolId): Promise<{ ok: true } | { ok: false; reason: ManagedFailure; detail: string }>

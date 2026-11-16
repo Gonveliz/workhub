@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { installSource, type SetupFix } from '@workhub/core'
+import { installSource, type InstallPlanEntry, type SetupFix } from '@workhub/core'
 import type { MessageKey } from '../../i18n/translate'
-import { installStateText } from './InstallMissing'
+import { InstallPlanList, installStateText } from './InstallMissing'
 import { Button } from '../atoms/Button'
 import { Spinner } from '../atoms/Spinner'
 import { Dialog } from '../molecules/Dialog'
@@ -25,7 +25,20 @@ export function InstallAction({ fix, name, onInstalled }: { fix: Extract<SetupFi
   const [installed, setInstalled] = useState(false)
   // "Install what is missing" (or another row) is installing: one install at a time.
   const [queueRunning, setQueueRunning] = useState(false)
+  // What this one install downloads, Node.js included when it comes along: the same list as "Install what is missing".
+  const [plan, setPlan] = useState<InstallPlanEntry[] | null>(null)
   const source = installSource(fix.command)
+  useEffect(() => {
+    if (!confirming || !fix.managed) return
+    let live = true
+    void window.hub.setup.installPlan([fix.installer]).then(
+      (entries) => live && setPlan(entries),
+      () => undefined
+    )
+    return () => {
+      live = false
+    }
+  }, [confirming, fix.installer, fix.managed])
   // The same queue as "Install what is missing": its progress line for this installer.
   useEffect(() => {
     void window.hub.setup.installState().then((s) => setQueueRunning(s.running))
@@ -99,8 +112,14 @@ export function InstallAction({ fix, name, onInstalled }: { fix: Extract<SetupFi
           </>
         }
       >
-        <code className="block rounded-sm bg-surface-hover px-2 py-1.5 text-xs break-all">{fix.command}</code>
-        {source && <p className="mt-2 text-sm text-muted">{t('setup.install.source', { source })}</p>}
+        {fix.managed && plan && plan.length > 0 ? (
+          <InstallPlanList plan={plan} />
+        ) : (
+          <>
+            <code className="block rounded-sm bg-surface-hover px-2 py-1.5 text-xs break-all">{fix.command}</code>
+            {source && <p className="mt-2 text-sm text-muted">{t('setup.install.source', { source })}</p>}
+          </>
+        )}
       </Dialog>
     </div>
   )

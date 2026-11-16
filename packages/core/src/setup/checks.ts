@@ -162,7 +162,11 @@ export function githubItem(version: Probe, user: Probe | null, token: Probe | nu
   if (version.result === 'timeout') return item('github', 'warning', 'timeout', { command: 'gh --version' })
   const login = user?.result === 'ok' ? user.output.trim() : ''
   if (login) return item('github', 'ok', 'ghSignedIn', { login })
-  if (token?.result === 'ok') return item('github', 'warning', 'ghNoAnswer')
+  // A stored token does not mean signed in: gh keeps one in the system keychain after its settings
+  // are gone, and a token can be revoked or expired. GitHub (or gh) saying so is "signed out"; only
+  // a failure that says nothing of the kind is "GitHub did not answer".
+  const refused = user?.result === 'failed' && /gh auth login|HTTP 401|Bad credentials/i.test(user.output)
+  if (token?.result === 'ok' && !refused) return item('github', 'warning', 'ghNoAnswer')
   return item('github', 'missing', 'ghNotSignedIn', {}, { fix: { kind: 'signIn', tool: 'github' } })
 }
 
@@ -185,8 +189,9 @@ export function gitlabItem(version: Probe, auth: Probe | null, context?: Install
  * not a `codex` command. The first session downloads the adapter. `auth` is `codex login status`
  * when the `codex` command is there: signed out, the row signs in inside Workhub; without the
  * command (null or not found) the sign-in is read from `signedIn`: whether Codex's saved sign-in
- * (or an API key) was found. False: the row asks to install the command, which is what signs in;
- * null (not looked at) leaves the row ready.
+ * (or an API key) was found. False: the row asks to install the command, which is what signs in
+ * (with Node.js missing too, that one install brings Node.js along, so a person does not install
+ * twice); null (not looked at) leaves the row ready.
  */
 export function codexItem(npx: Probe, node: Probe, context?: InstallContext | string, auth: Probe | null = null, signedIn: boolean | null = null): SetupItem {
   if (npx.result === 'ok' && node.result === 'ok') {
@@ -195,6 +200,9 @@ export function codexItem(npx: Probe, node: Probe, context?: InstallContext | st
     return item('codex', 'ok', 'codexReady', { version: /v\d+\.\d+\.\d+/.exec(node.output)?.[0] ?? firstLine(node.output) })
   }
   if (npx.result === 'timeout' || node.result === 'timeout') return item('codex', 'warning', 'timeout', { command: npx.result === 'timeout' ? 'npx --version' : 'node --version' })
+  // No Node.js, no Codex command and no saved sign-in: where Workhub installs the command itself, it
+  // comes with Node.js, and the row then offers the sign-in.
+  if (signedIn === false && (auth === null || auth.result === 'notFound') && installMethod('codex', context)?.managed) return item('codex', 'missing', 'codexNeedsCli', {}, { fix: installFix('codex', context) })
   // Workhub installs its own Node.js and fetches the adapter with it where it can; else Node's own fix.
   return item('codex', 'missing', 'codexNeedsNode', {}, { fix: installMethod('codexAdapter', context) ? installFix('codexAdapter', context) : installFix('node', context) })
 }

@@ -7,8 +7,8 @@
 import { execFile } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { lstat, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { join, relative } from 'node:path'
+import { lstat, mkdir, open, readdir, readFile, rename, rm, rmdir, writeFile } from 'node:fs/promises'
+import { dirname, join, relative } from 'node:path'
 import {
   checksumFor,
   downloadFileName,
@@ -351,6 +351,8 @@ export class ManagedToolsInstaller {
       } else {
         await rm(npmPackageDir(this.deps.toolsDir, this.deps.platform, tool.packageName), { recursive: true, force: true })
       }
+      // A scoped package (`@scope/name`) leaves its scope folder behind, empty: `rmdir` only removes an empty one.
+      if (tool.packageName.startsWith('@')) await rmdir(dirname(npmPackageDir(this.deps.toolsDir, this.deps.platform, tool.packageName))).catch(() => undefined)
       return { ok: true }
     } catch (err) {
       return { ok: false, ...classifyFailure(err) }

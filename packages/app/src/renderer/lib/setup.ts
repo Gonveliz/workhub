@@ -69,6 +69,8 @@ export function useSetupCheck(): SetupState {
     )
   }, [])
   useEffect(run, [run])
+  // A sign-in that finished in its own window, or a tool removed in Settings: read it again.
+  useEffect(() => window.hub.setup.onChanged(run), [run])
   return { items, running, failed, run }
 }
 
@@ -122,7 +124,20 @@ export function useSetupProblems(needsKey: string): number | null {
       )
     }
     window.addEventListener('focus', onFocus)
-    return () => window.removeEventListener('focus', onFocus)
+    // A sign-in finished or a tool was removed: the count may have changed, whatever its age.
+    const off = window.hub.setup.onChanged(() => {
+      window.hub.setup.run().then(
+        (items) => {
+          lastProblems = { at: Date.now(), count: problemCount(items) }
+          setCount(lastProblems.count)
+        },
+        () => undefined
+      )
+    })
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      off()
+    }
   }, [])
   return count
 }

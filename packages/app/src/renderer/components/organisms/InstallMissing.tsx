@@ -21,6 +21,32 @@ export function installOutcome(snapshot: InstallQueueSnapshot | null): 'done' | 
   return snapshot.items.every((i) => i.state === 'done') ? 'done' : 'incomplete'
 }
 
+/** What an install will download, one line per item: its name, where from, how large, and how much it takes once installed. */
+export function InstallPlanList({ plan }: { plan: readonly InstallPlanEntry[] }) {
+  const { t, locale } = useI18n()
+  return (
+    <ul className="flex flex-col gap-2">
+      {plan.map((e) => (
+        <li key={e.installer} className="text-sm">
+          <span className="font-medium">{t(`setup.tool.${e.installer}` as MessageKey)}</span>
+          {e.version && <span className="text-muted"> {e.version}</span>}
+          <span className="block text-xs text-muted">
+            {[
+              t('setup.installAll.from', { source: e.source }),
+              e.bytes ? t('setup.installAll.size', { size: formatBytes(e.bytes, locale) }) : t('setup.installAll.sizeUnknown'),
+              e.diskBytes ? t('setup.installAll.onDisk', { size: formatBytes(e.diskBytes, locale) }) : '',
+              e.managed ? t('setup.installAll.managed') : '',
+              e.checksum ? '' : t('setup.installAll.noChecksum')
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 /**
  * The lines kept after a queue describe that queue: they stay through the check its end starts
  * (the first one) and go when another check starts, because by then they may no longer be true
@@ -38,7 +64,7 @@ export function keepLinesForCheck(checksSinceQueue: number): boolean {
  * component stays mounted, so the lines of what was installed stay on screen after the queue ends.
  */
 export function InstallMissing({ installers, onDone, busy = false }: { installers: readonly InstallerId[]; onDone: () => void; busy?: boolean }) {
-  const { t, locale } = useI18n()
+  const { t } = useI18n()
   const [plan, setPlan] = useState<InstallPlanEntry[] | null>(null)
   const [snapshot, setSnapshot] = useState<InstallQueueSnapshot | null>(null)
   const [mine, setMine] = useState(false)
@@ -151,25 +177,7 @@ export function InstallMissing({ installers, onDone, busy = false }: { installer
         }
       >
         {plan?.length === 0 && <p className="text-sm text-muted">{t('setup.installAll.nothing')}</p>}
-        <ul className="flex flex-col gap-2">
-          {(plan ?? []).map((e) => (
-            <li key={e.installer} className="text-sm">
-              <span className="font-medium">{name(e.installer)}</span>
-              {e.version && <span className="text-muted"> {e.version}</span>}
-              <span className="block text-xs text-muted">
-                {[
-                  t('setup.installAll.from', { source: e.source }),
-                  e.bytes ? t('setup.installAll.size', { size: formatBytes(e.bytes, locale) }) : t('setup.installAll.sizeUnknown'),
-                  e.diskBytes ? t('setup.installAll.onDisk', { size: formatBytes(e.diskBytes, locale) }) : '',
-                  e.managed ? t('setup.installAll.managed') : '',
-                  e.checksum ? '' : t('setup.installAll.noChecksum')
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <InstallPlanList plan={plan ?? []} />
       </Dialog>
     </div>
   )

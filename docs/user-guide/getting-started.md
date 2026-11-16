@@ -214,9 +214,11 @@ account, it signs in to that account's config folder.
   and **Open browser**. Open the browser, enter the code and approve. When the tool only prints a
   web address, **Open browser** opens it.
 - The window checks every few seconds whether you are signed in, and shows **Signed in** when you
-  are. Workhub answers the questions GitHub and GitLab ask before their browser step, with their
+  are; the row you started from (in the Welcome, the setup check or Home) then updates by itself. Workhub answers the questions GitHub and GitLab ask before their browser step, with their
   own default (GitHub: let Git use this sign-in; GitLab: its usual registry addresses). If the
   tool asks anything else in the terminal, answer it there.
+- For GitLab, Workhub opens the sign-in page in your browser itself and keeps **Open browser** in
+  the window, in case the page did not open.
 - **Cancel** stops the sign-in; closing the window does the same.
 
 Workhub never asks for or keeps your password or token: you sign in on the tool's own web page,

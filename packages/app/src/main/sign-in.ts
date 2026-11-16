@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { WebContents } from 'electron'
 import {
   isSignInTool,
+  hideOutputLines,
   parseSignInPrompt,
   plainTerminalText,
   SIGN_IN_COMMANDS,
@@ -62,8 +63,15 @@ export class SignInFlow {
   private typedAfterOpen = false
   /** The questions already answered (`answers` of the command): each one once. */
   private readonly answered = new Set<string>()
+  /** The printed address was opened for the person (`openWhenPrinted`): once. */
+  private openedPrinted = false
+  /** What the pane shows of the output (`hiddenLines` of the command); null shows all of it. */
+  private readonly shown: ((data: string) => string) | null
 
-  constructor(private readonly deps: SignInFlowDeps) {}
+  constructor(private readonly deps: SignInFlowDeps) {
+    const hidden = SIGN_IN_COMMANDS[deps.tool].hiddenLines
+    this.shown = hidden?.length ? hideOutputLines(hidden) : null
+  }
 
   view(): SignInView {
     return { tool: this.deps.tool, accountName: this.deps.accountName, phase: this.phase, prompt: this.prompt, ...(this.error ? { error: this.error } : {}) }
@@ -119,14 +127,33 @@ export class SignInFlow {
   }
 
   private onOutput(data: string): void {
-    this.deps.emit({ type: 'output', data })
+    // After a cancel the tool only prints that it was interrupted, as an error: the pane already says "cancelled".
+    if (this.phase === 'cancelled') return
+    const shown = this.shown ? this.shown(data) : data
+    if (shown) this.deps.emit({ type: 'output', data: shown })
     this.tail = (this.tail + data).slice(-OUTPUT_TAIL)
     this.answerQuestions()
     const next = parseSignInPrompt(this.tail)
-    if (next.url === this.prompt.url && next.code === this.prompt.code) return
-    // An address or code once read stays until the tool prints a new one.
-    this.prompt = { url: next.url ?? this.prompt.url, code: next.code ?? this.prompt.code }
-    this.deps.emit({ type: 'view', view: this.view() })
+    if (next.url !== this.prompt.url || next.code !== this.prompt.code) {
+      // An address or code once read stays until the tool prints a new one.
+      this.prompt = { url: next.url ?? this.prompt.url, code: next.code ?? this.prompt.code }
+      this.deps.emit({ type: 'view', view: this.view() })
+    }
+    this.openPrintedAddress()
+  }
+
+  /**
+   * Opens the address for a tool whose own browser launch is off, once it is printed whole: output
+   * comes in pieces, so the address counts as whole only when something follows it.
+   */
+  private openPrintedAddress(): void {
+    const url = this.prompt.url
+    if (this.openedPrinted || !url || this.phase !== 'running' || !SIGN_IN_COMMANDS[this.deps.tool].openWhenPrinted) return
+    const text = plainTerminalText(this.tail)
+    const end = text.lastIndexOf(url) + url.length
+    if (end < url.length || !/\s/.test(text.slice(end))) return
+    this.openedPrinted = true
+    this.deps.openUrl(url)
   }
 
   /** Types the answer to a question the tool asks before its browser step, once each. */
@@ -187,6 +214,8 @@ export interface SignInServiceDeps {
   /** Opens (or focuses) the sign-in window of a flow; `closed` runs when that window closes. */
   openWindow: (id: string, closed: () => void) => void
   openUrl: (url: string) => void
+  /** A sign-in finished signed in: what the setup check found is out of date. */
+  signedIn?: () => void
   /** Test seam: replaces the command runner of the status checks. */
   run?: typeof probe
   pollMs?: number
@@ -243,6 +272,8 @@ export class SignInService {
       check: () => this.check(tool, env),
       emit: (event) => {
         if (entry.sender && !entry.sender.isDestroyed()) entry.sender.send('signIn:event', id, event)
+        // The row that opened this window (setup check, welcome, Home) reads the check again.
+        if (event.type === 'view' && event.view.phase === 'signedIn') this.deps.signedIn?.()
       },
       openUrl: this.deps.openUrl
     })
