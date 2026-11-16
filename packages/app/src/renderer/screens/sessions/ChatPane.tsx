@@ -1,4 +1,4 @@
-import { ArrowRightLeft, ArrowUp, Brain, ChevronRight, FoldVertical, CircleAlert, Clock, History, ImagePlus, Info, LoaderCircle, Pause, Play, Square, TriangleAlert, Volume2, Webhook, X, type LucideIcon } from 'lucide-react'
+import { ArrowDown, ArrowRightLeft, ArrowUp, Brain, ChevronRight, FoldVertical, CircleAlert, Clock, History, ImagePlus, Info, LoaderCircle, Pause, Play, Square, TriangleAlert, Volume2, Webhook, X, type LucideIcon } from 'lucide-react'
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { appOptions, filterSlashCommands, gatePrompt, isApiWindow, sessionIdentity, setApiCeiling, setCeiling, setSessionCeiling, slashQuery, type SlashCommandInfo, type SubagentSummary } from '@workhub/core'
 import { Button, IconButton } from '../../components/atoms'
@@ -19,6 +19,7 @@ import { markPermission, openChatImage, pushItem, pushNotice, type ChatItem, typ
 import { runWorkhubCommand, sessionSlashCommands } from '../../lib/chatCommands'
 import { SlashCommandMenu, slashOptionId } from './SlashCommandMenu'
 import { followLog, isAtBottom, lastPromptId, type FollowMark } from '../../lib/chatScroll'
+import { onRevealChatItem, revealEarlier, revealItemStart, showJumpToLatest, windowAfterScroll, windowStart } from '../../lib/chatWindow'
 import { refreshConfig, useConfig } from '../../configStore'
 import { isLongMessage } from '../../lib/longMessage'
 import { listen, listenId, stopListening, toggleListen, useListenPhase, type ListenOutcome } from '../../lib/listen'
@@ -432,12 +433,22 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
   // it until they scroll back down or send (or queue) a prompt themselves.
   const log = useRef<HTMLDivElement>(null)
   const atBottom = useRef(true)
+  // The same, for what it shows ("Jump to latest").
+  const [awayFromBottom, setAwayFromBottom] = useState(false)
+  // Only the newest part of a long chat is rendered (see chatWindow.ts): `startId` is its first item,
+  // undefined while it follows the chat.
+  const [startId, setStartId] = useState<number | undefined>(undefined)
+  const start = windowStart(data.items, startId)
+  const shown = useMemo(() => data.items.slice(start), [data.items, start])
+  const startNow = useRef({ items: data.items, start })
+  startNow.current = { items: data.items, start }
   const followMark = useRef<FollowMark>({ lastPromptId: lastPromptId(data.items), queued: queued.length })
   useEffect(() => {
     const { follow, mark } = followLog(followMark.current, data.items, queued.length, atBottom.current)
     followMark.current = mark
     if (!follow) return
     atBottom.current = true
+    setAwayFromBottom(false)
     // Braces matter: scrollIntoView returns a Promise in recent Chromium, which React would take as a cleanup.
     void bottom.current?.scrollIntoView({ block: 'end' })
   }, [data.items, queued])
@@ -455,8 +466,57 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
   const onLogScroll = () => {
     const el = log.current
     // A hidden log (another session on screen) measures zero: that is not the reader scrolling.
-    if (el && el.clientHeight > 0) atBottom.current = isAtBottom(el)
+    if (!el || el.clientHeight === 0) return
+    const here = isAtBottom(el)
+    atBottom.current = here
+    setAwayFromBottom(!here)
+    const { items, start: first } = startNow.current
+    setStartId((id) => windowAfterScroll(id, items[first]?.id, here))
   }
+  // "Show earlier messages" keeps what was on screen where it was: the distance from the bottom is
+  // kept across the render that adds the chunk above.
+  const keepFromBottom = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const el = log.current
+    if (!el || keepFromBottom.current === null) return
+    el.scrollTop = el.scrollHeight - keepFromBottom.current
+    keepFromBottom.current = null
+  }, [start])
+  const showEarlier = () => {
+    const id = revealEarlier(data.items, start)
+    const el = log.current
+    if (id === undefined || !el) return
+    keepFromBottom.current = el.scrollHeight - el.scrollTop
+    setStartId(id)
+  }
+  const jumpToLatest = () => {
+    atBottom.current = true
+    setAwayFromBottom(false)
+    setStartId(undefined)
+    void bottom.current?.scrollIntoView({ block: 'end' })
+  }
+  // Find in the conversation and export reveal an item that may be above the window (revealChatItem).
+  const [revealing, setRevealing] = useState<number | null>(null)
+  useEffect(
+    () =>
+      onRevealChatItem((id, itemId) => {
+        if (id !== v.id) return false
+        const { items, start: first } = startNow.current
+        const next = revealItemStart(items, first, itemId)
+        if (next === null) return false
+        atBottom.current = false
+        setStartId(next)
+        setRevealing(itemId)
+        return true
+      }),
+    [v.id]
+  )
+  useLayoutEffect(() => {
+    if (revealing === null) return
+    setRevealing(null)
+    const el = log.current?.querySelector(`[data-chat-item="${revealing}"]`)
+    void (el?.firstElementChild ?? el)?.scrollIntoView({ block: 'center' })
+  }, [revealing])
 
   const acceptsImages = v.capabilities.imageInput
   const imageLabel = t('chat.imageMarkerLabel')
@@ -757,44 +817,63 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <div ref={log} onScroll={onLogScroll} className="min-h-0 flex-1 overflow-y-auto text-[length:var(--wh-chat-font-size,13px)]" aria-live="polite" aria-label={t('chat.log')} role="log">
-        <div className="flex w-full min-w-0 flex-col gap-3.5 px-6 py-5">
-          {data.items.length === 0 && !v.origin && <p className="py-10 text-center text-sm text-subtle">{t('chat.empty')}</p>}
-          {replayAt < 0 && originLine}
-          {data.items.map((i, n) => (
-            <Fragment key={i.id}>
-              {/* Only tool calls show sub-agents: a monitor patch replaces the list, and passing it to every block would render them all again. */}
-              <ChatBlock item={i} onAnswer={answer} sessionId={v.id} cwd={v.cwd} hasShell={v.modes.includes('shell')} subagents={i.kind === 'tool' ? data.monitor.subagents : undefined} />
-              {n === replayAt && originLine}
-            </Fragment>
-          ))}
-          {queued.length > 0 && (
-            <ul className="flex flex-col items-end gap-1.5" aria-label={t('chat.queuedList')} data-testid="queued-prompts">
-              {queued.map((q) => (
-                <li key={q.id} className="flex max-w-[80%] min-w-0 flex-col items-end gap-1">
-                  {q.images.length > 0 && (
-                    <div className="flex flex-wrap justify-end gap-1.5 opacity-70">
-                      {q.images.map((src, i) => (
-                        <img key={i} src={src} alt={t('chat.imageAlt', { n: i + 1 })} className="size-12 rounded-md border border-border object-cover" />
-                      ))}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div ref={log} onScroll={onLogScroll} className="min-h-0 flex-1 overflow-y-auto text-[length:var(--wh-chat-font-size,13px)]" aria-live="polite" aria-label={t('chat.log')} role="log">
+          <div className="flex w-full min-w-0 flex-col gap-3.5 px-6 py-5">
+            {data.items.length === 0 && !v.origin && <p className="py-10 text-center text-sm text-subtle">{t('chat.empty')}</p>}
+            {start > 0 && (
+              <div className="flex justify-center">
+                <Button size="sm" variant="secondary" onClick={showEarlier} data-testid="chat-show-earlier">
+                  {t('chat.showEarlier')}
+                </Button>
+              </div>
+            )}
+            {replayAt < 0 && originLine}
+            {shown.map((i, n) => (
+              <Fragment key={i.id}>
+                {/* `contents`: the wrapper only names the item (revealChatItem); the layout is the block's own. */}
+                <div className="contents" data-chat-item={i.id}>
+                  {/* Only tool calls show sub-agents: a monitor patch replaces the list, and passing it to every block would render them all again. */}
+                  <ChatBlock item={i} onAnswer={answer} sessionId={v.id} cwd={v.cwd} hasShell={v.modes.includes('shell')} subagents={i.kind === 'tool' ? data.monitor.subagents : undefined} />
+                </div>
+                {start + n === replayAt && originLine}
+              </Fragment>
+            ))}
+            {queued.length > 0 && (
+              <ul className="flex flex-col items-end gap-1.5" aria-label={t('chat.queuedList')} data-testid="queued-prompts">
+                {queued.map((q) => (
+                  <li key={q.id} className="flex max-w-[80%] min-w-0 flex-col items-end gap-1">
+                    {q.images.length > 0 && (
+                      <div className="flex flex-wrap justify-end gap-1.5 opacity-70">
+                        {q.images.map((src, i) => (
+                          <img key={i} src={src} alt={t('chat.imageAlt', { n: i + 1 })} className="size-12 rounded-md border border-border object-cover" />
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex min-w-0 items-start gap-1.5">
+                      <div className="max-h-80 min-w-0 overflow-y-auto rounded-xl rounded-br-sm border border-dashed border-border px-3.5 py-2 whitespace-pre-wrap text-muted [overflow-wrap:anywhere]">
+                        {q.text || <span className="text-subtle">{tn('chat.images', q.images.length)}</span>}
+                      </div>
+                      <IconButton size="sm" label={t('chat.removeQueued')} icon={<X className="size-3" />} onClick={() => removeQueuedPrompt(v.id, q.id)} className="mt-1" />
                     </div>
-                  )}
-                  <div className="flex min-w-0 items-start gap-1.5">
-                    <div className="max-h-80 min-w-0 overflow-y-auto rounded-xl rounded-br-sm border border-dashed border-border px-3.5 py-2 whitespace-pre-wrap text-muted [overflow-wrap:anywhere]">
-                      {q.text || <span className="text-subtle">{tn('chat.images', q.images.length)}</span>}
-                    </div>
-                    <IconButton size="sm" label={t('chat.removeQueued')} icon={<X className="size-3" />} onClick={() => removeQueuedPrompt(v.id, q.id)} className="mt-1" />
-                  </div>
-                  <span className="flex items-center gap-1 text-2xs text-subtle">
-                    <Clock className="size-3" aria-hidden />
-                    {t('chat.queued')}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div ref={bottom} />
+                    <span className="flex items-center gap-1 text-2xs text-subtle">
+                      <Clock className="size-3" aria-hidden />
+                      {t('chat.queued')}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div ref={bottom} />
+          </div>
         </div>
+        {showJumpToLatest(!awayFromBottom, v.state) && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+            <Button size="sm" variant="secondary" className="pointer-events-auto shadow-sm" icon={<ArrowDown className="size-3.5" aria-hidden />} onClick={jumpToLatest} data-testid="chat-jump-latest">
+              {t('chat.jumpToLatest')}
+            </Button>
+          </div>
+        )}
       </div>
       {pending.length > 0 && (
         <section ref={pendingBox} data-testid="pending-requests" aria-label={t('chat.pendingRequests')} className="flex max-h-[45%] shrink-0 flex-col gap-2 overflow-y-auto border-t border-warning/30 px-6 py-3">

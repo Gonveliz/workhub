@@ -265,6 +265,15 @@ export class SessionWindows {
     }
   }
 
+  /** Sends a message to the session's own window only, when it has one (held like `broadcastShared` while it waits for its snapshot). */
+  sendToSession(sessionId: string, channel: string, args: unknown[]): void {
+    const w = this.windows.get(sessionId)
+    if (!alive(w)) return
+    const queue = this.held.get(w.webContents)
+    if (queue) queue.push([channel, args])
+    else w.webContents.send(channel, ...args)
+  }
+
   /**
    * A session window's starting point: the chat the main window holds for the session. What the
    * main window gets after the request is held for the asking window and sent after the answer,

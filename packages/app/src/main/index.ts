@@ -117,6 +117,7 @@ import { HistoryIndexer } from './history-indexer'
 import { RecentCall } from './recent-call'
 import { PrEventService, registerPrEventsIpc } from './pr-events-service'
 import { OutputCoalescer } from './output-coalescer'
+import { routeSessionEvent } from './terminal-routing'
 import { SessionDriver } from './session-driver'
 import { OwnerStarts } from './owner-starts'
 import { resolveChoice, SessionManager, ticketPrefixes } from './session-manager'
@@ -390,8 +391,15 @@ const send = (channel: string, ...message: unknown[]) => {
   settingsWindow.send(channel, args)
   remoteHub.tap(channel, args)
 }
-// Terminal output goes out batched (one message per frame per channel); everything else at once.
-const sessionOutput = new OutputCoalescer((e) => send('session:event', e))
+// Terminal output goes out batched (one message per frame per channel), only to the windows that can show it; everything else at once.
+const sessionOutput = new OutputCoalescer((e) =>
+  routeSessionEvent(e, {
+    everywhere: (ev) => send('session:event', ev),
+    main: (ev) => win && !win.isDestroyed() && win.webContents.send('session:event', ev),
+    sessionWindow: (id, ev) => sessionWindows.sendToSession(id, 'session:event', [ev]),
+    devices: (ev) => remoteHub.tap('session:event', [ev])
+  })
+)
 // Sessions in windows of their own ("Open in New Window"); the session's runtime stays here, shared.
 const sessionWindows = new SessionWindows({
   create: (hash, size, bounds) =>

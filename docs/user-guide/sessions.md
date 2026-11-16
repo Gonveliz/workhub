@@ -102,6 +102,10 @@ terminal's output to the screen in batches of about one frame, so a command that
 - **Long messages**: a message of yours taller than about 25 lines on screen (a pasted log or
   crash report, even one with no line breaks) is shown collapsed; **Show more** opens it, **Show less** folds it again. Long lines
   wrap inside the bubble, and code blocks and tables in replies scroll inside themselves.
+- **Long conversations**: the conversation shows its latest 200 or so messages, starting where one
+  of your messages begins; **Show earlier messages** at the top shows the next 200 above, without
+  moving what you are reading. The conversation follows new output while you are at its bottom;
+  scroll up while the agent writes and **Jump to latest** takes you back down.
 - **Listen**: next to **Copy** under each agent message. A short message (under about 400
   characters once code, links and formatting are left out) is read aloud as it is. A longer one is
   first summarized into a few spoken sentences, in the message's language, by a small Claude model

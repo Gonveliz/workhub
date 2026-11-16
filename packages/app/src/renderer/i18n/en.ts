@@ -410,6 +410,8 @@ export const en = {
   'chat.resumedHere.one': '{count} earlier message · resumed here',
   'chat.resumedHere.other': '{count} earlier messages · resumed here',
   'chat.truncated': 'Earlier messages are not shown',
+  'chat.showEarlier': 'Show earlier messages',
+  'chat.jumpToLatest': 'Jump to latest',
   'chat.imageRejected': 'Some pasted images were left out: only PNG, JPEG, GIF or WebP up to {size} MB each.',
   'chat.attached': 'Attached images',
   'chat.placeholderQueue': 'The agent is working… a message sent now waits for its turn to end',

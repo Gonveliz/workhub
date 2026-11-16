@@ -409,6 +409,8 @@ export const es: Record<keyof typeof en, string> = {
   'chat.resumedHere.one': '{count} mensaje anterior · se retoma aquí',
   'chat.resumedHere.other': '{count} mensajes anteriores · se retoma aquí',
   'chat.truncated': 'No se muestran los mensajes anteriores',
+  'chat.showEarlier': 'Mostrar mensajes anteriores',
+  'chat.jumpToLatest': 'Ir al final',
   'chat.imageRejected': 'Se omitieron imágenes pegadas: solo PNG, JPEG, GIF o WebP de hasta {size} MB cada una.',
   'chat.attached': 'Imágenes adjuntas',
   'chat.placeholderQueue': 'El agente está trabajando… un mensaje enviado ahora espera a que termine su turno',
