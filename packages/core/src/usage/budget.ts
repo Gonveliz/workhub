@@ -26,9 +26,11 @@ export interface UsageBudgetOptions {
   warnMargin: number
   /** Ceiling in percent per account key (`usageAccountKey`) and window (`5h`, `weekly`…). */
   ceilings: Record<string, Record<string, number>>
+  /** Dollar ceilings per day and per week for agents billed by API key, by agent id (`opencode`, `codex`…). */
+  apiCeilings: Record<string, { daily?: number; weekly?: number }>
 }
 
-export const DEFAULT_USAGE_BUDGET: UsageBudgetOptions = { alerts: true, thresholds: [...DEFAULT_ALERT_THRESHOLDS], warnMargin: DEFAULT_WARN_MARGIN, ceilings: {} }
+export const DEFAULT_USAGE_BUDGET: UsageBudgetOptions = { alerts: true, thresholds: [...DEFAULT_ALERT_THRESHOLDS], warnMargin: DEFAULT_WARN_MARGIN, ceilings: {}, apiCeilings: {} }
 
 /**
  * The key a budget is stored under: the agent id the account belongs to, then `:accountId`;
@@ -49,6 +51,11 @@ export interface BudgetStatus {
   ceiling?: number
   /** When the deciding window resets (epoch ms), when known. */
   resetsAt?: number
+  /** Dollar ceilings only: what the deciding window spent and its ceiling, in USD. */
+  usd?: number
+  ceilingUsd?: number
+  /** Dollar ceilings only: tokens no price covers. They are in no total, so the spend is at least this much. */
+  unpricedTokens?: number
 }
 
 const ALLOW: BudgetStatus = { action: 'allow' }

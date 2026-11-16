@@ -4,10 +4,13 @@ import {
   accountAgentId,
   appOptions,
   CLAUDE_MODEL_SUGGESTIONS,
+  setApiCeiling,
   setCeiling,
   usageAccountKey,
+  validUsdCeiling,
   type AgentAccount,
   type AgentDefinition,
+  type ApiCeilings,
   type UsageBudgetOptions,
   type WorkhubConfig
 } from '@workhub/core'
@@ -36,7 +39,8 @@ import { agentGlyph, defaultSignInFolder, installHintKey, signInEntries, type Lo
 import { accountFieldErrors } from '../../lib/configIssues'
 import { modelOptions } from '../../lib/optionOrCustom'
 import { isDirty, type SaveOutcome } from '../../lib/unsavedChanges'
-import { useAccountUsage } from '../../lib/usage'
+import { formatTokens } from '../../lib/home'
+import { useAccountUsage, useApiSpend } from '../../lib/usage'
 import { usageCeilingLabel } from '../../lib/usage-window'
 import { SignInDetail } from '../AgentsSettings'
 import { AgentToolsGroup } from './AgentToolsGroup'
@@ -260,6 +264,9 @@ function AgentCard(props: {
       </div>
       {props.variants.length > 0 && <p className="pb-2 text-xs text-subtle">{t('settingsAgents.sharesWith', { agents: props.variants.map((v) => v.name).join(', ') })}</p>}
       {agent.adapter === 'terminal' && <p className="pb-1 text-sm text-subtle">{t('settingsAgents.terminal')}</p>}
+      {agent.adapter !== 'terminal' && !onePerComputer && (
+        <ApiBudgetFields agentId={owner} value={props.budget.apiCeilings[owner]} disabled={Boolean(snap.loadError)} onChange={(which, n) => void props.onSaveBudget({ ...props.budget, apiCeilings: setApiCeiling(props.budget.apiCeilings, owner, which, n) })} />
+      )}
       {adding && (
         <AccountForm
           key={`new:${owner}`}
@@ -385,6 +392,75 @@ function BudgetFields({
       </div>
       <p className="text-xs text-subtle">{t('settingsAgents.form.budgetHint')}</p>
     </div>
+  )
+}
+
+/**
+ * The agent's dollar ceilings, for when it is billed by API key (no plan window to cap): per day
+ * and per 7 days. Next to them, what it spent and, never silently as zero, the tokens no price covers.
+ */
+function ApiBudgetFields({
+  agentId,
+  value,
+  disabled,
+  onChange
+}: {
+  agentId: string
+  value: ApiCeilings | undefined
+  disabled: boolean
+  onChange: (which: 'daily' | 'weekly', ceiling: number | null) => void
+}) {
+  const { t, formatNumber, locale } = useI18n()
+  const spent = useApiSpend().find((s) => s.agent === agentId)
+  const money = (usd: number) => formatNumber(usd, { style: 'currency', currency: 'USD', maximumFractionDigits: usd > 0 && usd < 1 ? 3 : 2 })
+  return (
+    <div className="flex flex-col gap-1.5 pb-2" data-testid="agents-api-budget" data-agent-budget={agentId}>
+      <span className="text-sm font-medium text-muted">{t('settingsAgents.form.apiBudget')}</span>
+      <div className="flex flex-wrap gap-3">
+        <UsdInput label={t('settingsAgents.form.apiDaily')} value={value?.daily} disabled={disabled} onCommit={(n) => onChange('daily', n)} />
+        <UsdInput label={t('settingsAgents.form.apiWeekly')} value={value?.weekly} disabled={disabled} onCommit={(n) => onChange('weekly', n)} />
+      </div>
+      {spent && <p className="text-xs text-subtle">{t('settingsAgents.form.apiSpent', { today: money(spent.today), week: money(spent.week) })}</p>}
+      {spent && spent.unpricedTokens > 0 && (
+        <p className="text-xs text-warning" data-testid="agents-api-unpriced">
+          {t('agentUsage.apiUnpriced', { tokens: formatTokens(spent.unpricedTokens, locale) })}
+        </p>
+      )}
+      <p className="text-xs text-subtle">{t('settingsAgents.form.apiBudgetHint')}</p>
+    </div>
+  )
+}
+
+/** A dollar amount written when it loses focus or on Enter; empty clears it. */
+function UsdInput({ label, value, disabled, onCommit }: { label: string; value: number | undefined; disabled: boolean; onCommit: (n: number | null) => void }) {
+  const { t } = useI18n()
+  const shown = value === undefined ? '' : String(value)
+  const [text, setText] = useState(shown)
+  useEffect(() => setText(shown), [shown])
+  const commit = (raw: string) => {
+    const trimmed = raw.trim()
+    const n = trimmed === '' ? null : validUsdCeiling(Number(trimmed))
+    // Something that is no positive amount goes back to what was saved.
+    if (trimmed !== '' && n === null) return setText(shown)
+    if (n !== (value ?? null)) onCommit(n)
+  }
+  return (
+    <label className="flex w-40 flex-col gap-1 text-xs text-subtle">
+      {label}
+      <Input
+        type="number"
+        min={0.01}
+        step="any"
+        inputMode="decimal"
+        aria-label={label}
+        value={text}
+        placeholder={t('settingsAgents.form.budgetNone')}
+        disabled={disabled}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={(e) => commit(e.currentTarget.value)}
+        onKeyDown={(e) => e.key === 'Enter' && commit(e.currentTarget.value)}
+      />
+    </label>
   )
 }
 

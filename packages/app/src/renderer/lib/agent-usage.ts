@@ -1,4 +1,4 @@
-import { accountBudgetStatus, liveWindows, usageAccountKey, type BudgetStatus, type PlanUsageWindow, type SessionCeilings, type UsageBudgetOptions } from '@workhub/core'
+import { accountBudgetStatus, evaluateApiBudget, liveWindows, strictestBudget, usageAccountKey, type ApiAgentSpend, type BudgetStatus, type PlanUsageWindow, type SessionCeilings, type UsageBudgetOptions } from '@workhub/core'
 import type { AccountUsage, SessionView } from '@shared/api'
 import type { SessionSummary } from './home'
 
@@ -118,12 +118,15 @@ export function sessionBudget(
   budget: UsageBudgetOptions,
   accountsOf: (agentId: string) => string,
   now: number,
-  session?: Readonly<SessionCeilings>
+  session?: Readonly<SessionCeilings>,
+  apiSpend: readonly ApiAgentSpend[] = []
 ): { key: string; status: BudgetStatus; fromSession: boolean } {
   const agentId = accountsOf(view.agentId)
   const key = usageAccountKey(agentId, view.accountId)
   const read = reads.find((r) => r.key === key)
-  const status: BudgetStatus = read ? accountBudgetStatus(budget, key, read.windows, now, session) : { action: 'allow' }
+  const plan: BudgetStatus = read ? accountBudgetStatus(budget, key, read.windows, now, session) : { action: 'allow' }
+  // The agent's dollar ceilings (API-key billing) gate the same send; the stricter verdict decides.
+  const status = strictestBudget(plan, evaluateApiBudget(apiSpend.find((s) => s.agent === agentId), budget.apiCeilings[agentId], budget.warnMargin, now))
   return { key, status, fromSession: status.window !== undefined && session?.[status.window] !== undefined }
 }
 

@@ -20,6 +20,10 @@ export const usageEn = {
   'agentUsage.gate.sendAnyway': 'Send anyway',
   'agentUsage.gate.clear': 'Clear ceiling',
   'agentUsage.gate.warn': '{account} is at {percent}% of its {window} window; the ceiling is {ceiling}%.',
+  'agentUsage.gate.apiBlock': '{account} has spent {spent} {window}, past your {ceiling} ceiling.',
+  'agentUsage.gate.apiWarn': '{account} has spent {spent} {window}; the ceiling is {ceiling}.',
+  'agentUsage.api.day': 'today',
+  'agentUsage.api.week': 'in the last 7 days',
 
   'agentUsage.settings.tab': 'Usage',
   'agentUsage.settings.reading': 'Reading',

@@ -1,6 +1,6 @@
 import { ArrowRightLeft, ArrowUp, Brain, ChevronRight, FoldVertical, CircleAlert, Clock, History, ImagePlus, Info, LoaderCircle, Pause, Play, Square, TriangleAlert, Volume2, Webhook, X, type LucideIcon } from 'lucide-react'
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
-import { appOptions, filterSlashCommands, gatePrompt, sessionIdentity, setCeiling, setSessionCeiling, slashQuery, type SlashCommandInfo, type SubagentSummary } from '@workhub/core'
+import { appOptions, filterSlashCommands, gatePrompt, isApiWindow, sessionIdentity, setApiCeiling, setCeiling, setSessionCeiling, slashQuery, type SlashCommandInfo, type SubagentSummary } from '@workhub/core'
 import { Button, IconButton } from '../../components/atoms'
 import { CopyButton, Markdown, type MarkdownActions } from '../../components/molecules'
 import { useToast } from '../../components/molecules/Toast'
@@ -22,7 +22,7 @@ import { refreshConfig, useConfig } from '../../configStore'
 import { isLongMessage } from '../../lib/longMessage'
 import { listen, listenId, stopListening, toggleListen, useListenPhase, type ListenOutcome } from '../../lib/listen'
 import { sessionBudget } from '../../lib/agent-usage'
-import { useAccountLabel, useAccountUsage, useNow, useSessionCeilings, useUsageSettings } from '../../lib/usage'
+import { useAccountLabel, useAccountUsage, useApiSpend, useNow, useSessionCeilings, useUsageSettings } from '../../lib/usage'
 import { BudgetNotice } from './BudgetNotice'
 import { IdleContextNotice } from './IdleContextNotice'
 import { BackgroundTasksNotice } from './BackgroundTasksNotice'
@@ -493,7 +493,8 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
   const now = useNow()
   const accountLabel = useAccountLabel()
   const ownCeilings = useSessionCeilings()[sessionIdentity(v)]
-  const gate = sessionBudget(v, reads, usageSettings.budget, usageSettings.accountsOf, now, ownCeilings)
+  const apiSpend = useApiSpend()
+  const gate = sessionBudget(v, reads, usageSettings.budget, usageSettings.accountsOf, now, ownCeilings, apiSpend)
   const [needsConfirm, setNeedsConfirm] = useState(false)
   useEffect(() => {
     if (gate.status.action !== 'block') setNeedsConfirm(false)
@@ -533,7 +534,11 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
     if (!gate.status.window) return
     // A ceiling set on this session is cleared on the session; the account's one in Settings.
     if (gate.fromSession) return window.hub.usage.setSessionBudget(sessionIdentity(v), setSessionCeiling(ownCeilings, gate.status.window, null))
-    const r = await window.hub.config.saveOptions({ usageBudget: setCeiling(usageSettings.budget, gate.key, gate.status.window, null) })
+    const budget = usageSettings.budget
+    const next = isApiWindow(gate.status.window)
+      ? { ...budget, apiCeilings: setApiCeiling(budget.apiCeilings, usageSettings.accountsOf(v.agentId), gate.status.window === 'api-daily' ? 'daily' : 'weekly', null) }
+      : setCeiling(budget, gate.key, gate.status.window, null)
+    const r = await window.hub.config.saveOptions({ usageBudget: next })
     if (r.ok) await refreshConfig()
   }
 

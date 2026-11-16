@@ -105,6 +105,7 @@ import { timeIpc } from './ipc-timing'
 import { broadcastToWindowsAndDevices, isRemoteSender, pageHistory, promptFromDevice, readActivity, recordIpc, RemoteActivityLog, RemoteHub, RemoteService, registerRemoteIpc, readRemoteFile, touchedPaths, type RemoteState } from './remote'
 import { rendererReporter, startDiagnostics } from './diagnostics'
 import { createDiagnosticsExporter } from './diagnostics-export-app'
+import { createUsageCsvExporter } from './usage-csv'
 import { jobReports } from './job-reporter'
 import { ReloadGuard, watchRenderer } from './render-recovery'
 import { ChatJournals } from './chat-journal'
@@ -740,7 +741,8 @@ const usage = new AgentUsageService({
     scheduleTray()
   },
   alert: (alerts: UsageAlert[]) => (usageAlertsReady ? send('usage:alerts', alerts) : pendingUsageAlerts.push(...alerts)),
-  alertState: db.state('usage-alerts', 500)
+  alertState: db.state('usage-alerts', 500),
+  apiSpend: () => apiSpend.summary()
 })
 const budgetOf = (agentId: string, accountId: string | null) => usage.budgetOf(agentId, accountId)
 
@@ -1483,7 +1485,7 @@ function registerIpc(): void {
     return { path: db.path, sizeBytes: db.sizeBytes(), backupFolder, lastBackup: listBackups(backupFolder)[0] ?? null, recovered: db.recovered() }
   })
   // The usage reports and session tags (main window only: not in the remote allowlist).
-  registerAnalyticsIpc(ipc, { db, records: sessionRecords, scan: () => tokenSpend.scanNow(), reports: (r) => usageReports.report(r) })
+  registerAnalyticsIpc(ipc, { db, records: sessionRecords, scan: () => tokenSpend.scanNow(), reports: (r) => usageReports.report(r), exportCsv: createUsageCsvExporter({ window: () => (win && !win.isDestroyed() ? win : null) }) })
   ipc.handle('storage:backup', async (): Promise<StorageBackupResult> => {
     try {
       const path = await backupDb(true)

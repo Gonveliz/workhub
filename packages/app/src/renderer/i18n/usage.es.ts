@@ -22,6 +22,10 @@ export const usageEs: Record<keyof typeof usageEn, string> = {
   'agentUsage.gate.sendAnyway': 'Enviar de todos modos',
   'agentUsage.gate.clear': 'Quitar el techo',
   'agentUsage.gate.warn': '{account} está en {percent}% de su ventana {window}; el techo es {ceiling}%.',
+  'agentUsage.gate.apiBlock': '{account} gastó {spent} {window}, por encima de tu techo de {ceiling}.',
+  'agentUsage.gate.apiWarn': '{account} gastó {spent} {window}; el techo es {ceiling}.',
+  'agentUsage.api.day': 'hoy',
+  'agentUsage.api.week': 'en los últimos 7 días',
 
   'agentUsage.settings.tab': 'Uso',
   'agentUsage.settings.reading': 'Lectura',

@@ -393,6 +393,7 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       sessions: (query) => invoke('analytics:sessions', query),
       weekly: (query) => invoke('analytics:weekly', query),
       filters: (query) => invoke('analytics:filters', query),
+      exportCsv: (table) => invoke('analytics:exportCsv', table),
       refresh: () => invoke('analytics:refresh')
     }
   }

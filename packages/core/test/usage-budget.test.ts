@@ -136,7 +136,7 @@ describe('usage options in the config', () => {
 
   it('clamps hand-edited budget values and falls back on a malformed block', () => {
     const parsed = parseConfig({ version: 5, options: { usageBudget: { thresholds: [95, 80, 150], warnMargin: 80, ceilings: { claude: { weekly: 0 } } } } })
-    expect(parsed.options?.usageBudget).toEqual({ alerts: true, thresholds: [80, 95, 100], warnMargin: 50, ceilings: { claude: { weekly: 1 } } })
+    expect(parsed.options?.usageBudget).toEqual({ alerts: true, thresholds: [80, 95, 100], warnMargin: 50, ceilings: { claude: { weekly: 1 } }, apiCeilings: {} })
     expect(parseConfig({ version: 5, options: { usageBudget: 'nope' } }).options?.usageBudget).toEqual(DEFAULT_USAGE_BUDGET)
   })
 })

@@ -318,6 +318,13 @@ const view = (over: Partial<Parameters<typeof UsageReportsView>[0]> = {}) =>
   )
 
 describe('Usage and reports screen', () => {
+  it('offers Export CSV for the totals table only when the screen can export', () => {
+    expect(view()).not.toContain('data-testid="report-export-csv"')
+    const html = view({ onExportCsv: async () => ({ ok: false, canceled: true }) })
+    expect(html).toContain('data-testid="report-export-csv"')
+    expect(html).toContain('Export CSV')
+  })
+
   it('keeps a greyed-out Tag menu while no session has a tag, saying where tags are added', () => {
     const html = view({ values: { profiles: ['p1'], projects: ['/w/acme/notes-api'], agents: ['claude'], accounts: [], models: ['gpt-5'], tickets: [], prs: [], tags: [] } })
     expect(html).toContain('aria-label="Tag"')

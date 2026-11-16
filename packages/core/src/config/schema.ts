@@ -12,6 +12,7 @@ import type { ChatWatcherSettings } from '../chat/types'
 import type { AutomationDefinition } from '../automations/types'
 import { DEFAULT_AI_REVIEW_SETTINGS as AI_REVIEW, MAX_REVIEW_IDLE_SECONDS, MAX_REVIEW_ROUNDS, MIN_REVIEW_IDLE_SECONDS, MIN_REVIEW_ROUNDS } from '../ai-review/defaults'
 import { REVIEW_LANGUAGES, REVIEWER_SESSION_MODES } from '../ai-review/types'
+import { validUsdCeiling } from '../usage/api-budget'
 import { DEFAULT_USAGE_BUDGET, type UsageBudgetOptions } from '../usage/budget'
 import { AGENT_MILESTONE_MODES, MILESTONE_MARGIN_RANGE } from '../milestones'
 import { INBOX_LIMITS } from '../inbox/types'
@@ -565,6 +566,9 @@ export const automationSchema = z.object({
 /** A percentage from the config: rounded and clamped into 1..100 (a hand-edited value never keeps the config from loading). */
 const percent = z.number().transform((n) => Math.min(100, Math.max(1, Math.round(n))))
 
+/** A dollar ceiling from the config: a positive amount, else none. */
+const usdCeiling = z.unknown().transform((v) => validUsdCeiling(v) ?? undefined).optional()
+
 const usageBudget = z.object({
   alerts: z.boolean().default(DEFAULT_USAGE_BUDGET.alerts),
   thresholds: z
@@ -575,7 +579,12 @@ const usageBudget = z.object({
     .number()
     .transform((n) => Math.min(50, Math.max(0, Math.round(n))))
     .default(DEFAULT_USAGE_BUDGET.warnMargin),
-  ceilings: z.record(z.string(), z.record(z.string(), percent)).default({})
+  ceilings: z.record(z.string(), z.record(z.string(), percent)).default({}),
+  // A hand-edited amount that is no positive number is dropped instead of keeping the config from loading.
+  apiCeilings: z
+    .record(z.string(), z.object({ daily: usdCeiling, weekly: usdCeiling }))
+    .transform((all) => Object.fromEntries(Object.entries(all).flatMap(([k, v]) => (v.daily !== undefined || v.weekly !== undefined ? [[k, { ...(v.daily !== undefined ? { daily: v.daily } : {}), ...(v.weekly !== undefined ? { weekly: v.weekly } : {}) }]] : []))))
+    .default({})
 })
 
 const popoverBlock = (key: keyof TrayPopoverOptions) => z.boolean().default(DEFAULT_TRAY_POPOVER_OPTIONS[key] as boolean).catch(DEFAULT_TRAY_POPOVER_OPTIONS[key] as boolean)

@@ -3,7 +3,7 @@
  * the chart and table rows built from what main answers, and the weekly summary as Markdown.
  * Pure functions: the screen and the tests share them.
  */
-import { REPORT_FILTER_KEYS, type ReportBucket, type ReportFilters, type ReportGroupBy, type ReportSession, type ReportSessionPage, type SpendPoint, type SpendTotals, type WeeklyReport } from '../../shared/analytics-api'
+import { REPORT_FILTER_KEYS, type ReportBucket, type ReportFilters, type ReportGroupBy, type ReportSession, type ReportSessionPage, type SpendPoint, type SpendTotals, type UsageCsvExport, type WeeklyReport } from '../../shared/analytics-api'
 import type { MessageKey, Params, PluralKey } from '../i18n/translate'
 import { folderName, formatTokens } from './home'
 import { pullRequestLabel } from './monitorView'
@@ -541,5 +541,24 @@ export class SessionPager {
   private set(view: SessionsPageView): void {
     this.view = view
     this.onChange(view)
+  }
+}
+
+/**
+ * The totals table as the CSV export takes it: the rows in the order on screen (every page, not
+ * only the one shown), the group as the table names it in full, the numbers raw. `headers` are
+ * the column titles in the screen's language. The totals row is left out: a file of records
+ * should not mix them with their sum.
+ */
+export function csvTable(rows: readonly SpendTotals[], groupBy: ReportGroupBy, range: { since: number; until: number }, headers: string[], label: (group: string | null) => { text: string; title?: string }): UsageCsvExport {
+  return {
+    groupBy,
+    since: range.since,
+    until: range.until,
+    headers,
+    rows: rows.map((r) => {
+      const l = label(r.group)
+      return { group: l.title ?? l.text, tokensIn: r.tokensIn, tokensOut: r.tokensOut, cache: r.cacheRead + r.cacheWrite, usd: r.usd, sessions: r.sessions, activeSeconds: Math.round(r.activeMs / 1000) }
+    })
   }
 }

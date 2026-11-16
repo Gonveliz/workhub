@@ -6,7 +6,7 @@
  * large `turns` table never blocks the main process); the tags and Refresh stay here.
  */
 import { runAnalyticsReport, type AnalyticsReport, type SessionRecords, type WorkhubDb } from '@workhub/adapters/sqlite-store'
-import { REPORT_FILTER_KEYS, REPORT_GROUPS, type ReportFilters, type ReportGroupBy, type SessionsQuery, type SpendQuery, type TotalsQuery } from '../shared/analytics-api'
+import { REPORT_FILTER_KEYS, REPORT_GROUPS, type ReportFilters, type ReportGroupBy, type SessionsQuery, type SpendQuery, type TotalsQuery, type UsageCsvResult } from '../shared/analytics-api'
 import type { IpcRegistrar } from './ipc-guard'
 
 export interface AnalyticsIpcDeps {
@@ -17,6 +17,8 @@ export interface AnalyticsIpcDeps {
    * worker rejects. Without it the reports run on `db` directly (tests, no Electron).
    */
   reports?: (report: AnalyticsReport) => Promise<unknown>
+  /** Saves the totals table as CSV (`createUsageCsvExporter`): checks the table, asks where, writes. */
+  exportCsv?: (table: unknown) => Promise<UsageCsvResult>
   /** Runs the transcript scan now (token spend, then turns); `analytics:refresh` waits for it. */
   scan?: () => Promise<void>
   /** How long `analytics:refresh` waits for the scan at most (it goes on in the background). */
@@ -148,6 +150,10 @@ export function registerAnalyticsIpc(ipc: IpcRegistrar, deps: AnalyticsIpcDeps):
   })
   ipc.handle('analytics:weekly', (_e, query: unknown) => report({ name: 'weekly', query: parseWeeklyQuery(query) }))
   ipc.handle('analytics:filters', (_e, query: unknown) => report({ name: 'filters', query: parseFiltersQuery(query) }))
+  ipc.handle('analytics:exportCsv', (_e, table: unknown) => {
+    if (!deps.exportCsv) throw new Error('CSV export is not available')
+    return deps.exportCsv(table)
+  })
   // New turns reach `turns` with the token spend scan (every 10 minutes): Refresh runs it now.
   ipc.handle('analytics:refresh', async () => {
     if (!deps.scan) return

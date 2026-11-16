@@ -38,6 +38,22 @@ Past a ceiling:
 Nothing is installed in the agents: the ceiling lives only in Workhub, and it lets everything
 through while the usage is unknown.
 
+### Dollar ceilings for agents billed by API key
+
+An agent billed by API key has no plan window, so its card in **Settings → Agents** has **Dollar
+ceilings (billed by API key)**: **Per day (USD)** (since local midnight) and **Per 7 days (USD)**
+(the last 7 local days, as **API spend** adds them). Empty means no limit. They are set per agent
+(Codex, OpenCode, Claude on an API key, an ACP agent that reports a cost), not per account, because
+the spend is kept per agent. They work like the percentage ceilings: the warning starts a few
+points below the ceiling (the same margin), past it a prompt you send needs **Send anyway** (or
+**Clear ceiling**) and automatic work waits until the day turns over or the ceiling is raised or
+cleared, **Run now** runs once, and the sessions' notice says the dollars spent against the ceiling.
+When both a plan window and a dollar ceiling apply to an agent, the stricter one decides.
+
+Tokens of a model with no known price are in no dollar total. Workhub never counts them as zero
+silently: next to the ceilings, and in the notice, it says how many tokens are not included, so
+read the spend as at least that much.
+
 Usage alerts notify once per threshold and window, until the window resets. Their switch and
 thresholds (comma separated, for example `80, 95`) are in
 [Settings → Notifications and alerts](settings.md#notifications-and-alerts).
@@ -96,6 +112,16 @@ charts and shortened (`~/…/repo`) in the table; hover for the full path.
 with a **Total** row, ten groups per page. Click a column header to sort by it (again to reverse, back on the first page). Grouped by ticket,
 pull request or tag, a session linked to several of them counts in each, so the rows can add up
 to more than the total.
+
+**Export CSV** (top right of the table) saves the table as it is on screen, with the filters, the
+grouping, the period and the sort in force, every group (not only the page shown). Workhub asks
+where to save it; the suggested name carries the grouping and the dates
+(`workhub-usage-by-project-2026-10-01_2026-10-27.csv`). Columns: group (in full, a folder path
+or a pull request URL), input, output and cache tokens, cost in USD, sessions and agent time in
+seconds, with numbers as plain digits (no thousands separators or units). The file is UTF-8 with
+a byte-order mark, so spreadsheets read accents correctly, and fields with commas, quotes or line
+breaks are quoted (RFC 4180). The Total row is not included. A group name that starts with
+`=`, `+`, `-` or `@` gets a leading apostrophe so a spreadsheet does not run it as a formula.
 
 **Sessions.** The sessions the totals count: those with agent work in the period that matches the
 filters, most recent first, with that period's numbers, ten per page (the pager below reads
