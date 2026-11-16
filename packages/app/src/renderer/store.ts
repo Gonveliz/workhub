@@ -13,7 +13,8 @@ import {
   type ToolView
 } from '@workhub/core'
 import { containsBell } from './lib/attention'
-import { TerminalScrollback } from './lib/terminal-scrollback'
+import { scrollbackChars, TerminalScrollback } from './lib/terminal-scrollback'
+import { readPrefs } from './lib/prefs'
 import type { SessionView } from '@shared/api'
 
 /** `at`: epoch ms the item was sent (live) or written in the transcript (replayed); absent when unknown. */
@@ -185,7 +186,7 @@ let seq = 0
 let sessions: Record<string, SessionData> = {}
 const listeners = new Set<() => void>()
 /** Terminal output per channel (`<session>:console`, `<session>:shell`), shown or not. */
-const scrollback = new TerminalScrollback()
+const scrollback = new TerminalScrollback(() => scrollbackChars(readPrefs().terminalScrollback))
 const outputListeners = new Map<string, TerminalOutput>()
 
 /** A terminal view of a channel: `write` takes new output, `reset` clears the view before its output is replaced. */

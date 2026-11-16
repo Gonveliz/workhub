@@ -27,6 +27,9 @@ export const appearanceEs: Record<keyof typeof appearanceEn, string> = {
   'appearance.chatSize': 'Tamaño del texto de las conversaciones',
   'appearance.chatSizeHint': 'El texto de las conversaciones con agentes, sobre el tamaño del texto de la app.',
   'appearance.px': '{size} px',
+  'appearance.lines': '{count} líneas',
+  'appearance.scrollback': 'Historial de la terminal',
+  'appearance.scrollbackHint': 'Líneas que cada terminal guarda para volver atrás, de 1.000 a 100.000. Más líneas usan más memoria.',
   'appearance.reset': 'Restablecer',
   'appearance.resetNamed': 'Restablecer {name}'
 }

@@ -56,6 +56,9 @@ middle of a turn, the switch waits for it ("Switches to Terminal when the turn e
 answer questions in the meantime; **Switch now** stops the turn and switches immediately, **Cancel**
 stays in the current view.
 
+Each terminal keeps 10,000 lines to scroll back through (change it in **Settings → General → Text size → Adjust…**, from 1,000 to 100,000). Workhub sends a
+terminal's output to the screen in batches of about one frame, so a command that prints without pause (a long build log) does not slow the app down.
+
 ## The composer
 
 - **Return** sends, **Shift+Return** adds a line, **Esc** interrupts the agent.

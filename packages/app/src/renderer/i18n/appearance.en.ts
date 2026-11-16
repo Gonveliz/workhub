@@ -25,6 +25,9 @@ export const appearanceEn = {
   'appearance.chatSize': 'Conversation text size',
   'appearance.chatSizeHint': 'The text of agent conversations, on top of the app text size.',
   'appearance.px': '{size} px',
+  'appearance.lines': '{count} lines',
+  'appearance.scrollback': 'Terminal scrollback',
+  'appearance.scrollbackHint': 'Lines each terminal keeps to scroll back through, 1,000 to 100,000. More lines use more memory.',
   'appearance.reset': 'Reset',
   'appearance.resetNamed': 'Reset {name}'
 } as const

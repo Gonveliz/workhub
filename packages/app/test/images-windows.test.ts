@@ -13,7 +13,7 @@ import {
   type SavedSessionWindows,
   type WindowBounds
 } from '../src/main/session-windows'
-import { TerminalScrollback } from '../src/renderer/lib/terminal-scrollback'
+import { scrollbackChars, TerminalScrollback } from '../src/renderer/lib/terminal-scrollback'
 import { attachOutput, onChanged, onEvent, onRemoved, replayItems, seedSession, sessionSnapshot } from '../src/renderer/store'
 import type { SessionView } from '../src/shared/api'
 
@@ -116,6 +116,18 @@ describe('terminal scrollback', () => {
     s.append('a:console', 'x'.repeat(20))
     // The newest chunk stays even when it alone is past the limit.
     expect(s.text('a:console')).toBe('x'.repeat(20))
+  })
+
+  it('sizes its cap from the scrollback preference, read each time', () => {
+    let lines = 1
+    const s = new TerminalScrollback(() => scrollbackChars(lines))
+    s.append('a:console', 'x'.repeat(150))
+    s.append('a:console', 'y'.repeat(150))
+    expect(s.text('a:console')).toBe('y'.repeat(150))
+    lines = 10
+    s.append('a:console', 'z'.repeat(150))
+    expect(s.text('a:console')).toBe('y'.repeat(150) + 'z'.repeat(150))
+    expect(scrollbackChars(10_000)).toBeGreaterThanOrEqual(1_900_000)
   })
 
   it('lists, replaces and drops the channels of one session', () => {
