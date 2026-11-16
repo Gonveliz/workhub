@@ -118,7 +118,7 @@ import { LocalReviewService, opensAsProgram, registerLocalReviewIpc } from './lo
 import { CONTROL_ENV_KEYS, controlEnv, controlSocketPath, newControlToken, startControlServer, startLoopbackControlServer, usesLoopbackControl, type ControlDeps, type ControlEndpoint } from './control-server'
 import { createAnalyticsControl } from './analytics-control'
 import { kiroUsageProbeEnabled } from './kiro-usage-probe'
-import { AnalyticsQueries } from './analytics-queries'
+import { AnalyticsQueries, type QueryWorker } from './analytics-queries'
 import { createAutomationControl } from './automation-control'
 import { createPlanControl, resolveControlProfile } from './plan-control'
 import { FlowHistoryStore } from './flow-history'
@@ -133,7 +133,7 @@ import { TicketService } from './tickets-service'
 import type { SpendSources, WorktreeLink } from '@workhub/adapters/token-spend'
 import { ingestsTranscripts, spendSources, TokenSpendService, turnOwners, turnProjects } from './token-spend'
 import { AnalyticsRecorder } from './analytics-recorder'
-import { registerAnalyticsIpc } from './analytics-ipc'
+import { registerAnalyticsIpc, REPORT_BUDGET_MS } from './analytics-ipc'
 import { ApiSpendService, CostLedger, spendAgentId, type CostLedgerState } from './api-spend'
 import { UpdateService } from './updates'
 import { readUpdatePromptState, shouldPromptUpdate, type UpdatePromptState } from './update-prompt'
@@ -241,19 +241,19 @@ const sessionRecords = new SessionRecords(db)
 const automationRuns = new AutomationRunLog(db)
 // Agents' read-only SQL (the analytics endpoint) runs in a utility process on its own read-only
 // connection to the same file; a query past its time budget gets the process killed.
-const analyticsQueries = new AnalyticsQueries({
-  path: db.path,
-  spawn: () => {
-    const child = utilityProcess.fork(join(__dirname, 'analytics-worker.js'), [], { serviceName: 'Workhub analytics', stdio: 'ignore' })
-    return {
-      post: (m) => child.postMessage(m),
-      onMessage: (fn) => child.on('message', fn),
-      onExit: (fn) => child.on('exit', (code) => fn(code)),
-      kill: () => child.kill()
-    }
-  },
-  log: (m) => diagnostics.log.warn(m)
-})
+const spawnAnalyticsWorker = (serviceName: string) => (): QueryWorker => {
+  const child = utilityProcess.fork(join(__dirname, 'analytics-worker.js'), [], { serviceName, stdio: 'ignore' })
+  return {
+    post: (m) => child.postMessage(m),
+    onMessage: (fn) => child.on('message', fn),
+    onExit: (fn) => child.on('exit', (code) => fn(code)),
+    kill: () => child.kill()
+  }
+}
+const analyticsQueries = new AnalyticsQueries({ path: db.path, spawn: spawnAnalyticsWorker('Workhub analytics'), log: (m) => diagnostics.log.warn(m) })
+// The Usage and reports screen's queries, in a second process of the same worker: they never wait
+// behind an agent's query (or get it killed), and their longer budget suits a large `turns` table.
+const usageReports = new AnalyticsQueries({ path: db.path, spawn: spawnAnalyticsWorker('Workhub usage reports'), budgetMs: REPORT_BUDGET_MS, log: (m) => diagnostics.log.warn(m) })
 const timelines = new Timelines(db)
 // The demo's weeks of synthetic sessions and turns, written once into an empty database.
 if (scenario && firstInstance && seedScenarioAnalytics(db, dataDir)) diagnostics.log.info('demo scenario: synthetic usage history seeded')
@@ -1397,7 +1397,7 @@ function registerIpc(): void {
     return { path: db.path, sizeBytes: db.sizeBytes(), backupFolder, lastBackup: listBackups(backupFolder)[0] ?? null, recovered: db.recovered() }
   })
   // The usage reports and session tags (main window only: not in the remote allowlist).
-  registerAnalyticsIpc(ipc, { db, records: sessionRecords, scan: () => tokenSpend.scanNow() })
+  registerAnalyticsIpc(ipc, { db, records: sessionRecords, scan: () => tokenSpend.scanNow(), reports: (r) => usageReports.report(r) })
   ipc.handle('storage:backup', async (): Promise<StorageBackupResult> => {
     try {
       const path = await backupDb(true)
@@ -2274,7 +2274,7 @@ app.on('will-quit', (event) => {
     // A quit asked for again from here is ignored once will-quit was cancelled; everything ran, so exit.
     app.exit(0)
   }
-  void analyticsQueries.closeAndWait(2000).then(closeDb, closeDb)
+  void Promise.all([analyticsQueries.closeAndWait(2000), usageReports.closeAndWait(2000)]).then(closeDb, closeDb)
 })
 // Kept in the menu bar, the app outlives its windows (a window closed some other way than its
 // close button is opened again from the icon); otherwise closing the last window quits.

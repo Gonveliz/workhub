@@ -10,6 +10,12 @@
  */
 import type { WorkhubDb } from './db'
 
+/**
+ * What the queries need of the database: its connection only, so the app's report worker can run
+ * them on its own read-only connection. This file keeps to type imports (the worker loads it as is).
+ */
+export type AnalyticsDb = Pick<WorkhubDb, 'raw'>
+
 export type SpendBucket = 'day' | 'week'
 export type SpendGroupBy = 'project' | 'agent' | 'model' | 'account' | 'ticket' | 'pr' | 'tag' | 'none'
 
@@ -146,7 +152,7 @@ function sessionOnly(filters: SpendFilters, sessionColumn: string, params: Param
 const n = (v: unknown): number => (typeof v === 'number' ? v : typeof v === 'bigint' ? Number(v) : 0)
 
 /** Tokens, dollars, agent time, turns and sessions per bucket and group, oldest bucket first, then largest spend. */
-export function spendSeries(db: WorkhubDb, q: SpendSeriesQuery): SpendRow[] {
+export function spendSeries(db: AnalyticsDb, q: SpendSeriesQuery): SpendRow[] {
   if (!Object.hasOwn(GROUP_SQL, q.groupBy) || !Object.hasOwn(BUCKET_SQL, q.bucket)) throw new Error(`unknown grouping ${String(q.groupBy)}/${String(q.bucket)}`)
   const group = GROUP_SQL[q.groupBy]
   const bucket = BUCKET_SQL[q.bucket]
@@ -183,7 +189,7 @@ export interface SpendGroupsQuery {
 }
 
 /** `SpendRow` over the whole span, one per group (`bucketStart` is `since`); `sessions` counts each session once per group. With `groupBy: 'none'`, one row: the totals, every turn once. */
-export function spendGroups(db: WorkhubDb, q: SpendGroupsQuery): SpendRow[] {
+export function spendGroups(db: AnalyticsDb, q: SpendGroupsQuery): SpendRow[] {
   if (!Object.hasOwn(GROUP_SQL, q.groupBy)) throw new Error(`unknown grouping ${String(q.groupBy)}`)
   const group = GROUP_SQL[q.groupBy]
   const params: Params = []
@@ -280,7 +286,7 @@ const SORTS: readonly SessionSort[] = ['startedAt', 'usd', 'tokens', 'activeMs',
  * the previous page's `nextCursor`; one made for another sort starts over.
  */
 export function sessionsTable(
-  db: WorkhubDb,
+  db: AnalyticsDb,
   filters: SessionFilters = {},
   page: { limit?: number; cursor?: string | null; sort?: SessionSort; dir?: 'asc' | 'desc'; /** Only sessions with a turn the filters keep (as `spendTotals` counts them): no turn-less ones. */ turnsOnly?: boolean } = {}
 ): SessionPage {
@@ -402,7 +408,7 @@ export interface SpendTotalsQuery {
 export type SpendTotalRow = Omit<SpendRow, 'bucketStart'>
 
 /** Tokens, dollars, agent time, turns and distinct sessions per group over the period, largest spend first. */
-export function spendTotals(db: WorkhubDb, q: SpendTotalsQuery): SpendTotalRow[] {
+export function spendTotals(db: AnalyticsDb, q: SpendTotalsQuery): SpendTotalRow[] {
   if (!Object.hasOwn(GROUP_SQL, q.groupBy)) throw new Error(`unknown grouping ${String(q.groupBy)}`)
   const group = GROUP_SQL[q.groupBy]
   const params: Params = []
@@ -445,7 +451,7 @@ export interface FilterValues {
  * Values per filter, at most `limit` each, from the turns in `[since, until)` when given. `profileId`
  * keeps them to that profile's sessions (`profiles` then lists every profile in the period).
  */
-export function filterValues(db: WorkhubDb, q: { profileId?: string; since?: number; until?: number; limit?: number } = {}): FilterValues {
+export function filterValues(db: AnalyticsDb, q: { profileId?: string; since?: number; until?: number; limit?: number } = {}): FilterValues {
   const limit = Math.min(Math.max(1, Math.floor(q.limit ?? 200)), 1000)
   const run = (expr: string, join: string, profiled: boolean): string[] => {
     const params: Params = []
@@ -533,7 +539,7 @@ export function weekStartOf(at: number): number {
  * dollars and tokens per project, the PRs and tickets worked on, PRs opened, merged and reviewed,
  * ticket moves and sessions. Throws for a `weekStart` that is not a time.
  */
-export function weeklySummary(db: WorkhubDb, q: { profileId?: string; weekStart: number }): WeeklySummary {
+export function weeklySummary(db: AnalyticsDb, q: { profileId?: string; weekStart: number }): WeeklySummary {
   if (typeof q.weekStart !== 'number' || !Number.isFinite(q.weekStart)) throw new Error('weekStart must be epoch milliseconds')
   const weekStart = weekStartOf(q.weekStart)
   const end = new Date(weekStart)
@@ -581,6 +587,34 @@ export function weeklySummary(db: WorkhubDb, q: { profileId?: string; weekStart:
     prsMerged: prs('merged'),
     prsReviewed: prs('reviewed'),
     ticketMoves: moves
+  }
+}
+
+/** A Usage and reports query by name, with arguments already checked: what the report worker accepts (never SQL). */
+export type AnalyticsReport =
+  | { name: 'spend'; query: SpendSeriesQuery }
+  | { name: 'totals'; query: SpendTotalsQuery }
+  | { name: 'sessions'; filters: SessionFilters; page: NonNullable<Parameters<typeof sessionsTable>[2]> }
+  | { name: 'weekly'; query: Parameters<typeof weeklySummary>[1] }
+  | { name: 'filters'; query: NonNullable<Parameters<typeof filterValues>[1]> }
+
+export type AnalyticsReportName = AnalyticsReport['name']
+
+/** Runs a named report; throws on a name it does not know (a message from another version). */
+export function runAnalyticsReport(db: AnalyticsDb, report: AnalyticsReport): SpendRow[] | SpendTotalRow[] | SessionPage | WeeklySummary | FilterValues {
+  switch (report.name) {
+    case 'spend':
+      return spendSeries(db, report.query)
+    case 'totals':
+      return spendTotals(db, report.query)
+    case 'sessions':
+      return sessionsTable(db, report.filters, report.page)
+    case 'weekly':
+      return weeklySummary(db, report.query)
+    case 'filters':
+      return filterValues(db, report.query)
+    default:
+      throw new Error(`unknown report ${String((report as { name?: unknown }).name)}`)
   }
 }
 

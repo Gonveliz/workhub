@@ -26,6 +26,10 @@ export {
 } from './records'
 export {
   ANALYTICS_TABLES,
+  runAnalyticsReport,
+  type AnalyticsDb,
+  type AnalyticsReport,
+  type AnalyticsReportName,
   filterValues,
   spendTotals,
   type FilterValues,

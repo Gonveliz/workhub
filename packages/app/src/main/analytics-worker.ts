@@ -9,10 +9,16 @@
  * not on the denied list. Where Node has no authorizer (`setAuthorizer`, missing in Node 22) the worker
  * says so in `ready` and refuses every query ("read-only guard unavailable").
  *
- * Self-contained on purpose (only `node:sqlite`): the lists come in the `init` message, so tests can
- * fork this file as is. Messages: `init` → `ready`; `query` → `result` or `error`.
+ * It also runs the Usage and reports screen's queries by name (`report`: the same functions from
+ * `sqlite-store/analytics`, never SQL from the renderer), on the same read-only connection; those need
+ * no authorizer (their SQL is fixed), so they still run where it is missing.
+ *
+ * Self-contained on purpose (only `node:sqlite` and `sqlite-store/analytics`, which has type imports
+ * only): the lists come in the `init` message, so tests can fork this file as is. Messages: `init` →
+ * `ready`; `query` → `result` or `error`; `report` → `report` or `error`.
  */
 import { constants as sqliteConstants, DatabaseSync } from 'node:sqlite'
+import { runAnalyticsReport, type AnalyticsReport } from '@workhub/adapters/sqlite-store/analytics'
 
 export interface WorkerInit {
   type: 'init'
@@ -30,8 +36,15 @@ export interface WorkerQuery {
   /** The file's tables and views a query may not read (as of now). */
   deniedTables: string[]
 }
+/** A Usage and reports query by name, its arguments checked by the main process. */
+export interface WorkerReport {
+  type: 'report'
+  id: number
+  report: AnalyticsReport
+}
 export type WorkerReply =
   | { type: 'ready'; authorizer: boolean }
+  | { type: 'report'; id: number; value: unknown }
   | { type: 'result'; id: number; columns: string[]; rows: unknown[][]; truncated: boolean }
   | { type: 'error'; id: number; message: string }
 
@@ -52,6 +65,8 @@ function port(): Port | null {
 
 let config: WorkerInit | null = null
 let conn: DatabaseSync | null = null
+/** Whether `conn` has the authorizer: SQL from agents runs only then. */
+let guarded = false
 let denied = new Set<string>()
 /** The message a query gets when this runtime cannot install the authorizer. */
 export const GUARD_UNAVAILABLE = 'read-only guard unavailable'
@@ -87,16 +102,25 @@ function authorize(db: DatabaseSync, cfg: WorkerInit): boolean {
   return true
 }
 
+/** The read-only connection; without the authorizer it serves reports only (`run` refuses SQL). */
 function open(cfg: WorkerInit): DatabaseSync {
   if (conn) return conn
   const db = new DatabaseSync(cfg.path, { readOnly: true, timeout: 2000 })
   db.exec('PRAGMA query_only = 1')
-  if (!authorize(db, cfg)) {
-    db.close()
-    throw new Error(GUARD_UNAVAILABLE)
-  }
+  guarded = authorize(db, cfg)
   conn = db
   return db
+}
+
+function report(cfg: WorkerInit, r: WorkerReport): WorkerReply {
+  try {
+    const db = open(cfg)
+    // The tables an agent's last query could not read do not apply to the reports.
+    denied = new Set()
+    return { type: 'report', id: r.id, value: runAnalyticsReport({ raw: db }, r.report) }
+  } catch (e) {
+    return { type: 'error', id: r.id, message: e instanceof Error ? e.message : String(e) }
+  }
 }
 
 /** A cell as a message can carry it: blobs as `{ blob: base64 }` (first 4 KB), very long text cut. */
@@ -111,6 +135,7 @@ function run(cfg: WorkerInit, q: WorkerQuery): WorkerReply {
   if (!authorizerAvailable()) return { type: 'error', id: q.id, message: GUARD_UNAVAILABLE }
   try {
     const db = open(cfg)
+    if (!guarded) return { type: 'error', id: q.id, message: GUARD_UNAVAILABLE }
     denied = new Set(q.deniedTables.map((t) => t.toLowerCase()))
     const stmt = db.prepare(q.sql)
     stmt.setReadBigInts(false)
@@ -148,16 +173,14 @@ function run(cfg: WorkerInit, q: WorkerQuery): WorkerReply {
 
 const channel = port()
 channel?.listen((raw) => {
-  const msg = raw as WorkerInit | WorkerQuery
+  const msg = raw as WorkerInit | WorkerQuery | WorkerReport
   if (msg?.type === 'init') {
     config = msg
     const authorizer = authorizerAvailable()
-    if (authorizer) {
-      try {
-        open(msg)
-      } catch {
-        // Reported with the first query.
-      }
+    try {
+      open(msg)
+    } catch {
+      // Reported with the first query.
     }
     channel.post({ type: 'ready', authorizer })
     return
@@ -165,6 +188,10 @@ channel?.listen((raw) => {
   if (msg?.type === 'query') {
     if (!config) return channel.post({ type: 'error', id: msg.id, message: 'the query worker was not initialized' })
     channel.post(run(config, msg))
+  }
+  if (msg?.type === 'report') {
+    if (!config) return channel.post({ type: 'error', id: msg.id, message: 'the query worker was not initialized' })
+    channel.post(report(config, msg))
   }
 })
 // A forked Node process outlives a parent that died without killing it; leave with the parent.
