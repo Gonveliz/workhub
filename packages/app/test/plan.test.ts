@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  BRIEF_UNTRUSTED_NOTE,
   briefKey,
   DEFAULT_PLANNER_SETTINGS,
   emptyConfig,
@@ -345,7 +346,7 @@ describe('BriefService', () => {
     const r = await service.brief('work', event(), { ruleId: 'b', automationId: 'a1' })
     expect(r).toEqual({ ok: true, sessionId: 's1', existing: false })
     expect(started[0]).toMatchObject({ profileId: 'work', agentKey: 'claude', cwd: '/w/acme', model: 'haiku', mode: 'app' })
-    expect(delivered).toEqual(['Brief for Standup with ana@example.com, bo@example.com. People: - Ana <ana@example.com>'])
+    expect(delivered).toEqual([`${BRIEF_UNTRUSTED_NOTE}\n\nBrief for \n\`\`\`text\nStandup\n\`\`\` with \n\`\`\`text\nana@example.com, bo@example.com\n\`\`\`. People: - Ana <ana@example.com>`])
     expect(deps.store.get().briefs[briefKey('work', event().id)]).toMatchObject({ status: 'started', sessionId: 's1', identity: 'ident-s1', ruleId: 'b' })
     expect(service.views('work')[event().id]).toMatchObject({ phase: 'preparing', sessionId: 's1' })
   })
@@ -388,11 +389,23 @@ describe('BriefService', () => {
     expect((await service.brief('work', event(), { automationId: 'a1' })).ok).toBe(true)
   })
 
+  it('ignores a rule automation that is off and uses the profile agent instead', async () => {
+    const { service, started, deps } = setup()
+    const config = await deps.config()
+    config.automations = [{ ...config.automations![0]!, enabled: false, agentKey: 'evil', folder: '/w/evil', model: 'x', permissionMode: 'bypassPermissions' }]
+    const r = await service.brief('work', event(), { ruleId: 'b', automationId: 'a1' })
+    expect(r.ok).toBe(true)
+    expect(started[0]!.agentKey).not.toBe('evil')
+    expect(started[0]!.cwd).not.toBe('/w/evil')
+    expect(started[0]!.model).toBeUndefined()
+    expect(started[0]!.modeId).toBeUndefined()
+  })
+
   it('prepares a 1:1 for the next meeting with the person, else a generic one', async () => {
     const { service, delivered } = setup({ template: '{title}' })
     expect((await service.oneOnOne('work', 'ana', [event({ attendees: [{ email: 'bo@example.com' }] }), event({ id: 'sync|1', title: 'Sync with Ana' })])).ok).toBe(true)
     expect((await service.oneOnOne('work', 'ana', [])).ok).toBe(true)
-    expect(delivered).toEqual(['Sync with Ana', '1:1 with Ana'])
+    expect(delivered.map((d) => d.split('\n').slice(-2, -1)[0])).toEqual(['Sync with Ana', '1:1 with Ana'])
     expect(await service.oneOnOne('work', 'nobody', [])).toEqual({ ok: false, error: 'This person is no longer in the list' })
   })
 })

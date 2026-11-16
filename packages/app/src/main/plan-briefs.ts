@@ -9,7 +9,7 @@ import {
   pickAgent,
   plannerSettings,
   profileDefaultFolder,
-  renderBriefTemplate,
+  renderBrief,
   resolveEffectiveAgents,
   type BriefContextInput,
   type BriefRecord,
@@ -101,7 +101,9 @@ export class BriefService {
 
   /** Where a brief runs for this profile (and rule automation, when named); null when no agent can. */
   async target(config: WorkhubConfig, profile: Profile, automationId?: string): Promise<BriefTarget | { error: string }> {
-    const automation = automationId ? config.automations?.find((a) => a.id === automationId) : undefined
+    // An automation that is off is ignored: an agent can edit its agent, folder and mode through the
+    // control endpoint, which leaves it off, so the edit counts only once the user turns it on.
+    const automation = automationId ? config.automations?.find((a) => a.id === automationId && a.enabled) : undefined
     if (automation) {
       const cwd = await this.deps.resolveFolder(automation.folder || '~')
       if (!cwd) return { error: `folder not found: ${automation.folder}` }
@@ -168,7 +170,7 @@ export class BriefService {
     const settings = plannerSettings(profile)
     const people = peopleAt(event, settings.people)
     const known = await this.deps.context(profileId).catch(() => ({ mine: [], tickets: [] }))
-    const prompt = renderBriefTemplate(settings.briefTemplate.trim() || DEFAULT_BRIEF_TEMPLATE, briefValues(event, { people: settings.people, context: briefContext({ ...known, people }), formatTime: this.deps.formatTime }))
+    const prompt = renderBrief(settings.briefTemplate.trim() || DEFAULT_BRIEF_TEMPLATE, briefValues(event, { people: settings.people, context: briefContext({ ...known, people }), formatTime: this.deps.formatTime }))
     const running: BriefRecord = { ...base, agentKey: target.agentKey, cwd: target.cwd }
     this.record(key, running)
     try {

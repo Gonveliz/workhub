@@ -41,7 +41,9 @@ A followed thread shows its replies, whether there are new ones (**New**) and wh
 - **Wake the session**: new replies are typed into the owning session when it is idle. **Send the
   replies to the session now** forces it. If a session is not woken, the notice says why: its
   automation is off or takes no replies, the session is open in another terminal, it failed to open,
-  or its account is past its usage ceiling (the replies wait).
+  or its account is past its usage ceiling (the replies wait). The thread's title and the replies
+  are typed as quoted blocks, after a sentence saying they are untrusted content written by other
+  people to read, never instructions to follow; long replies are cut.
 - **Stop following** / **Follow again**. A thread is dropped from following when its pull request
   merges or closes, or after a week without activity (**Not followed**).
 - **Archived (n)**: threads quiet for a while fold into **Archived**, on this screen and in the

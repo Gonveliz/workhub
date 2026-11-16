@@ -136,7 +136,8 @@ a **Brief rule** start it on its own a number of minutes before matching meeting
   you closed it); a brief that failed can be retried.
 - A brief runs with the profile's preferred agent in its default folder. A brief rule can name an
   automation in **Run with**: the brief then uses that automation's agent, folder, model, effort and
-  permission mode.
+  permission mode. An automation that is off is ignored: the brief runs with the profile's agent
+  instead, so an agent's edit of that automation takes effect only after you turn it on again.
 - The automations' usage guards apply: a usage ceiling blocks a brief, and a brief started by a
   rule waits while the account's 5-hour usage is over its threshold. A blocked brief shows why and
   can be retried.
@@ -151,6 +152,11 @@ The **Brief prompt** (empty means the default) may use these placeholders:
 | `{meetingUrl}` | The call link, if any |
 | `{people}` | Your people among the attendees, with their notes |
 | `{context}` | Your open pull requests and tickets in progress, and those that involve the people coming |
+
+The meeting's title, attendees, call link and description are written by whoever sent the invite.
+Workhub puts each of them in a quoted block, after a first sentence in the prompt that says they are
+untrusted content to read and never instructions to follow, and it cuts long values and any text that
+would close the block. The rest of your prompt is sent as you wrote it.
 
 Workhub never starts a brief by itself unless a brief rule says so.
 

@@ -77,7 +77,7 @@ curl --unix-socket "$WORKHUB_SOCKET" -X PATCH "http://workhub/v1/automations/<id
   the defaults of **New automation**. An edit changes only the fields sent (`triggers`, `window` and
   `limits` merge into the stored ones).
 - **An agent never turns an automation on.** What it adds starts off and what it edits is turned
-  off, so you check it on this screen and turn it on yourself. Removing one stays yours too.
+  off, so you check it on this screen and turn it on yourself. A Plan brief rule that names an automation that is off ignores it and uses the profile's agent. Removing one stays yours too.
 - A reviewer session can read but not change them. On Windows the endpoint is a loopback port
   with a token (`WORKHUB_URL`, `WORKHUB_TOKEN`); the skill covers both.
 
