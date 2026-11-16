@@ -1,7 +1,8 @@
 import { AgentIcon } from '../atoms/AgentIcon'
 import { FolderOpen } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { pickAgent, worktreeDefault, worktreeSettings, type EffectiveAgent, type Profile, type SessionGroups, EMPTY_SESSION_GROUPS } from '@workhub/core'
+import { agentSetupKind, pickAgent, worktreeDefault, worktreeSettings, type EffectiveAgent, type Profile, type SessionGroups, type SetupFix, EMPTY_SESSION_GROUPS } from '@workhub/core'
+import { InstallAction } from './InstallAction'
 import { newSessionProfile } from '../../lib/folders'
 import { useI18n } from '../../i18n/I18nProvider'
 import { installHintKey } from '../../lib/agents'
@@ -148,6 +149,24 @@ export function NewSessionDialog({ open, onOpenChange, profileId, agents: active
 
   const chosen = agents.find((a) => a.key === agentKey)
   const missing = chosen !== undefined && installed[chosen.agent.id] === false
+  // A missing agent gets the setup check's own Install action, when the check has one for it here.
+  const [installFix, setInstallFix] = useState<Extract<SetupFix, { kind: 'install' }> | null>(null)
+  const missingKind = missing ? agentSetupKind(chosen.agent.id) : null
+  useEffect(() => {
+    setInstallFix(null)
+    if (!open || !missingKind) return
+    let live = true
+    window.hub.setup.run().then(
+      (items) => {
+        const fix = items.find((i) => i.kind === missingKind)?.fix
+        if (live && fix?.kind === 'install') setInstallFix(fix)
+      },
+      () => {}
+    )
+    return () => {
+      live = false
+    }
+  }, [open, missingKind])
   // Only agents that run over ACP or natively take a model or mode at start.
   const configurable = chosen !== undefined && chosen.agent.adapter !== 'terminal' && chosen.agent.capabilities.appMode
 
@@ -276,6 +295,11 @@ export function NewSessionDialog({ open, onOpenChange, profileId, agents: active
             placeholder={t('session.noAgents')}
           />
         </Field>
+        {missing && installFix && (
+          <div className="-mt-2 flex justify-end" data-testid="agent-install">
+            <InstallAction fix={installFix} name={chosen.agent.name} onInstalled={() => void window.hub.agents.availability().then(setInstalled, () => setInstalled({}))} />
+          </div>
+        )}
         {configurable && (options?.models.length || options?.modes.length || loadingOptions || options?.source === 'none') ? (
           <div className="grid grid-cols-2 gap-3" data-testid="new-session-options">
             {(options?.modes.length ?? 0) > 0 && (

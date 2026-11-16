@@ -8,7 +8,6 @@ import {
   DEFAULT_OPTIONS,
   githubItem,
   healthItem,
-  INSTALLERS,
   installCommand,
   isInstallerId,
   jiraItem,
@@ -40,14 +39,16 @@ describe('installers', () => {
     expect(isInstallerId('rm -rf /')).toBe(false)
     expect(isInstallerId('toString')).toBe(false)
   })
-  it('puts the install fix on missing rows when the platform has an installer, else keeps the old fix', () => {
-    expect(claudeCodeItem(NONE, 'darwin').fix).toEqual({ kind: 'install', installer: 'claudeCode', command: INSTALLERS.claudeCode.darwin })
+  it('puts the install fix on missing rows when the platform has an installer, else links to the official page', () => {
+    expect(claudeCodeItem(NONE, 'darwin').fix).toEqual({ kind: 'install', installer: 'claudeCode', command: 'curl -fsSL https://claude.ai/install.sh | bash' })
     expect(claudeCodeItem(NONE, 'freebsd').fix).toMatchObject({ kind: 'link' })
     expect(claudeCodeItem(NONE).fix).toMatchObject({ kind: 'link' })
-    expect(agentItem('codex', NONE, 'linux').fix).toMatchObject({ kind: 'install', installer: 'codex' })
-    expect(agentItem('kiro', NONE, 'linux').fix).toEqual({ kind: 'settings', tab: 'accounts' })
+    expect(agentItem('kiro', NONE, 'linux').fix).toMatchObject({ kind: 'link', title: 'installPage' })
     expect(githubItem(NONE, null, null, 'win32').fix).toMatchObject({ kind: 'install', installer: 'github' })
-    expect(githubItem(NONE, null, null, 'linux').fix).toEqual({ kind: 'command', command: 'brew install gh' })
+    // Never Homebrew for gh on Linux: the distribution packages need administrator rights.
+    expect(githubItem(NONE, null, null, { platform: 'linux', brew: true }).fix).toEqual({ kind: 'link', url: 'https://github.com/cli/cli/blob/trunk/docs/install_linux.md', title: 'installGh', admin: true })
+    expect(githubItem(NONE, null, null, { platform: 'darwin', brew: false }).fix).toMatchObject({ kind: 'link', title: 'installGh' })
+    expect(githubItem(NONE, null, null, { platform: 'darwin', brew: true }).fix).toEqual({ kind: 'install', installer: 'github', command: 'brew install gh' })
   })
 })
 
@@ -90,31 +91,35 @@ describe('setup checks', () => {
     expect(claudeCodeItem({ result: 'failed', output: 'boom\nmore' })).toMatchObject({ status: 'warning', params: { output: 'boom' } })
   })
 
-  it('claude login: signed in, signed out and unreadable keep the account name and offer the login command', () => {
-    const cmd = 'CLAUDE_CONFIG_DIR=/x claude auth login'
+  it('claude login: signed in, signed out and unreadable keep the account name and offer to sign in inside Workhub', () => {
+    const cmd = 'a'
     expect(claudeSignInItem('claudeSignIn:a', 'Work', ok('{"loggedIn":true,"email":"a@b.c","subscriptionType":"max"}'), cmd)).toMatchObject({
       id: 'claudeSignIn:a',
       status: 'ok',
       params: { name: 'Work', who: 'a@b.c', plan: 'Max' }
     })
     // Signed out may exit non-zero and still print the status.
-    expect(claudeSignInItem('claudeSignIn:a', 'Work', { result: 'failed', output: '{"loggedIn":false}' }, cmd)).toMatchObject({ status: 'missing', fix: { kind: 'command', command: cmd } })
+    expect(claudeSignInItem('claudeSignIn:a', 'Work', { result: 'failed', output: '{"loggedIn":false}' }, cmd)).toMatchObject({ status: 'missing', fix: { kind: 'signIn', tool: 'claude', accountId: 'a' } })
+    // The default folder: no account id.
+    expect(claudeSignInItem('claudeSignIn:default', 'Claude', { result: 'failed', output: '{"loggedIn":false}' }, null).fix).toEqual({ kind: 'signIn', tool: 'claude' })
     expect(claudeSignInItem('claudeSignIn:a', 'Work', ok('not json'), cmd)).toMatchObject({ status: 'warning', code: 'authUnreadable' })
     expect(claudeSignInItem('claudeSignIn:a', 'Work', NONE, cmd)).toMatchObject({ status: 'missing', code: 'installClaudeFirst' })
   })
 
   it('node and gh', () => {
     expect(nodeItem(ok('v22.1.0'))).toMatchObject({ status: 'ok', params: { version: 'v22.1.0' } })
-    expect(nodeItem(NONE)).toMatchObject({ status: 'missing', fix: { kind: 'link', title: 'downloadNode' } })
+    expect(nodeItem(NONE)).toMatchObject({ status: 'missing', code: 'nodeNotNeeded', fix: { kind: 'link', title: 'downloadNode' } })
     expect(githubItem(ok('gh version 2.5'), ok('octo\n'), null)).toMatchObject({ status: 'ok', params: { login: 'octo' } })
     expect(githubItem(ok('gh'), { result: 'failed', output: '' }, ok('tok'))).toMatchObject({ status: 'warning', code: 'ghNoAnswer' })
-    expect(githubItem(ok('gh'), { result: 'failed', output: '' }, { result: 'failed', output: '' })).toMatchObject({ status: 'missing', fix: { kind: 'command', command: 'gh auth login' } })
-    expect(githubItem(NONE, null, null)).toMatchObject({ status: 'missing', fix: { command: 'brew install gh' } })
+    expect(githubItem(ok('gh'), { result: 'failed', output: '' }, { result: 'failed', output: '' })).toMatchObject({ status: 'missing', code: 'ghNotSignedIn', fix: { kind: 'signIn', tool: 'github' } })
+    expect(githubItem(NONE, null, null)).toMatchObject({ status: 'missing', code: 'ghMissing', fix: { kind: 'link', url: 'https://cli.github.com/' } })
   })
 
-  it('codex and kiro are optional', () => {
-    expect(agentItem('codex', ok('codex-cli 0.5.1'))).toMatchObject({ status: 'ok', optional: true, params: { version: '0.5.1' } })
-    expect(agentItem('kiro', NONE)).toMatchObject({ status: 'missing', optional: true })
+  it('agents with a command of their own: version or missing', () => {
+    expect(agentItem('kiro', ok('kiro-cli 1.5.1'))).toMatchObject({ status: 'ok', params: { version: '1.5.1' } })
+    expect(agentItem('kiro', NONE)).toMatchObject({ status: 'missing', code: 'kiroMissing' })
+    expect(agentItem('kiro', ok('kiro-cli 1.5.1'), undefined, { result: 'failed', output: '' })).toMatchObject({ status: 'missing', code: 'kiroNotSignedIn', fix: { kind: 'signIn', tool: 'kiro' } })
+    expect(agentItem('kiro', ok('kiro-cli 1.5.1'), undefined, ok('user@example.com'))).toMatchObject({ status: 'ok' })
   })
 
   const base: WorkhubConfig = { version: 8, connections: [], agents: [], accounts: [], profiles: [] }
@@ -139,7 +144,7 @@ describe('setup checks', () => {
   })
 
   it('only required rows count as problems', () => {
-    const items = [claudeCodeItem(NONE), nodeItem(ok('v22.0.0')), agentItem('kiro', NONE), jiraItem({ profiles: [], connections: [] }, () => false)]
+    const items = [claudeCodeItem(NONE), nodeItem(ok('v22.0.0')), { ...agentItem('kiro', NONE), optional: true }, jiraItem({ profiles: [], connections: [] }, () => false)]
     expect(problemCount(items)).toBe(1)
   })
 })

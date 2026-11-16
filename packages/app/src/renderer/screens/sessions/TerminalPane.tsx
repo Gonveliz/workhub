@@ -19,13 +19,13 @@ function terminalTheme(): ITheme {
  * Applies a theme to the terminal and to its host: xterm paints only the cell area, so the padding
  * around it (and xterm.css's black viewport) would otherwise frame a light terminal in black.
  */
-function applyTheme(t: Terminal, host: HTMLElement | null): void {
+export function applyTheme(t: Terminal, host: HTMLElement | null): void {
   const theme = terminalTheme()
   t.options.theme = theme
   if (host) host.style.backgroundColor = theme.background ?? ''
 }
 
-function terminalFont(): { fontFamily: string; fontSize: number } {
+export function terminalFont(): { fontFamily: string; fontSize: number } {
   const { terminalFontFamily, terminalFontSize } = readPrefs()
   return { fontFamily: terminalFontStack(terminalFontFamily, getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim()), fontSize: terminalFontSize }
 }

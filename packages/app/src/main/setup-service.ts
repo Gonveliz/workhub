@@ -4,16 +4,24 @@ import { join, resolve } from 'node:path'
 import {
   agentItem,
   agentSkillsItem,
+  applyNeeds,
   claudeCodeItem,
   claudeSignInItem,
+  codexItem,
+  gitItem,
   githubItem,
+  gitlabItem,
   healthItem,
   jiraItem,
+  linearItem,
   nodeItem,
   profileItem,
+  setupNeeds,
   slackItem,
   usageItem,
   appOptions,
+  type AgentDefinition,
+  type InstallContext,
   type Probe,
   type SetupItem,
   type WorkhubConfig
@@ -67,8 +75,6 @@ export function probe(command: string, args: string[], options: { env?: NodeJS.P
   })
 }
 
-const shellQuoted = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`
-
 export interface SetupServiceDeps {
   config: () => Promise<WorkhubConfig>
   hasSecret: (ref: string) => Promise<boolean>
@@ -79,8 +85,18 @@ export interface SetupServiceDeps {
   slackFailure: () => Promise<string | null>
   /** Workhub's skills per Claude folder (Settings → Agents → Workhub tools); the row is left out when unset. */
   agentSkills?: () => Promise<{ installed: number; outdated: number; total: number }>
+  /** The known agents (built-in and the user's), for what runs on Node; the built-in ones when unset. */
+  agents?: (config: WorkhubConfig) => readonly AgentDefinition[]
+  /** Test seam: the operating system the install fixes are for. */
+  platform?: NodeJS.Platform
   /** Test seam: replaces the command runner. */
   run?: typeof probe
+}
+
+/** What the install table needs to know about this machine: Homebrew and npm are checked, never assumed. */
+export async function installContext(run: typeof probe, env: NodeJS.ProcessEnv, platform: NodeJS.Platform): Promise<InstallContext> {
+  const [brew, npm] = await Promise.all([platform === 'win32' ? Promise.resolve(null) : run('brew', ['--version'], { env }), run('npm', ['--version'], { env })])
+  return { platform, brew: brew?.result === 'ok', npm: npm.result === 'ok' }
 }
 
 /** Checks what Workhub needs on this machine. Nothing here changes any setting. */
@@ -99,48 +115,70 @@ export class SetupService {
       const dir = claudeConfigDirOf(config, account, this.deps.home)
       const isDefault = dir === defaultDir
       const env = isDefault ? base : { ...base, CLAUDE_CONFIG_DIR: dir }
-      const login = isDefault ? 'claude auth login' : `CLAUDE_CONFIG_DIR=${shellQuoted(dir)} claude auth login`
       const p = await run('claude', ['auth', 'status'], { env })
-      return claudeSignInItem(`claudeSignIn:${ref.accountId ?? 'default'}`, ref.name || 'Claude', p, login)
+      return claudeSignInItem(`claudeSignIn:${ref.accountId ?? 'default'}`, ref.name || 'Claude', p, ref.accountId)
     })
-    const node = (async () => {
+    const platform = this.deps.platform ?? process.platform
+    const ctx = await installContext(run, base, platform)
+    const nodeProbe = (async () => {
       let p = await run('node', ['--version'], { env: base })
-      // The Node scripts run `node` through the login shell, so one from a version manager counts too.
-      if (p.result === 'notFound' && process.platform !== 'win32') p = await run(process.env['SHELL'] || '/bin/zsh', ['-ilc', 'node --version'])
-      return nodeItem(p)
+      // A Node from a version manager may only be on the login shell's PATH.
+      if (p.result === 'notFound' && platform !== 'win32') p = await run(process.env['SHELL'] || '/bin/zsh', ['-ilc', 'node --version'])
+      return p
     })()
     const github = (async () => {
       const version = await run('gh', ['--version'], { env: base })
-      if (version.result === 'notFound' || version.result === 'timeout') return githubItem(version, null, null, process.platform)
+      if (version.result === 'notFound' || version.result === 'timeout') return githubItem(version, null, null, ctx)
       const user = await run('gh', ['api', 'user', '--jq', '.login'], { env: base })
-      if (user.result === 'ok' && user.output) return githubItem(version, user, null, process.platform)
-      return githubItem(version, user, await run('gh', ['auth', 'token'], { env: base }), process.platform)
+      if (user.result === 'ok' && user.output) return githubItem(version, user, null, ctx)
+      return githubItem(version, user, await run('gh', ['auth', 'token'], { env: base }), ctx)
+    })()
+    const gitlab = (async () => {
+      const version = await run('glab', ['--version'], { env: base })
+      if (version.result === 'notFound' || version.result === 'timeout') return gitlabItem(version, null, ctx)
+      return gitlabItem(version, await run('glab', ['auth', 'status'], { env: base }), ctx)
     })()
 
+    const needs = setupNeeds(config, this.deps.agents?.(config))
     const secretRefs = new Set<string>()
     for (const c of config.connections) if (c.secretRef && (await this.deps.hasSecret(c.secretRef))) secretRefs.add(c.secretRef)
-    const [claudeCode, codex, kiro, nodeItemResult, githubResult, ...loginItems] = await Promise.all([
-      run('claude', ['--version'], { env: base }).then((p) => claudeCodeItem(p, process.platform)),
-      run('codex', ['--version'], { env: base }).then((p) => agentItem('codex', p, process.platform)),
-      run('kiro-cli', ['--version'], { env: base }).then((p) => agentItem('kiro', p, process.platform)),
-      node,
+    const [claudeCode, codex, kiro, opencode, gemini, node, git, githubResult, gitlabResult, ...loginItems] = await Promise.all([
+      run('claude', ['--version'], { env: base }).then((p) => claudeCodeItem(p, ctx)),
+      // Codex sessions start through npx, with the session's PATH (no login shell fallback). Its
+      // sign-in is read with Codex's own command, when that is installed.
+      Promise.all([run('npx', ['--version'], { env: base }), run('node', ['--version'], { env: base }), run('codex', ['login', 'status'], { env: base })]).then(([npx, n, auth]) => codexItem(npx, n, ctx, auth)),
+      run('kiro-cli', ['--version'], { env: base }).then(async (p) => agentItem('kiro', p, ctx, p.result === 'ok' ? await run('kiro-cli', ['whoami'], { env: base }) : null)),
+      run('opencode', ['--version'], { env: base }).then((p) => agentItem('opencode', p, ctx)),
+      run('gemini', ['--version'], { env: base }).then((p) => agentItem('gemini', p, ctx)),
+      nodeProbe.then((p) => nodeItem(p, needs.node, ctx)),
+      run('git', ['--version'], { env: base }).then((p) => gitItem(p, ctx)),
       github,
+      gitlab,
       ...logins
     ])
     const options = appOptions(config)
-    return [
-      claudeCode,
-      ...loginItems,
-      nodeItemResult,
-      githubResult,
-      profileItem(config),
-      codex,
-      kiro,
-      jiraItem(config, (ref) => secretRefs.has(ref)),
-      slackItem(config, await this.deps.slackFailure()),
-      healthItem(config),
-      usageItem(options),
-      ...(this.deps.agentSkills ? [agentSkillsItem(await this.deps.agentSkills().catch(() => ({ installed: 0, outdated: 0, total: 0 })))] : [])
-    ]
+    const has = (ref: string) => secretRefs.has(ref)
+    return applyNeeds(
+      [
+        claudeCode,
+        ...loginItems,
+        node,
+        git,
+        githubResult,
+        gitlabResult,
+        profileItem(config),
+        codex,
+        kiro,
+        opencode,
+        gemini,
+        linearItem(config, has),
+        jiraItem(config, has),
+        slackItem(config, await this.deps.slackFailure()),
+        healthItem(config),
+        usageItem(options),
+        ...(this.deps.agentSkills ? [agentSkillsItem(await this.deps.agentSkills().catch(() => ({ installed: 0, outdated: 0, total: 0 })))] : [])
+      ],
+      needs
+    )
   }
 }

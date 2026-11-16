@@ -43,11 +43,19 @@ describe('SetupService', () => {
         calls.push({ cmd, args, dir: options?.env?.['CLAUDE_CONFIG_DIR'] })
         if (cmd === 'claude' && args[0] === 'auth') return { result: 'ok', output: '{"loggedIn":true,"email":"a@b.c"}' }
         if (cmd === 'gh' && args[0] === 'api') return { result: 'ok', output: 'octo' }
+        if (cmd === 'glab' || cmd === 'opencode') return { result: 'notFound', output: '' }
         return { result: 'ok', output: cmd === 'node' ? 'v22.0.0' : '1.2.3' }
       }
     })
     const items = await service.run()
-    expect(items.map((i) => i.id)).toEqual(['claudeCode', 'claudeSignIn:default', 'claudeSignIn:work', 'node', 'github', 'profile', 'codex', 'kiro', 'jira', 'slack', 'health', 'usage'])
+    expect(items.map((i) => i.id)).toEqual(['claudeCode', 'claudeSignIn:default', 'claudeSignIn:work', 'node', 'git', 'github', 'gitlab', 'profile', 'codex', 'kiro', 'opencode', 'gemini', 'linear', 'jira', 'slack', 'health', 'usage'])
+    // Nothing chosen and no goal yet: Claude, git and a profile are needed; a host nobody uses is not.
+    expect(items.filter((i) => !i.optional).map((i) => i.id)).toEqual(['claudeCode', 'claudeSignIn:default', 'claudeSignIn:work', 'git', 'profile'])
+    expect(items.find((i) => i.id === 'gitlab')).toMatchObject({ status: 'missing', optional: true })
+    expect(items.find((i) => i.id === 'codex')).toMatchObject({ status: 'ok', code: 'codexReady' })
+    // Codex's own command only reads its sign-in; Kiro's sign-in is read once it is installed.
+    expect(calls.filter((c) => c.cmd === 'codex').map((c) => c.args)).toEqual([['login', 'status']])
+    expect(calls.filter((c) => c.cmd === 'kiro-cli').map((c) => c.args)).toEqual([['--version'], ['whoami']])
     expect(calls.find((c) => c.args[0] === 'auth' && c.dir)?.dir).toBe(resolve('/tmp/workhub-test-claude-work'))
     expect(items.find((i) => i.id === 'github')).toMatchObject({ status: 'ok', params: { login: 'octo' } })
     expect(items.find((i) => i.id === 'profile')).toMatchObject({ status: 'missing' })
@@ -64,10 +72,14 @@ describe('setup wording', () => {
     expect(itemDetail(t, tn, item({ code: 'profileFolders', params: { names: 'Acme', count: '1' } }))).toBe('Acme · 1 folder')
     expect(fixLabel(t, { kind: 'settings', tab: 'trackers' })).toBe('Open Settings → Connections')
     expect(fixLabel(t, { kind: 'command', command: 'gh auth login' })).toBe('Copy command')
+    expect(fixLabel(t, { kind: 'signIn', tool: 'claude' })).toBe('Sign in')
     expect(fixLabel(t, { kind: 'link', url: 'https://x', title: 'downloadNode' })).toBe('Download Node.js')
+    expect(fixLabel(t, { kind: 'adminCommand', installer: 'git', command: 'sudo apt-get install git', url: 'https://x' })).toBe('Copy command')
+    expect(itemTitle(t, item({ kind: 'gitlab' }))).toBe('GitLab (glab)')
+    expect(itemDetail(t, tn, item({ code: 'nodeMissingFor', params: { names: 'Codex, Gemini CLI' } }))).toBe('Not found. Codex, Gemini CLI runs on Node.js: install it, then check again.')
   })
   it('every message code the checks can produce has copy', () => {
-    for (const code of ['version', 'claudeMissing', 'timeout', 'commandFailed', 'installClaudeFirst', 'authUnreadable', 'notSignedIn', 'nodeMissing', 'ghMissing', 'ghNoAnswer', 'ghNotSignedIn', 'ghSignedIn', 'codexMissing', 'kiroMissing', 'noFolders', 'jiraConnected', 'jiraNoToken', 'jiraOff', 'slackOff', 'slackFailing', 'healthConfigured', 'healthIncomplete', 'healthOff', 'usageOn', 'usageOff']) {
+    for (const code of ['version', 'claudeMissing', 'timeout', 'commandFailed', 'installClaudeFirst', 'authUnreadable', 'notSignedIn', 'signedIn', 'nodeMissingFor', 'nodeNotNeeded', 'gitMissing', 'ghMissing', 'ghNoAnswer', 'ghNotSignedIn', 'ghSignedIn', 'glabMissing', 'glabNotSignedIn', 'codexReady', 'codexNeedsNode', 'codexNotSignedIn', 'kiroMissing', 'kiroNotSignedIn', 'opencodeMissing', 'geminiMissing', 'linearConnected', 'linearNoKey', 'linearOff', 'noFolders', 'jiraConnected', 'jiraNoToken', 'jiraOff', 'slackOff', 'slackFailing', 'healthConfigured', 'healthIncomplete', 'healthOff', 'usageOn', 'usageOff']) {
       expect(DICTIONARIES.en[`setup.msg.${code}` as keyof typeof DICTIONARIES.en], code).toBeTruthy()
     }
   })

@@ -5,56 +5,56 @@
  * `code` and its `params`, the renderer words them in the user's language.
  */
 import type { WorkhubConfig } from '../config/schema'
+import { adminOnly, installMethod, installPage, type InstallContext, type InstallerId } from './installers'
+import type { SignInTool } from './sign-in'
 
-export type SetupItemId = 'claudeCode' | 'claudeSignIn' | 'node' | 'github' | 'codex' | 'kiro' | 'profile' | 'jira' | 'slack' | 'health' | 'usage' | 'agentSkills'
+export type SetupItemId =
+  | 'claudeCode'
+  | 'claudeSignIn'
+  | 'node'
+  | 'git'
+  | 'github'
+  | 'gitlab'
+  | 'codex'
+  | 'kiro'
+  | 'opencode'
+  | 'gemini'
+  | 'profile'
+  | 'linear'
+  | 'jira'
+  | 'slack'
+  | 'health'
+  | 'usage'
+  | 'agentSkills'
 export type SetupStatus = 'ok' | 'warning' | 'missing'
 
-/** What fixes an item: a Settings tab, a page to read, or a command to run in a terminal. */
-export type SetupFix = { kind: 'settings'; tab: string } | { kind: 'link'; url: string; title: 'installGuide' | 'downloadNode' | 'installGh' } | { kind: 'command'; command: string } | { kind: 'install'; installer: InstallerId; command: string }
+/**
+ * What fixes an item: a Settings tab, a page to read (`admin`: the official install needs
+ * administrator rights there), a command to copy, a command Workhub runs from its installer table,
+ * one that needs administrator rights, shown to copy with its page, or signing in inside Workhub
+ * (`hub.signIn(tool, accountId)`, see sign-in.ts).
+ */
+export type SetupFix =
+  | { kind: 'settings'; tab: string }
+  | { kind: 'link'; url: string; title: 'installGuide' | 'downloadNode' | 'installGh' | 'installPage'; admin?: boolean }
+  | { kind: 'command'; command: string }
+  | { kind: 'install'; installer: InstallerId; command: string }
+  | { kind: 'adminCommand'; installer: InstallerId; command: string; url: string }
+  | { kind: 'signIn'; tool: SignInTool; accountId?: string }
 
-export type InstallerId = 'claudeCode' | 'codex' | 'kiro' | 'github'
-export type InstallPlatform = 'darwin' | 'linux' | 'win32'
+const LINK_TITLES: Partial<Record<InstallerId, 'installGuide' | 'downloadNode' | 'installGh'>> = { claudeCode: 'installGuide', node: 'downloadNode', github: 'installGh' }
 
 /**
- * The only commands Workhub ever runs to install a tool, per platform. A platform without an entry
- * has no official one-liner (the row keeps its link or copy fix). Sources, checked 2026-11:
- * - Claude Code: https://code.claude.com/docs/en/setup (native installer)
- * - Codex: https://github.com/openai/codex (install scripts)
- * - Kiro CLI: https://kiro.dev/docs/getting-started/installation/ (macOS install script; no Linux or Windows one-liner listed)
- * - GitHub CLI: https://github.com/cli/cli/blob/trunk/docs/install_macos.md and install_windows.md (Linux has only distro-specific repositories)
+ * The fix of a missing tool: Install when Workhub may run the official command here, the command
+ * to copy (and its page) when it needs administrator rights, else the official page.
  */
-export const INSTALLERS: Record<InstallerId, Partial<Record<InstallPlatform, string>>> = {
-  claudeCode: {
-    darwin: 'curl -fsSL https://claude.ai/install.sh | bash',
-    linux: 'curl -fsSL https://claude.ai/install.sh | bash',
-    win32: 'irm https://claude.ai/install.ps1 | iex'
-  },
-  codex: {
-    darwin: 'curl -fsSL https://chatgpt.com/codex/install.sh | sh',
-    linux: 'curl -fsSL https://chatgpt.com/codex/install.sh | sh',
-    win32: 'powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"'
-  },
-  kiro: {
-    darwin: 'curl -fsSL https://cli.kiro.dev/install | bash'
-  },
-  github: {
-    darwin: 'brew install gh',
-    win32: 'winget install --id GitHub.cli --source winget'
-  }
-}
-
-export const isInstallerId = (value: unknown): value is InstallerId => typeof value === 'string' && Object.prototype.hasOwnProperty.call(INSTALLERS, value)
-
-/** The install command for a tool on a platform, or null when there is no official one. */
-export function installCommand(installer: InstallerId, platform: string): string | null {
-  const byPlatform: Partial<Record<string, string>> = INSTALLERS[installer]
-  return byPlatform[platform] ?? null
-}
-
-/** An install fix when the tool has an official installer on this platform. */
-export function installFix(installer: InstallerId, platform: string | undefined): SetupFix | undefined {
-  const command = platform ? installCommand(installer, platform) : null
-  return command ? { kind: 'install', installer, command } : undefined
+export function installFix(installer: InstallerId, context: InstallContext | string | undefined): SetupFix {
+  const platform = typeof context === 'string' ? context : (context?.platform ?? '')
+  const method = installMethod(installer, context)
+  const url = installPage(installer, platform)
+  if (method?.mode === 'run') return { kind: 'install', installer, command: method.command }
+  if (method?.mode === 'copy') return { kind: 'adminCommand', installer, command: method.command, url }
+  return { kind: 'link', url, title: LINK_TITLES[installer] ?? 'installPage', ...(adminOnly(installer, platform) ? { admin: true } : {}) }
 }
 
 export interface SetupItem {
@@ -69,10 +69,6 @@ export interface SetupItem {
   /** Workhub works without it: missing reads as optional, not as a problem. */
   optional: boolean
 }
-
-export const CLAUDE_CODE_SETUP_URL = 'https://docs.claude.com/en/docs/claude-code/setup'
-export const NODE_DOWNLOAD_URL = 'https://nodejs.org/en/download'
-export const GH_INSTALL_URL = 'https://cli.github.com/'
 
 /** The result of running one command: how it ended and what it printed. */
 export type Probe = { result: 'ok' | 'failed' | 'notFound' | 'timeout'; output: string }
@@ -94,8 +90,8 @@ const item = (kind: SetupItemId, status: SetupStatus, code: string, params: Reco
 
 const firstLine = (text: string): string => text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? ''
 
-export function claudeCodeItem(p: Probe, platform?: string): SetupItem {
-  const link: SetupFix = installFix('claudeCode', platform) ?? { kind: 'link', url: CLAUDE_CODE_SETUP_URL, title: 'installGuide' }
+export function claudeCodeItem(p: Probe, context?: InstallContext | string): SetupItem {
+  const link = installFix('claudeCode', context)
   switch (p.result) {
     case 'ok':
       return item('claudeCode', 'ok', 'version', { version: /\d+\.\d+\.\d+/.exec(p.output)?.[0] ?? firstLine(p.output) })
@@ -108,8 +104,8 @@ export function claudeCodeItem(p: Probe, platform?: string): SetupItem {
   }
 }
 
-/** `claude auth status` of one login. `loginCommand` is what the fix copies (it carries CLAUDE_CONFIG_DIR for a non-default folder). */
-export function claudeSignInItem(id: string, name: string, p: Probe, loginCommand: string): SetupItem {
+/** `claude auth status` of one login. The fix signs in inside Workhub, in that account's config folder (null: the default one). */
+export function claudeSignInItem(id: string, name: string, p: Probe, accountId: string | null): SetupItem {
   const base = { id, params: { name } }
   const make = (status: SetupStatus, code: string, params: Record<string, string> = {}, fix?: SetupFix): SetupItem => ({
     ...item('claudeSignIn', status, code, { ...base.params, ...params }, fix ? { fix } : {}),
@@ -125,7 +121,7 @@ export function claudeSignInItem(id: string, name: string, p: Probe, loginComman
   } catch {
     parsed = null
   }
-  const fix: SetupFix = { kind: 'command', command: loginCommand }
+  const fix: SetupFix = { kind: 'signIn', tool: 'claude', ...(accountId ? { accountId } : {}) }
   if (!parsed || typeof parsed.loggedIn !== 'boolean') return make('warning', 'authUnreadable', {}, fix)
   if (!parsed.loggedIn) return make('missing', 'notSignedIn', {}, fix)
   const plan = typeof parsed.subscriptionType === 'string' && parsed.subscriptionType ? parsed.subscriptionType : ''
@@ -133,36 +129,83 @@ export function claudeSignInItem(id: string, name: string, p: Probe, loginComman
   return make('ok', 'signedInAs', { who, plan: plan ? plan.charAt(0).toUpperCase() + plan.slice(1) : '' })
 }
 
-/** The Node scripts (session history, Slack) run `node` through the login shell, so one from a version manager counts too. */
-export function nodeItem(p: Probe): SetupItem {
+/**
+ * Node.js. Claude sessions, session history and Slack run on Workhub's own runtime; only what
+ * `neededBy` names (agents started through `npx` or a Node script) needs one installed.
+ */
+export function nodeItem(p: Probe, neededBy: readonly string[] = [], context?: InstallContext | string): SetupItem {
   switch (p.result) {
     case 'ok':
       return item('node', 'ok', 'version', { version: /v\d+\.\d+\.\d+/.exec(p.output)?.[0] ?? firstLine(p.output) })
     case 'timeout':
       return item('node', 'warning', 'timeout', { command: 'node --version' })
     default:
-      return item('node', 'missing', 'nodeMissing', {}, { fix: { kind: 'link', url: NODE_DOWNLOAD_URL, title: 'downloadNode' } })
+      return neededBy.length > 0
+        ? item('node', 'missing', 'nodeMissingFor', { names: neededBy.join(', ') }, { fix: installFix('node', context) })
+        : item('node', 'missing', 'nodeNotNeeded', {}, { fix: installFix('node', context) })
   }
+}
+
+/** `git --version`. macOS without Apple's tools answers through a stub that fails: that is missing too. */
+export function gitItem(p: Probe, context?: InstallContext | string): SetupItem {
+  if (p.result === 'ok') return item('git', 'ok', 'version', { version: /\d+\.\d+(?:\.\d+)?/.exec(p.output)?.[0] ?? firstLine(p.output) })
+  if (p.result === 'timeout') return item('git', 'warning', 'timeout', { command: 'git --version' })
+  return item('git', 'missing', 'gitMissing', {}, { fix: installFix('git', context) })
 }
 
 /**
  * Installed, then signed in. `version` is `gh --version`, `user` is `gh api user --jq .login`
  * (needs the network) and `token` is `gh auth token` (local), which tells a missing login from GitHub not answering.
  */
-export function githubItem(version: Probe, user: Probe | null, token: Probe | null, platform?: string): SetupItem {
-  if (version.result === 'notFound') return item('github', 'missing', 'ghMissing', {}, { fix: installFix('github', platform) ?? { kind: 'command', command: 'brew install gh' } })
+export function githubItem(version: Probe, user: Probe | null, token: Probe | null, context?: InstallContext | string): SetupItem {
+  if (version.result === 'notFound') return item('github', 'missing', 'ghMissing', {}, { fix: installFix('github', context) })
   if (version.result === 'timeout') return item('github', 'warning', 'timeout', { command: 'gh --version' })
   const login = user?.result === 'ok' ? user.output.trim() : ''
   if (login) return item('github', 'ok', 'ghSignedIn', { login })
   if (token?.result === 'ok') return item('github', 'warning', 'ghNoAnswer')
-  return item('github', 'missing', 'ghNotSignedIn', {}, { fix: { kind: 'command', command: 'gh auth login' } })
+  return item('github', 'missing', 'ghNotSignedIn', {}, { fix: { kind: 'signIn', tool: 'github' } })
 }
 
-/** Codex and Kiro are optional agents: present or not, never a problem. */
-export function agentItem(kind: 'codex' | 'kiro', p: Probe, platform?: string): SetupItem {
-  if (p.result === 'ok') return item(kind, 'ok', 'version', { version: /\d+\.\d+(?:\.\d+)?/.exec(p.output)?.[0] ?? firstLine(p.output) }, { optional: true })
-  if (p.result === 'timeout') return item(kind, 'warning', 'timeout', { command: kind === 'codex' ? 'codex --version' : 'kiro-cli --version' }, { optional: true })
-  return item(kind, 'missing', kind === 'codex' ? 'codexMissing' : 'kiroMissing', {}, { optional: true, fix: installFix(kind, platform) ?? { kind: 'settings', tab: 'accounts' } })
+/** Installed (`glab --version`), then signed in (`glab auth status` ends well and names the user). */
+export function gitlabItem(version: Probe, auth: Probe | null, context?: InstallContext | string): SetupItem {
+  if (version.result === 'notFound') return item('gitlab', 'missing', 'glabMissing', {}, { fix: installFix('gitlab', context) })
+  if (version.result === 'timeout' || auth?.result === 'timeout') return item('gitlab', 'warning', 'timeout', { command: version.result === 'timeout' ? 'glab --version' : 'glab auth status' })
+  if (auth?.result === 'ok') {
+    const login = /Logged in to \S+ as (\S+)/i.exec(auth.output)?.[1] ?? ''
+    return login ? item('gitlab', 'ok', 'ghSignedIn', { login }) : item('gitlab', 'ok', 'signedIn')
+  }
+  return item('gitlab', 'missing', 'glabNotSignedIn', {}, { fix: { kind: 'signIn', tool: 'gitlab' } })
+}
+
+/**
+ * Codex sessions start the ACP adapter with `npx`, which comes with Node.js: the row checks those,
+ * not a `codex` command. The first session downloads the adapter. `auth` is `codex login status`
+ * when the `codex` command is there: signed out, the row signs in inside Workhub; without the
+ * command (null or not found) the sign-in cannot be read and the row stays ready.
+ */
+export function codexItem(npx: Probe, node: Probe, context?: InstallContext | string, auth: Probe | null = null): SetupItem {
+  if (npx.result === 'ok' && node.result === 'ok') {
+    if (auth?.result === 'failed') return item('codex', 'missing', 'codexNotSignedIn', {}, { fix: { kind: 'signIn', tool: 'codex' } })
+    return item('codex', 'ok', 'codexReady', { version: /v\d+\.\d+\.\d+/.exec(node.output)?.[0] ?? firstLine(node.output) })
+  }
+  if (npx.result === 'timeout' || node.result === 'timeout') return item('codex', 'warning', 'timeout', { command: npx.result === 'timeout' ? 'npx --version' : 'node --version' })
+  return item('codex', 'missing', 'codexNeedsNode', {}, { fix: installFix('node', context) })
+}
+
+const AGENT_COMMANDS = { kiro: 'kiro-cli', opencode: 'opencode', gemini: 'gemini' } as const
+
+/**
+ * An agent with a command of its own: installed (its version) or not. `auth` is Kiro's
+ * `kiro-cli whoami` (the only one of these with a sign-in flow): failed means signed out.
+ */
+export function agentItem(kind: 'kiro' | 'opencode' | 'gemini', p: Probe, context?: InstallContext | string, auth: Probe | null = null): SetupItem {
+  if (p.result === 'ok') {
+    if (kind === 'kiro' && auth?.result === 'failed') return item(kind, 'missing', 'kiroNotSignedIn', {}, { fix: { kind: 'signIn', tool: 'kiro' } })
+    if (kind === 'kiro' && auth?.result === 'timeout') return item(kind, 'warning', 'timeout', { command: 'kiro-cli whoami' })
+    return item(kind, 'ok', 'version', { version: /\d+\.\d+(?:\.\d+)?/.exec(p.output)?.[0] ?? firstLine(p.output) })
+  }
+  if (p.result === 'timeout') return item(kind, 'warning', 'timeout', { command: `${AGENT_COMMANDS[kind]} --version` })
+  return item(kind, 'missing', `${kind}Missing`, {}, { fix: installFix(kind, context) })
 }
 
 export function profileItem(config: Pick<WorkhubConfig, 'profiles'>): SetupItem {
@@ -170,6 +213,19 @@ export function profileItem(config: Pick<WorkhubConfig, 'profiles'>): SetupItem 
   if (withFolders.length === 0) return item('profile', 'missing', 'noFolders', {}, { fix: { kind: 'settings', tab: 'profiles' } })
   const folders = withFolders.reduce((n, p) => n + (p.folders?.length ?? 0), 0)
   return item('profile', 'ok', 'profileFolders', { names: withFolders.map((p) => p.name).join(', '), count: String(folders) })
+}
+
+/** A Linear tracker connection with its API key: a connection check, nothing to install. */
+export function linearItem(config: Pick<WorkhubConfig, 'profiles' | 'connections'>, hasSecret: (ref: string) => boolean): SetupItem {
+  const linear = config.connections.filter((c) => c.kind === 'tracker' && c.provider === 'linear')
+  const fix: SetupFix = { kind: 'settings', tab: 'trackers' }
+  const ready = linear.filter((c) => c.secretRef && hasSecret(c.secretRef))
+  if (ready.length > 0) {
+    const names = ready.flatMap((c) => config.profiles.filter((p) => p.connections.tracker === c.id).map((p) => p.name))
+    return item('linear', 'ok', 'linearConnected', { names: (names.length ? names : ready.map((c) => c.name || c.id)).join(', ') }, { optional: true })
+  }
+  if (linear[0]) return item('linear', 'warning', 'linearNoKey', { name: linear[0].name || linear[0].id }, { optional: true, fix })
+  return item('linear', 'missing', 'linearOff', {}, { optional: true, fix })
 }
 
 export function jiraItem(config: Pick<WorkhubConfig, 'profiles' | 'connections'>, hasSecret: (ref: string) => boolean): SetupItem {

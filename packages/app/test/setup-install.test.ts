@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { INSTALLERS } from '@workhub/core'
 import { registerSetupInstallIpc } from '../src/main/setup-ipc'
 import { INSTALL_OUTPUT_CAP, runInShell, SetupInstaller } from '../src/main/setup-install'
 
@@ -8,7 +7,21 @@ describe('SetupInstaller', () => {
     const seen: string[] = []
     const installer = new SetupInstaller({ platform: 'linux', run: async (command) => (seen.push(command), { ok: true, output: 'done' }) })
     expect(await installer.install('claudeCode')).toEqual({ ok: true, output: 'done' })
-    expect(seen).toEqual([INSTALLERS.claudeCode.linux])
+    expect(seen).toEqual(['curl -fsSL https://claude.ai/install.sh | bash'])
+  })
+  it('checks Homebrew and npm before choosing, and never runs a command that needs administrator rights', async () => {
+    const seen: string[] = []
+    const runner = async (command: string) => (seen.push(command), { ok: true, output: '' })
+    const withBrew = new SetupInstaller({ platform: 'darwin', context: async () => ({ brew: true }), run: runner })
+    expect((await withBrew.install('github')).ok).toBe(true)
+    const noBrew = new SetupInstaller({ platform: 'darwin', context: async () => ({ brew: false }), run: runner })
+    expect((await noBrew.install('github')).ok).toBe(false)
+    expect((await noBrew.install('node')).ok).toBe(true)
+    const linux = new SetupInstaller({ platform: 'linux', context: async () => ({ brew: true, npm: true }), run: runner })
+    expect((await linux.install('git')).ok).toBe(false)
+    expect((await linux.install('github')).ok).toBe(false)
+    expect((await new SetupInstaller({ platform: 'win32', run: runner }).install('git')).ok).toBe(false)
+    expect(seen).toEqual(['brew install gh', expect.stringContaining('nvm install --lts')])
   })
   it('refuses unknown ids, free-form commands and platforms without an installer', async () => {
     const seen: string[] = []

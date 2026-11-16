@@ -20,6 +20,8 @@ export interface SetupIpcDeps {
   configuration: ConfigurationService
   loadError: () => string | undefined
   configChanged: () => void
+  /** The home and Documents folders (the welcome's default folder). */
+  folders: () => { home: string; documents: string }
 }
 
 /** The setup checklist and its installs, the setup windows and the Settings window (`setup:*`, `settings:*`, `agentTools:*`). */
@@ -46,6 +48,7 @@ export function registerSetupIpc(ipc: IpcRegistrar, deps: SetupIpcDeps): void {
   ipc.on('settings:open', (_e, section: unknown) => settingsWindow.open(settingsSectionArg(section)))
   ipc.on('settings:setDirty', (e, dirty: unknown) => settingsWindow.setDirty(e.sender.id, dirty === true))
   ipc.on('settings:close', (e) => settingsWindow.close(e.sender.id))
+  ipc.handle('setup:folders', () => deps.folders())
   ipc.handle('setup:completeWelcome', async () => {
     if (!deps.loadError()) await deps.configuration.saveOptions({ welcomeDone: true })
     deps.configChanged()

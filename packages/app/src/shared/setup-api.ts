@@ -14,6 +14,8 @@ export interface SetupApi {
   openSettings(tab: string): void
   /** The welcome flow is done: it does not open again on its own. */
   completeWelcome(): Promise<void>
+  /** The person's home and Documents folders: where the welcome's folder step starts. */
+  folders(): Promise<{ home: string; documents: string }>
 }
 
 /** Per-profile session environment variables: the values live in the secret store and never come back. */

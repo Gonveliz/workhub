@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { SetupFix, SetupItem } from '@workhub/core'
+import { problemCount, type SetupFix, type SetupItem } from '@workhub/core'
 import type { MessageKey, Params, PluralKey } from '../i18n/translate'
 
 type T = (key: MessageKey, params?: Params) => string
@@ -34,9 +34,12 @@ export function fixLabel(t: T, fix: SetupFix): string {
     case 'link':
       return t(`setup.link.${fix.title}` as MessageKey)
     case 'command':
+    case 'adminCommand':
       return t('setup.copy')
     case 'install':
       return t('setup.install')
+    case 'signIn':
+      return t('setup.signIn')
   }
 }
 
@@ -67,4 +70,36 @@ export function useSetupCheck(): SetupState {
   }, [])
   useEffect(run, [run])
   return { items, running, failed, run }
+}
+
+/** Home reads the check at most this often: it runs a dozen commands. */
+export const SETUP_PROBLEMS_MAX_AGE_MS = 5 * 60_000
+let lastProblems: { at: number; count: number } | null = null
+
+/**
+ * How many needed rows are not ready (for Home's banner), from a check at most a few minutes old;
+ * null until it answers or when it fails. A new `needsKey` (what is needed changed: the goal, an
+ * agent or a code host) reads it again; an empty one (no settings yet) waits.
+ */
+export function useSetupProblems(needsKey: string): number | null {
+  const [count, setCount] = useState<number | null>(lastProblems?.count ?? null)
+  const seen = useRef(needsKey)
+  useEffect(() => {
+    if (!needsKey) return
+    const changed = seen.current !== needsKey
+    seen.current = needsKey
+    if (!changed && lastProblems && Date.now() - lastProblems.at < SETUP_PROBLEMS_MAX_AGE_MS) return setCount(lastProblems.count)
+    let live = true
+    window.hub.setup.run().then(
+      (items) => {
+        lastProblems = { at: Date.now(), count: problemCount(items) }
+        if (live) setCount(lastProblems.count)
+      },
+      () => live && setCount(null)
+    )
+    return () => {
+      live = false
+    }
+  }, [needsKey])
+  return count
 }

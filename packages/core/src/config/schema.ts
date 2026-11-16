@@ -18,6 +18,7 @@ import { cleanProjectBudgets, type ProjectBudgets } from '../usage/project-budge
 import { AGENT_MILESTONE_MODES, MILESTONE_MARGIN_RANGE } from '../milestones'
 import { INBOX_LIMITS } from '../inbox/types'
 import { DEFAULT_WORKTREE_SETTINGS, WORKTREE_CLOSE_MODES } from '../worktrees/settings'
+import { SETUP_GOALS, type SetupGoal } from '../setup/goal'
 import { DEFAULT_PLANNER_REFRESH_MINUTES, DEFAULT_REMINDER_LEAD_MINUTES, MAX_LEAD_MINUTES, MAX_PLANNER_REFRESH_MINUTES, MIN_PLANNER_REFRESH_MINUTES } from '../calendar/types'
 
 /**
@@ -152,6 +153,11 @@ export interface AppOptions {
    * it never blocks a send.
    */
   projectBudgets?: ProjectBudgets
+  /**
+   * What the person wants Workhub for (the setup check's needed rows follow it). Optional with no
+   * default, so it needs no config version bump; unset reads as `both` (see `setupGoal`).
+   */
+  setupGoal?: SetupGoal
 }
 
 /** The blocks of the menu bar popover that can be hidden, and how many meetings "Today" lists. */
@@ -672,7 +678,9 @@ export const configSchema = z.object({
       notificationsPausedUntil: z.number().int().nonnegative().optional(),
       agentDefaultModes: z.record(z.string().min(1).max(64), z.string().trim().min(1).max(200)).optional(),
       // An entry that is no usable budget is dropped instead of keeping the config from loading.
-      projectBudgets: z.unknown().transform(cleanProjectBudgets).optional()
+      projectBudgets: z.unknown().transform(cleanProjectBudgets).optional(),
+      // A hand-edited value that is no goal reads as unset instead of keeping the config from loading.
+      setupGoal: z.enum(SETUP_GOALS).optional().catch(undefined)
     })
     .optional(),
   sessionGroups: sessionGroups.optional(),

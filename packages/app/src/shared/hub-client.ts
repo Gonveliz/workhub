@@ -16,6 +16,7 @@ import type { TrayPopoverView, TrayRoute } from './tray-api'
 import type { PullRequestWindowTab } from './codehost-api'
 import type { MenuCommand } from './windows-api'
 import type { RemoteStatusView } from './remote-api'
+import type { SignInEvent } from './sign-in-api'
 
 /** What carries `hub` calls to the main process: request/response, one-way, and main's events. */
 export interface HubTransport {
@@ -309,7 +310,17 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       install: (installer) => invoke('setup:install', installer),
       openWindow: (page) => send('setup:openWindow', page),
       openSettings: (tab) => send('setup:openSettings', tab),
-      completeWelcome: () => invoke('setup:completeWelcome')
+      completeWelcome: () => invoke('setup:completeWelcome'),
+      folders: () => invoke('setup:folders')
+    },
+    signIn: (tool, accountId) => invoke('signIn:open', tool, accountId ?? null),
+    signInPane: {
+      attach: (id) => invoke('signIn:attach', id),
+      write: (id, data) => send('signIn:write', id, data),
+      resize: (id, cols, rows) => send('signIn:resize', id, cols, rows),
+      openBrowser: (id) => send('signIn:openBrowser', id),
+      cancel: (id) => send('signIn:cancel', id),
+      onEvent: (cb) => subscribe<[string, SignInEvent]>('signIn:event', cb)
     },
     agentTools: {
       status: () => invoke('agentTools:status'),
