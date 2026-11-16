@@ -35,6 +35,13 @@ Both installers check the download against its published SHA-256 and stop if the
 be fetched or does not match. To install without the check anyway, set `WORKHUB_SKIP_CHECKSUM=1`
 (macOS: `curl ... | WORKHUB_SKIP_CHECKSUM=1 bash`; Windows: `$env:WORKHUB_SKIP_CHECKSUM = '1'` first).
 
+Every installer also has a signed build provenance attestation, which proves that this repository's
+release workflow built that exact file. With the [GitHub CLI](https://cli.github.com/) installed:
+
+```sh
+gh attestation verify <downloaded file> --repo SoldierIced/workhub
+```
+
 Then follow [Getting started](docs/user-guide/getting-started.md).
 
 ## Features

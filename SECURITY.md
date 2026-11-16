@@ -78,4 +78,6 @@ contacts the following; see [Remote access](docs/user-guide/remote-access.md) an
 
 Agents run with their own permission modes and MCP servers, and can execute code on your machine;
 the effective permission mode of each session is shown in its header. Release builds are not
-signed with a paid certificate or notarized yet; verify downloads with the `.sha256` files.
+signed with a paid certificate or notarized yet; verify downloads with the `.sha256` files, and
+check where a file was built with `gh attestation verify <file> --repo SoldierIced/workhub` (every
+installer carries a signed build provenance attestation from the release workflow).

@@ -13,7 +13,9 @@ name: release
 #
 # The jobs that run npm code (npm ci, tests, electron-builder) only read the repository and hand
 # their files over as artifacts. Only the last job can write to the repository, and it runs no
-# npm code: it downloads those artifacts and attaches them to the release with the gh CLI.
+# npm code: it downloads those artifacts and attaches them to the release with the gh CLI. The
+# attest job in between signs a build provenance statement for every installer; it also runs no npm
+# code and cannot write to the repository.
 on:
   push:
     tags: ['v*']
@@ -100,8 +102,38 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  publish:
+  # Build provenance: a signed statement, kept by GitHub, that these exact files were built by this
+  # workflow from this tag. `gh attestation verify <file> --repo <owner>/<repo>` checks it. It
+  # attests the files the installers job uploaded, not a rebuild, so the digests are the ones the
+  # .sha256 files and the release carry.
+  attest:
     needs: installers
+    runs-on: ubuntu-latest
+    permissions:
+      # Read the repository for the action's own needs; no write access to it.
+      contents: read
+      # Lets the job ask GitHub for the OIDC token that Sigstore signs the statement against.
+      id-token: write
+      # Lets the job store the attestation on the repository.
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: release-files
+          merge-multiple: true
+      # The installers only: checksums, update manifests and block maps are not attested.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            release-files/*.dmg
+            release-files/*.zip
+            release-files/*.exe
+            release-files/*.AppImage
+            release-files/*.deb
+
+  publish:
+    needs: [installers, attest]
     runs-on: ubuntu-latest
     permissions:
       contents: write

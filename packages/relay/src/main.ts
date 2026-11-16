@@ -5,7 +5,8 @@
 //   DATA_DIR           where push subscriptions persist (default ./data)
 //   VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT   enable Web Push (all three, or none)
 //   PUSH_ENDPOINT_HOSTS  extra push-service hosts, comma separated (browsers' are built in)
-//   TRUST_PROXY        "1" behind a reverse proxy that sets X-Real-IP / X-Forwarded-For (default off)
+//   TRUST_PROXY        "1" behind a reverse proxy that sets the client address header (default off)
+//   TRUST_PROXY_HEADER the one header to read, its last entry (default x-forwarded-for)
 //   RELAY_VERSION      reported by /healthz
 import { join } from 'node:path'
 import { createRelayServer } from './server'
@@ -35,6 +36,7 @@ const server = createRelayServer({
   pushStore,
   webClientDir: env['WEB_CLIENT_DIR'] || undefined,
   trustProxy: env['TRUST_PROXY'] === '1',
+  proxyHeader: env['TRUST_PROXY_HEADER']?.trim() || undefined,
   version: env['RELAY_VERSION'] ?? 'dev',
   log
 })

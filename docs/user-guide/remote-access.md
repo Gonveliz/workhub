@@ -174,6 +174,30 @@ Put a reverse proxy with TLS in front (nginx, Caddy, Traefik) and forward WebSoc
 `wss://relay.example.com/ws`). An nginx `location /` block needs `proxy_http_version 1.1`,
 `Upgrade` and `Connection "upgrade"` headers, and a long `proxy_read_timeout`.
 
+With `TRUST_PROXY=1`, the proxy must set the address header itself, replacing whatever the client
+sent. The relay reads only that one header, and only its last entry:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8787;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_read_timeout 1h;
+}
+```
+
+```caddy
+relay.example.com {
+    # Caddy replaces X-Forwarded-For with the client's address unless you list trusted proxies.
+    reverse_proxy 127.0.0.1:8787
+}
+```
+
+Behind a CDN or another proxy in front of yours, `$remote_addr` is that proxy's address: configure
+the proxy to pass the real one, or every client shares one bucket.
+
 ### Configuration
 
 | Variable | Meaning |
@@ -182,7 +206,8 @@ Put a reverse proxy with TLS in front (nginx, Caddy, Traefik) and forward WebSoc
 | `DATA_DIR` | Where push subscriptions persist (`/data` in the image). |
 | `WEB_CLIENT_DIR` | Folder with the built web client to serve on `/`; unset serves none. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Enable Web Push. `node relay.cjs --vapid` prints a key pair; the subject is a `mailto:` or URL push services may contact. |
-| `TRUST_PROXY` | `1` behind a reverse proxy: the client address comes from `X-Real-IP`, or the last entry of `X-Forwarded-For` (the one the proxy appended). Off by default. |
+| `TRUST_PROXY` | `1` behind a reverse proxy: the client address comes from the last entry of one header (`X-Forwarded-For` unless `TRUST_PROXY_HEADER` says otherwise), the one the proxy appended. No other header is read. Off by default. |
+| `TRUST_PROXY_HEADER` | The header your proxy sets with the client address, for example `X-Real-IP` if the proxy sets only that. Default `x-forwarded-for`. |
 | `PUSH_ENDPOINT_HOSTS` | Extra push-service hosts, comma separated. The browsers' own services are built in; any other endpoint is refused, so the relay cannot be pointed at arbitrary addresses. |
 | `RELAY_VERSION` | Reported by `/healthz` (the image sets it to the commit). |
 
@@ -217,9 +242,10 @@ never bodies.
 - Revoking a phone from the computer (Settings → Remote access) is the authoritative way to cut its
   access. Forgetting the computer on the phone also tells the computer to drop it, when the two are
   connected at that moment.
-- Set `TRUST_PROXY=1` only when the relay runs behind a reverse proxy that sets `X-Forwarded-For`.
-  The relay uses the rightmost address in that header; without such a proxy, use `TRUST_PROXY=0`,
-  or clients could spoof their address.
+- Set `TRUST_PROXY=1` only when the relay runs behind a reverse proxy that sets `X-Forwarded-For`
+  (or the header named in `TRUST_PROXY_HEADER`). The relay uses the rightmost address in that
+  header and ignores every other header; without such a proxy, use `TRUST_PROXY=0`, or clients
+  could spoof their address. Per-address limits count an IPv6 client by its /64, not its full address.
 
 ### From source
 

@@ -116,13 +116,28 @@ describe('relay server', () => {
 })
 
 describe('addressOf', () => {
-  const req = (headers: Record<string, string>) => ({ headers, socket: { remoteAddress: '203.0.113.9' } }) as unknown as Parameters<typeof addressOf>[0]
-  it('ignores forwarded headers unless a proxy is trusted, then takes the proxy-set address', () => {
+  const req = (headers: Record<string, string>, remote = '203.0.113.9') => ({ headers, socket: { remoteAddress: remote } }) as unknown as Parameters<typeof addressOf>[0]
+  it('ignores forwarded headers unless a proxy is trusted, then takes the last hop of the configured one', () => {
     expect(addressOf(req({ 'x-forwarded-for': '1.1.1.1' }), false)).toBe('203.0.113.9')
     // The client wrote 1.1.1.1; the proxy appended the real address last.
     expect(addressOf(req({ 'x-forwarded-for': '1.1.1.1, 198.51.100.7' }), true)).toBe('198.51.100.7')
-    expect(addressOf(req({ 'x-real-ip': '198.51.100.8', 'x-forwarded-for': '1.1.1.1' }), true)).toBe('198.51.100.8')
     expect(addressOf(req({}), true)).toBe('203.0.113.9')
+  })
+  it('trusts only the configured header', () => {
+    // A client-sent X-Real-IP is not the configured header, so it cannot pick the bucket.
+    expect(addressOf(req({ 'x-real-ip': '1.1.1.1', 'x-forwarded-for': '198.51.100.7' }), true)).toBe('198.51.100.7')
+    expect(addressOf(req({ 'x-real-ip': '1.1.1.1' }), true)).toBe('203.0.113.9')
+    expect(addressOf(req({ 'x-real-ip': '198.51.100.8', 'x-forwarded-for': '1.1.1.1' }), true, 'X-Real-IP')).toBe('198.51.100.8')
+    expect(addressOf(req({ 'x-forwarded-for': '1.1.1.1' }), true, 'x-real-ip')).toBe('203.0.113.9')
+  })
+  it('buckets IPv6 addresses by their /64', () => {
+    const a = addressOf(req({ 'x-forwarded-for': '2001:db8:1:2:aaaa:bbbb:cccc:dddd' }), true)
+    expect(a).toBe('2001:db8:1:2::/64')
+    expect(addressOf(req({ 'x-forwarded-for': '2001:DB8:1:2::1' }), true)).toBe(a)
+    expect(addressOf(req({ 'x-forwarded-for': '2001:db8:1:3::1' }), true)).not.toBe(a)
+    expect(addressOf(req({}, '2001:db8::5'), false)).toBe('2001:db8:0:0::/64')
+    expect(addressOf(req({}, '::1'), false)).toBe('0:0:0:0::/64')
+    expect(addressOf(req({}, '::ffff:198.51.100.7'), false)).toBe('198.51.100.7')
   })
 })
 
