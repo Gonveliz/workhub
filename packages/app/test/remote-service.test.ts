@@ -171,7 +171,7 @@ function harness(initial: Partial<RemoteState> = {}) {
   const { ipc, handlers } = recordIpc({ handle: () => {}, on: () => {} } as IpcRegistrar)
   ipc.handle('sessions:list', () => [{ id: 's1', name: 'Fix tests' }])
   ipc.handle('hub:pickFolder', () => '/anywhere')
-  const hub = new RemoteHub({ handlers, profileFolders: async () => ['/work/api'] })
+  const hub = new RemoteHub({ handlers, profileFolders: async () => ['/work/api'], startMode: async () => null })
   const service = new RemoteService({
     store: { load: (fallback) => ({ ...fallback, relayUrl: 'https://relay.example.com', desktopName: 'Ana’s MacBook', ...initial }), save: (s) => void saved.push(structuredClone(s)) },
     secrets: { get: async (ref) => secrets.get(ref) ?? null, set: async (ref, value) => void secrets.set(ref, value) },

@@ -322,7 +322,7 @@ describe('History search on a paired device', () => {
   function hub(found: (query: unknown, options: unknown) => HistorySearchResult) {
     const { ipc, handlers } = recordIpc({ handle: () => {}, on: () => {} } as unknown as IpcRegistrar)
     ipc.handle('history:search', (_e, query, options) => found(query, options))
-    const remote = new RemoteHub({ handlers, profileFolders: async (profileId) => (profileId === 'work' ? ['/work/api'] : []) })
+    const remote = new RemoteHub({ handlers, profileFolders: async (profileId) => (profileId === 'work' ? ['/work/api'] : []), startMode: async () => null })
     remote.attach({ id: 'phone', capabilities: new Set(['sessions']), emit: () => {} })
     return remote
   }
@@ -330,7 +330,8 @@ describe('History search on a paired device', () => {
 
   it('is allowed with the sessions capability, scoped to the profile folders whatever the device asks', async () => {
     expect(REMOTE_INVOKES['history:search']).toBe('sessions')
-    expect(REMOTE_INVOKES['history:indexProgress']).toBe('sessions')
+    expect(REMOTE_INVOKES['history:list']).toBeUndefined()
+    expect(REMOTE_INVOKES['history:find']).toBeUndefined()
     const asked: unknown[] = []
     const remote = hub((q, o) => (asked.push([q, o]), empty()))
     await remote.invoke('phone', 'history:search', ['deploy', { profileId: 'work', cwdPrefix: '/', keys: ['x'], accountIds: ['y'], limit: 10 }])

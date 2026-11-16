@@ -161,7 +161,7 @@ import { meetingReminderWords, planView, registerPlanIpc } from './plan-ipc'
 import { PlannerService, type PlannerState } from './planner-service'
 import { addControlInboxItems, registerPlannerIpc } from './planner-ipc'
 import { expandHome } from './automations'
-import { gatePrompt, owningProfile, profileRefreshMs, productCalendarEvents, ticketsInProgress, type CalendarState, type DueAction } from '@workhub/core'
+import { defaultStartMode, gatePrompt, owningProfile, profileRefreshMs, productCalendarEvents, ticketsInProgress, type CalendarState, type DueAction } from '@workhub/core'
 import type { SetupPage } from '../shared/setup-api'
 
 // The control endpoint of a Workhub this one was started from (a dev run launched from a session of
@@ -286,6 +286,21 @@ const remoteHub = new RemoteHub({
     const config = await configuration.current()
     const profile = profileId ? config.profiles.find((p) => p.id === profileId) : undefined
     return profile ? (await profileWorkspaces(profile, homedir())).map((f) => f.path) : []
+  },
+  // The agent and account a start resolves to, as the session manager picks them (the profile that owns the folder wins).
+  startMode: async (input) => {
+    const config = await configuration.current()
+    const owner = owningProfile(input.cwd, config.profiles, homedir())
+    const owned = owner && owner.id !== input.profileId && resolveChoice(config, owner.id, input.agentKey) ? owner.id : input.profileId
+    const choice = resolveChoice(config, owned, input.agentKey)
+    if (!choice) return null
+    return {
+      configured: defaultStartMode(config, choice.agent.id, choice.account),
+      modes: async () => {
+        const options = await agentOptions.get(choice.agent, choice.account)
+        return { modes: options.modes, permissionModes: options.modeSemantics === 'permission' }
+      }
+    }
   },
   log: diagnostics.log
 })

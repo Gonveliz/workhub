@@ -3,7 +3,7 @@
 Workhub Remote lets a phone (or any browser) see and drive the Workhub on your desktop: the
 sessions that are running, their chat, permission prompts (pinned above the message box until
 answered, like on the desktop; when the agent's own console is the one asking, the phone says so
-and the answer is given on the desktop), pull requests, automations and
+and the answer is given on the desktop), pull requests and
 alerts. The desktop keeps running everything; the phone is a second screen with a keyboard.
 
 Nothing of yours passes through a server in the clear. The desktop and the phone pair once, keep
@@ -24,12 +24,14 @@ phone (web app, later a native app)  ⇄  relay (your server, or one you trust) 
   secret that expires in five minutes. The phone answers through the relay with a request proving it
   saw the QR; you confirm the device name and fingerprint on the desktop and choose what it may do.
 - **Capabilities.** A device gets only what you tick: sessions (view, chat, answer permissions,
-  close, open a new one in a profile folder), pull requests, automations (run, stop, turn on or
-  off; a phone cannot create or edit one), health and alerts, Plan. Sessions and automations mean
-  the agents run code on this computer, so grant them to phones you hold; automations start
-  unticked. A device can never pick a folder outside the profile's, switch an agent to a mode that
-  skips permission prompts, open windows or dialogs on the desktop, read or change settings, or see
-  secrets. It gets a trimmed view of the configuration (profile names and agents, no connections or
+  close, open a new one in a profile folder), pull requests (read-only lists), automations (their notifications only), health and alerts, Plan. A device
+  can call only what the phone app itself uses: it cannot review, comment on or close a pull request, or create, edit or run an automation, whatever it was granted.
+  Sessions mean the agents run code on this computer, so grant them to phones you hold; automations
+  start unticked. A device can never pick a folder outside the profile's, open windows or dialogs
+  on the desktop, read or change settings, or see secrets. It never starts a session in a mode that
+  skips permission prompts: when the account's or the agent's default mode is one, a session
+  started from the phone runs in the agent's safest mode that asks (Default for Claude Code), and
+  an agent with no such mode is refused until you start it on the desktop. It gets a trimmed view of the configuration (profile names and agents, no connections or
   environment). You can revoke a device at any time; a phone that unpairs tells the desktop, which
   drops it too.
 - **Reconnecting.** Both ends reconnect on their own after a restart or a lost connection, with the

@@ -105,7 +105,7 @@ function desktop(initial: Partial<RemoteState> = {}, shared?: RelayCore) {
   ipc.handle('remote:history', (_e: unknown, id: string, before?: number) => ({ messages: [{ kind: 'agent', text: `${id} before ${before ?? 'end'}` }], start: before === undefined ? 5 : before - 1, total: 6 }))
   const permissions: unknown[][] = []
   ipc.on('sessions:permission', (_e: unknown, ...args: unknown[]) => void permissions.push(args))
-  const hub = new RemoteHub({ handlers, profileFolders: async () => ['/work/api'] })
+  const hub = new RemoteHub({ handlers, profileFolders: async () => ['/work/api'], startMode: async () => null })
   const t = timers()
   const service = new RemoteService({
     store: { load: (fallback) => ({ ...fallback, enabled: true, relayUrl: 'https://relay.example.com', desktopName: 'Ana’s MacBook', ...initial }), save: () => {} },

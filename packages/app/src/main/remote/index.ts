@@ -1,5 +1,5 @@
 export { recordIpc, type HandlerTable } from './ipc-recorder'
-export { RemoteHub, RemoteRefused, isRemoteSender, type RemoteDevice, type RemoteHubDeps } from './dispatcher'
+export { RemoteHub, RemoteRefused, isRemoteSender, type RemoteDevice, type RemoteHubDeps, type RemoteStartMode } from './dispatcher'
 export { REMOTE_EVENTS, REMOTE_INVOKES, REMOTE_MESSAGES, remoteAllows } from './allowlist'
 export { broadcastToWindowsAndDevices } from './broadcast'
 export { RemoteService, EMPTY_REMOTE_STATE, relayWebSocketUrl, relayWebClientUrl, type RemoteState, type RemoteServiceDeps, type RemoteDeviceRecord, type WebSocketLike } from './service'

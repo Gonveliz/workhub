@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AgentEvent, AutomationRun, PullRequestItem } from '@workhub/core'
+import type { AgentEvent, PullRequestItem } from '@workhub/core'
 import { fitsFrame } from '@workhub/protocol'
 import type { IpcRegistrar } from '../src/main/ipc-guard'
 import { recordIpc, RemoteHub, type RemoteDevice } from '../src/main/remote'
@@ -32,10 +32,6 @@ function pr(n: number, list: 'mine' | 'toReview'): PullRequestItem {
   } as unknown as PullRequestItem
 }
 
-function run(n: number, automationId: string): AutomationRun {
-  return { id: `run-${n}`, automationId, automationName: automationId, trigger: 'interval', queuedAt: n, outcome: 'completed', merged: 0 } as unknown as AutomationRun
-}
-
 function setup(caps: RemoteCapability[] = ['sessions', 'pullRequests', 'automations'], data: { mine?: number; toReview?: number; unlinked?: number; sessions?: unknown[] } = {}) {
   const { ipc, handlers } = recordIpc({ handle: () => {}, on: () => {} } as IpcRegistrar)
   const lists = vi.fn(
@@ -51,11 +47,7 @@ function setup(caps: RemoteCapability[] = ['sessions', 'pullRequests', 'automati
   ipc.handle('codeHost:lists', lists)
   ipc.handle('remote:activity', () => ({ subagents: [], backgroundTasks: [] }))
   ipc.handle('sessions:list', () => data.sessions ?? [{ id: 's1', commands: [{ name: 'review', group: 'skill', description: 'x'.repeat(5000) }], models: [{ id: 'm', name: 'M', description: 'long' }] }])
-  ipc.handle('automations:get', () => ({
-    automations: Array.from({ length: 7 }, (_, i) => ({ definition: { id: `a${i}`, name: `Auto ${i}` }, health: 'ok', startedInWindow: 0, startedToday: 0, active: true })),
-    runs: Array.from({ length: 50 }, (_, i) => run(i, i % 2 ? 'a1' : 'a2'))
-  }))
-  const hub = new RemoteHub({ handlers, profileFolders: async () => [], log: { warn: vi.fn() } })
+  const hub = new RemoteHub({ handlers, profileFolders: async () => [], startMode: async () => null, log: { warn: vi.fn() } })
   const phone: RemoteDevice = { id: 'phone', capabilities: new Set(caps), emit: () => {} }
   hub.attach(phone)
   return { hub, lists }
@@ -231,28 +223,10 @@ describe('paged remote lists', () => {
     expect(views[0]!.commands[0]!.description!.length).toBeLessThanOrEqual(120)
   })
 
-  it('pages the automations and their run history, newest first, one automation at a time if asked', async () => {
+  it('does not page automations: the phone has no screen for them', async () => {
     const { hub } = setup(['automations'])
-    const autos = (await hub.invoke('phone', 'remote:automations', [{ limit: 5 }])) as RemotePage<{ definition: { id: string } }>
-    expect(autos.items.map((a) => a.definition.id)).toEqual(['a0', 'a1', 'a2', 'a3', 'a4'])
-    const rest = (await hub.invoke('phone', 'remote:automations', [{ limit: 5, cursor: autos.nextCursor }])) as RemotePage<{ definition: { id: string } }>
-    expect(rest).toMatchObject({ nextCursor: null, total: 7 })
-    expect(rest.items.map((a) => a.definition.id)).toEqual(['a5', 'a6'])
-    const runs = (await hub.invoke('phone', 'remote:automationRuns', [{ limit: 10, automationId: 'a1' }])) as RemotePage<AutomationRun>
-    expect(runs.total).toBe(25)
-    expect(runs.items.every((r) => r.automationId === 'a1')).toBe(true)
-    expect(runs.items[0]!.id).toBe('run-1')
-    await expect(hub.invoke('phone', 'remote:automationRuns', [{ automationId: 42 }])).rejects.toThrow('automation is not valid')
-  })
-
-  it('pages the runs of one automation with a cursor, each once', async () => {
-    const { hub } = setup(['automations'])
-    const pages = await allPages((cursor) => hub.invoke('phone', 'remote:automationRuns', [{ limit: 7, automationId: 'a2', ...(cursor ? { cursor } : {}) }]) as Promise<RemotePage<AutomationRun>>)
-    const ids = pages.flatMap((p) => p.items.map((r) => r.id))
-    expect(pages).toHaveLength(4)
-    expect(ids).toHaveLength(25)
-    expect(new Set(ids).size).toBe(25)
-    expect(pages.every((p) => p.items.every((r) => r.automationId === 'a2'))).toBe(true)
+    await expect(hub.invoke('phone', 'remote:automations', [{ limit: 5 }])).rejects.toThrow('not available remotely')
+    await expect(hub.invoke('phone', 'remote:automationRuns', [{ limit: 5 }])).rejects.toThrow('not available remotely')
   })
 
   it('sends a stub in place of a session too large for a page, so the rest of the list still goes', async () => {
@@ -293,7 +267,7 @@ describe('what leaves the desktop about a session', () => {
   it('sends session:event monitor updates trimmed to a device', () => {
     const { ipc, handlers } = recordIpc({ handle: () => {}, on: () => {} } as IpcRegistrar)
     void ipc
-    const hub = new RemoteHub({ handlers, profileFolders: async () => [] })
+    const hub = new RemoteHub({ handlers, profileFolders: async () => [], startMode: async () => null })
     const events: unknown[][] = []
     hub.attach({ id: 'p', capabilities: new Set(['sessions']), emit: (_c, args) => void events.push(args) })
     hub.tap('session:event', [{ sessionId: 's1', type: 'monitor', snapshot: { subagents: [{ id: 'a', tokens: { input: 1 } }] } }])
