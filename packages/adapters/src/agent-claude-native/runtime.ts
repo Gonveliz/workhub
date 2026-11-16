@@ -30,6 +30,8 @@ import { CLAUDE_PERMISSION_MODES, ClaudeBridgeMapper, claudePermissionMode, perm
 /** The permission modes Claude Code starts in; any other mode id (an ACP agent's) is ignored. */
 const CLAUDE_MODES: ReadonlySet<string> = new Set(CLAUDE_PERMISSION_MODES.map((m) => m.id))
 
+const DEFAULT_START_TIMEOUT_MS = 60_000
+
 export interface ClaudeNativeRuntimeOptions {
   /** Folder holding `bridge.mjs` and `sessions.mjs`. */
   bridgeDir: string
@@ -42,6 +44,8 @@ export interface ClaudeNativeRuntimeOptions {
   nodeCommand?: string
   /** How long a stopping bridge gets to end Claude cleanly (it runs SessionEnd hooks) before it is killed. */
   stopTimeoutMs?: number
+  /** How long the bridge gets to report `ready` before it is stopped and the start fails. 60 s by default (as the ACP runtime). */
+  startTimeoutMs?: number
   /**
    * The PATH a session starts with (the login shell's, see shared/login-path.ts), read at each
    * start; the process PATH when unset or when it returns undefined.
@@ -178,6 +182,9 @@ export class ClaudeNativeRuntime implements AgentRuntime, SessionControls, Sessi
       // A reviewer: plan mode, and the edit tools refused outright. Else the mode asked for, when Claude has it.
       ...(req.readOnly ? { permissionMode: 'plan', readOnly: true } : req.modeId && CLAUDE_MODES.has(req.modeId) ? { permissionMode: req.modeId } : {})
     })
+    // A bridge that starts but never reports ready would leave the session starting forever.
+    const startTimeoutMs = this.options.startTimeoutMs ?? DEFAULT_START_TIMEOUT_MS
+    const deadline = setTimeout(() => failStart(new Error(`the Claude bridge did not finish starting within ${Math.round(startTimeoutMs / 1000)} s; it was stopped`)), startTimeoutMs)
     try {
       await ready
     } catch (err) {
@@ -185,6 +192,8 @@ export class ClaudeNativeRuntime implements AgentRuntime, SessionControls, Sessi
       const message = err instanceof Error ? err.message : String(err)
       this.emit({ sessionId: id, type: 'state', state: 'error', error: message })
       throw new Error(message)
+    } finally {
+      clearTimeout(deadline)
     }
     this.emit({ sessionId: id, type: 'state', state: 'ready' })
     if (req.readOnly) return { agentSessionId, agentName: 'Claude Code', permissionMode: { id: 'plan', label: 'Plan (read-only)', source: 'workhub' } }

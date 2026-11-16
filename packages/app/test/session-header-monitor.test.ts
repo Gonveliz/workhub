@@ -16,6 +16,10 @@ describe('session header', () => {
   it('names the activity, with "needs you" while a question waits', () => {
     expect(activityOf('busy', false)).toBe('working')
     expect(activityOf('busy', true)).toBe('needsYou')
+    expect(activityOf('busy', false, true)).toBe('stalled')
+    // A request waiting is the user's turn, whatever the silence.
+    expect(activityOf('busy', true, true)).toBe('needsYou')
+    expect(activityOf('ready', false, true)).toBe('idle')
     expect(activityOf('ready', false)).toBe('idle')
     expect(activityOf('starting', false)).toBe('starting')
     expect(activityOf('error', false)).toBe('error')

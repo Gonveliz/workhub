@@ -716,4 +716,19 @@ describe('Claude executable on Windows', () => {
       'the Claude bridge exited during start (code 2):\nError: cannot find module acme-sdk'
     )
   })
+
+  it('stops a bridge that never reports ready and fails the start', async () => {
+    const rt = new ClaudeNativeRuntime({ bridgeDir: fakeBridge, stopTimeoutMs: 300, startTimeoutMs: 200 })
+    const events: AgentEvent[] = []
+    rt.subscribe((e) => events.push(e))
+    try {
+      await expect(rt.start({ sessionId: 'silent-start', agent: claude, account: null, cwd: fixtures, env: { FAKE_BRIDGE_SILENT_ON_START: '1' } })).rejects.toThrow(
+        /the Claude bridge did not finish starting within 0 s; it was stopped/
+      )
+      expect(events.filter((e) => e.type === 'state').at(-1)).toMatchObject({ state: 'error' })
+      await expect(rt.prompt('silent-start', 'hello')).rejects.toThrow()
+    } finally {
+      await rt.stopAll()
+    }
+  })
 })

@@ -15,6 +15,7 @@ import { automationsEs } from './automations.es'
 import { prEs } from './pullRequests.es'
 import { ticketsEs } from './tickets.es'
 import { updatesEs } from './updates.es'
+import { quitGuardEs } from './quitGuard.es'
 import { setupEs } from './setup.es'
 import { usageEs } from './usage.es'
 import { continuityEs } from './continuity.es'
@@ -467,6 +468,7 @@ export const es: Record<keyof typeof en, string> = {
   ...prEs,
   ...ticketsEs,
   ...updatesEs,
+  ...quitGuardEs,
   ...setupEs,
   ...healthEs,
   ...metricAlertsEs,

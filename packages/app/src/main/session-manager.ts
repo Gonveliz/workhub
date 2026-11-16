@@ -5,6 +5,7 @@ import { dirname, join, relative, isAbsolute } from 'node:path'
 import {
   ActiveClock,
   accountAgent,
+  appOptions,
   BUILTIN_AGENTS,
   canSetModel,
   canSetSessionMode,
@@ -50,6 +51,7 @@ import { ConsoleActivity } from './console-activity'
 import { NO_CONTROL_ENV } from './control-server'
 import { pathInsideFolder } from './reveal'
 import { SendGate } from './send-gate'
+import { StallWatch } from './stall-watch'
 import { translate, type MessageKey } from '../renderer/i18n/translate'
 import { bootstrapWorktree, type SetupRunner } from './worktree-bootstrap'
 import { cleanSessionName, type SessionNameStore } from './session-names'
@@ -122,9 +124,14 @@ interface ManagedSession {
   held?: { events: AgentEvent[]; state?: Extract<AgentEvent, { type: 'state' }> }
 }
 
+/** How often the watchdog looks for working sessions that went silent. */
+const STALL_CHECK_MS = 15_000
+
 const CHAT_EVENTS: ReadonlySet<AgentEvent['type']> = new Set(['message', 'tool', 'permission', 'permissionCancelled', 'notice', 'exit'])
 
 export interface SessionManagerDeps {
+  /** How often the stuck-session check runs (tests shorten it). */
+  stallCheckMs?: number
   config: ConfigurationService
   /** Environment variables the session's profile adds (Settings → Profiles); applied before the internal ones. */
   profileEnv?: (profileId: string | null, cwd: string) => Promise<Record<string, string>>
@@ -217,6 +224,9 @@ export class SessionManager {
   /** One prompt in flight per session, whoever sends it (see `prompt`). */
   private readonly sends = new SendGate()
   private readonly timer: ReturnType<typeof setInterval>
+  /** Notices a working session whose agent went silent (see `checkStalls`). */
+  private readonly stalls = new StallWatch()
+  private readonly stallTimer: ReturnType<typeof setInterval>
   private polling = false
   /** The last size each terminal channel reported, so a terminal started later starts at that size. */
   private readonly sizes = new Map<string, { cols: number; rows: number }>()
@@ -226,6 +236,8 @@ export class SessionManager {
     for (const runtime of runtimes) runtime?.subscribe((e) => this.onEvent(e))
     this.timer = setInterval(() => void this.pollTranscripts(), deps.pollMs ?? 3000)
     this.timer.unref?.()
+    this.stallTimer = setInterval(() => void this.checkStalls().catch(() => undefined), deps.stallCheckMs ?? STALL_CHECK_MS)
+    this.stallTimer.unref?.()
   }
 
   list(): SessionView[] {
@@ -241,6 +253,7 @@ export class SessionManager {
     const s = this.sessions.get(id)
     if (!s || (s.view.state !== 'stopped' && s.view.state !== 'error')) return false
     this.sessions.delete(id)
+    this.stalls.forget(id)
     this.sends.withdraw(id)
     // The agent may have exited on its own, which `stop()` never saw: its Shell and console
     // terminals would keep running with no session left to show them.
@@ -570,6 +583,11 @@ export class SessionManager {
     return this.prompt(id, text)
   }
 
+  /** Prompts held in main behind a running turn, over every session (the quit guard counts them). */
+  queuedPromptCount(): number {
+    return this.sends.waitingCount()
+  }
+
   /** Takes back a prompt still waiting for its turn (the user removed it); false once it went out. */
   withdrawPrompt(id: string, key: string): boolean {
     return this.sends.withdrawOne(id, key)
@@ -786,6 +804,7 @@ export class SessionManager {
 
   async stopAll(): Promise<void> {
     clearInterval(this.timer)
+    clearInterval(this.stallTimer)
     for (const s of this.sessions.values()) this.clearPending(s)
     for (const s of this.sessions.values()) s.switching = true
     const runtimes = new Set([...Object.values(this.deps.runtimes), this.deps.terminal])
@@ -1044,9 +1063,39 @@ export class SessionManager {
       }
     }
     if (s && e.type === 'monitor' && e.snapshot.activeTimeMs !== undefined) s.reportsActiveTime = true
+    // Anything the agent sends (not the polled transcript, nor the shell beside it) ends its silence.
+    if (s && e.type !== 'monitor' && channel !== 'shell') this.noteActivity(s)
     if (s) this.track(s, e, channel)
     this.deps.emitEvent(e)
     if (s) this.checkPending(s)
+  }
+
+  private noteActivity(s: ManagedSession): void {
+    this.stalls.note(s.view.id, Date.now())
+    if (s.view.stalledSince !== undefined) this.update(s.view.id, { stalledSince: undefined })
+  }
+
+  /** Flags the working sessions whose agent has been silent for the preference's minutes; nothing is stopped. */
+  private async checkStalls(): Promise<void> {
+    const minutes = appOptions(await this.deps.config.current()).stuckSessionMinutes
+    const inputs = [...this.sessions.values()].map((s) => ({
+      id: s.view.id,
+      working: s.view.state === 'busy' && !s.dormant && !s.held,
+      waitingOnUser: s.openPermissions.size > 0 || Boolean(s.view.consoleAsking)
+    }))
+    const { flag } = this.stalls.check(inputs, Date.now(), minutes * 60_000)
+    for (const f of flag) this.update(f.id, { stalledSince: f.since })
+    // Turned off (or raised past the silence so far): a notice already showing goes.
+    for (const s of this.sessions.values()) {
+      if (s.view.stalledSince !== undefined && (minutes <= 0 || !inputs.find((i) => i.id === s.view.id)?.working)) this.update(s.view.id, { stalledSince: undefined })
+    }
+  }
+
+  /** "Keep waiting": the silence starts over; the notice comes back after another full interval. */
+  keepWaiting(id: string): void {
+    const s = this.require(id)
+    this.stalls.keepWaiting(id, Date.now())
+    if (s.view.stalledSince !== undefined) this.update(id, { stalledSince: undefined })
   }
 
   /** The agent titled the conversation (or titled it again): the sidebar shows it unless the user named the session. */
@@ -1089,7 +1138,9 @@ export class SessionManager {
     const since = patch.state && patch.state !== s.view.state ? { stateSince: Date.now() } : {}
     // A console that stopped, failed or restarts no longer asks anything.
     const consoleGone = s.view.consoleAsking && patch.state && patch.state !== 'ready' && patch.state !== 'busy' ? { consoleAsking: false, consoleAskingSince: undefined } : {}
-    s.view = { ...s.view, ...patch, ...since, ...consoleGone }
+    // A turn that ended (or a session that stopped) is no longer silent.
+    const unstalled = patch.state && patch.state !== 'busy' && s.view.stalledSince !== undefined ? { stalledSince: undefined } : {}
+    s.view = { ...s.view, ...patch, ...since, ...consoleGone, ...unstalled }
     this.deps.emitChanged(s.view)
     if (patch.state && 'stateSince' in since) {
       s.clock.observe(patch.state, s.view.stateSince ?? Date.now())

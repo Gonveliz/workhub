@@ -3,6 +3,7 @@
 // added here reaches both.
 import type { AgentEvent, HistoryMessage, SessionCeilings, LocalReviewDelivery } from '@workhub/core'
 import type { AccountUsage, UsageAlert, HistoryIndexProgress, HubApi, Platform, SessionView } from './api'
+import type { QuitIntent } from './quit-api'
 import type { UpdateStatus } from './updates-api'
 import type { PrEventBatch } from './pr-events-api'
 import type { SessionIntent } from './links-api'
@@ -70,6 +71,7 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       reopen: (identity, input) => invoke('sessions:reopen', identity, input),
       prompt: (id, text, images, token) => invoke('sessions:prompt', id, text, images, token),
       withdrawPrompt: (id, token) => invoke('sessions:withdrawPrompt', id, token),
+      keepWaiting: (id) => invoke('sessions:keepWaiting', id),
       onPromptStarted: (cb) => subscribe<[string, number, number?]>('sessions:promptStarted', cb),
       onPromptSettled: (cb) => subscribe<[string, number]>('sessions:promptSettled', cb),
       setMode: (id, mode, options) => invoke('sessions:setMode', id, mode, options),
@@ -134,6 +136,11 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       onChanged: (cb) => subscribe<[UpdateStatus]>('updates:changed', cb),
       skip: (version) => invoke('updates:skip', version),
       onPrompt: (cb) => subscribe<[UpdateStatus]>('updates:prompt', cb)
+    },
+    quit: {
+      pending: () => invoke('quit:pending'),
+      cancelPending: () => invoke('quit:cancelPending'),
+      onPending: (cb) => subscribe<[QuitIntent | null]>('quit:pending', cb)
     },
     codeHost: {
       lists: (profileId, force) => invoke('codeHost:lists', profileId, force),

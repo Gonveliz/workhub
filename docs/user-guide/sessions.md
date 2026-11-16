@@ -151,6 +151,13 @@ that wake the session, and **Stop**. On a narrow window the secondary controls f
 The panel button at the right end (**Hide the monitor**, ⇧⌘M) folds the side panel away and
 brings it back; its icon shows whether the panel is open.
 
+- **No output for 12 min**: a session that is working and whose agent has sent nothing for 10
+  minutes (the limit is in **Settings → General → On open and close**, or off) shows a notice
+  under the header and **No output for …** in place of **Working**, with **Stop** and **Keep
+  waiting**. Nothing is stopped for you: the agent may be thinking. **Keep waiting** asks again
+  after another full interval, and any new output from the agent clears the notice. A session
+  that waits for a permission or an answer is never flagged. A session that is still **Starting**
+  after 60 seconds is stopped and shows the error, for the Claude Code bridge as for other agents.
 - **Review before PR** and **Review changes**: see [Review before PR](review-before-pr.md).
 - **Files**: the files the agent edited, wrote or read in this session, opened in a file viewer
   window (text, images and PDFs).
@@ -186,6 +193,24 @@ brings it back; its icon shows whether the panel is open.
   its conversation (with the notice above when the agent cannot). **Delete session** takes one out of the sidebar for good; it stays in
   History. **Start them when Workhub starts** (off by default) runs every one again right away
   instead. Nothing is sent to the agents either way.
+
+## Quitting while sessions are busy
+
+Quitting Workhub (⌘Q, the menu, or **Restart now** after an update) would stop running turns
+and drop queued prompts and unanswered requests. So when any session is working, has prompts
+waiting or has an open permission request, Workhub asks first and says how many of each:
+
+- **Quit anyway** (**Restart anyway**): stops everything and quits.
+- **Quit when idle** (**Restart when idle**): quits by itself once no session has been busy for
+  a few seconds. A banner at the top of the window says it is waiting and has **Cancel**; a new
+  prompt simply postpones it.
+- **Cancel**: stays open.
+
+Prompts waiting in a window's own queue are not counted themselves (only the main process is
+asked); they only exist while a turn runs, so that session already counts as working.
+Shutting the computer down or logging out never waits: Workhub quits at once. Turn the question
+off with **Ask before quitting while sessions are busy** in **Settings → General → On open and
+close**.
 
 ## Detached windows
 

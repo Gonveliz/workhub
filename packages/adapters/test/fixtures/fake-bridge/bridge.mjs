@@ -29,6 +29,8 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         process.stderr.write('Error: cannot find module acme-sdk\n', () => process.exit(2))
         break
       }
+      // A bridge that starts but never reports ready.
+      if (process.env.FAKE_BRIDGE_SILENT_ON_START) break
       send({ type: 'ready' })
       send({
         type: 'options',

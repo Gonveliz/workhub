@@ -17,11 +17,11 @@ export function abbreviateFolder(path: string, maxSegments = 3): string {
   return [head, '…', ...rest.slice(-2)].join(sep)
 }
 
-export type Activity = 'starting' | 'working' | 'needsYou' | 'idle' | 'stopped' | 'error'
+export type Activity = 'starting' | 'working' | 'stalled' | 'needsYou' | 'idle' | 'stopped' | 'error'
 
 /** What the session is doing, as the header's pill says it. */
-export function activityOf(state: SessionState, awaitingAnswer: boolean): Activity {
-  if (state === 'busy') return awaitingAnswer ? 'needsYou' : 'working'
+export function activityOf(state: SessionState, awaitingAnswer: boolean, stalled = false): Activity {
+  if (state === 'busy') return awaitingAnswer ? 'needsYou' : stalled ? 'stalled' : 'working'
   if (state === 'ready') return awaitingAnswer ? 'needsYou' : 'idle'
   return state
 }
@@ -51,7 +51,7 @@ export function formatSince(ms: number): string {
   return h % 24 ? `${Math.floor(h / 24)} d ${h % 24} h` : `${Math.floor(h / 24)} d`
 }
 
-/** The pill's timer text, counted from when the state began. */
+/** The pill's timer text, counted from when the state began ("no output for 12 min": from the agent's last event). */
 export function activityElapsed(a: Activity, since: number, now: number): string {
   const ms = now - since
   return isClockActivity(a) ? formatClock(ms) : formatSince(ms)

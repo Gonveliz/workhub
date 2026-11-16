@@ -53,6 +53,7 @@ import type { ListenApi } from './listen-api'
 import type { LinksApi } from './links-api'
 import type { PrEventsApi } from './pr-events-api'
 import type { TicketsApi } from './tickets-api'
+import type { QuitApi } from './quit-api'
 import type { UpdatesApi } from './updates-api'
 import type { MenuApi, SettingsWindowApi, WindowsApi } from './windows-api'
 import type { FilesApi, LocalReviewApi } from './local-review-api'
@@ -175,6 +176,11 @@ export interface SessionView extends Session {
   consoleAsking?: boolean
   /** When the console started asking (epoch ms); absent while it does not. */
   consoleAskingSince?: number
+  /**
+   * Set while the session is working and its agent has sent nothing since this time (epoch ms),
+   * for longer than the stuck-session preference: the header offers Stop and Keep waiting.
+   */
+  stalledSince?: number
   /** Sent to a paired device in place of a session too large for one relay frame: only its id, label and state. */
   tooLarge?: boolean
 }
@@ -347,6 +353,8 @@ export interface SessionsApi {
   prompt(id: string, text: string, images?: ImageInput[], token?: number): Promise<string>
   /** Takes back a prompt sent with `token` that still waits for its turn; false once it went out. */
   withdrawPrompt(id: string, token: number): Promise<boolean>
+  /** Answers the "no output" notice with Keep waiting: the silence counts again from now. */
+  keepWaiting(id: string): Promise<void>
   /**
    * A prompt sent from this window with a token went out to the agent. `seq`: the number main's
    * chat journal gives it, so the broadcast of the same prompt is not shown again here.
@@ -566,6 +574,7 @@ export interface HubApi {
   codeHost: CodeHostApi
   tickets: TicketsApi
   updates: UpdatesApi
+  quit: QuitApi
   health: HealthApi
   flowMaps: FlowMapsApi
   plan: PlanApi

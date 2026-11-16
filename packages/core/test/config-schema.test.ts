@@ -40,6 +40,16 @@ describe('parseConfig', () => {
     expect(appOptions(parseConfig({ version: CONFIG_VERSION, options: { trayPopover: 'all' } })).trayPopover).toEqual(DEFAULT_TRAY_POPOVER_OPTIONS)
   })
 
+  it('asks before quitting and flags a silent session after 10 minutes by default; hand-edited values are clamped', () => {
+    const defaults = appOptions(parseConfig({ version: CONFIG_VERSION }))
+    expect(defaults.confirmQuit).toBe(true)
+    expect(defaults.stuckSessionMinutes).toBe(10)
+    const edited = appOptions(parseConfig({ version: CONFIG_VERSION, options: { confirmQuit: false, stuckSessionMinutes: 5000 } }))
+    expect(edited.confirmQuit).toBe(false)
+    expect(edited.stuckSessionMinutes).toBe(240)
+    expect(appOptions(parseConfig({ version: CONFIG_VERSION, options: { stuckSessionMinutes: 0 } })).stuckSessionMinutes).toBe(0)
+  })
+
   it('returns an empty config for a missing document', () => {
     expect(parseConfig(null)).toEqual({ version: CONFIG_VERSION, connections: [], agents: [], accounts: [], profiles: [] })
   })

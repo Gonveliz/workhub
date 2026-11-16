@@ -97,6 +97,10 @@ export interface AppOptions {
   healthRefreshFloorMinutes: number
   /** Closing the main window keeps the app running in the menu bar / notification area. */
   keepInTray: boolean
+  /** Quitting (or restarting for an update) while a session works, has queued prompts or an open request asks first. */
+  confirmQuit: boolean
+  /** Minutes a working session may stay silent before its header says so (0: never). Nothing is stopped automatically. */
+  stuckSessionMinutes: number
   /**
    * The sessions in the sidebar when the app quit (running or stopped) come back at the next
    * launch, stopped: no process runs until one is opened. Off: the sidebar starts empty.
@@ -175,7 +179,12 @@ export const DEFAULT_REMIND_NEEDS_ANSWER_MINUTES = 15
 export const MAX_REMIND_NEEDS_ANSWER_MINUTES = 240
 export const REMIND_NEEDS_ANSWER_CHOICES = [0, 5, 15, 30, 60] as const
 
-export const DEFAULT_OPTIONS: AppOptions = { claudePlanUsage: false, notifyReplied: true, notifyNeedsAnswer: true, remindNeedsAnswerMinutes: DEFAULT_REMIND_NEEDS_ANSWER_MINUTES, notifyError: true, checkForUpdates: false, notifyPrEvents: DEFAULT_PR_EVENT_TOGGLES, codexUsage: false, kiroUsage: true, usageBudget: DEFAULT_USAGE_BUDGET, notifySlack: true, notifyAutomations: true, notifyTickets: true, notifyHealth: true, notifyFlowMaps: true, notifyMeetings: true, notifyMetricAlerts: true, healthRefreshFloorMinutes: DEFAULT_HEALTH_FLOOR_MINUTES, keepInTray: true, reopenSessions: true, startSessionsAtLaunch: false, showAppBadge: true, trayPopover: DEFAULT_TRAY_POPOVER_OPTIONS, notificationsEnabled: true, readAloud: false, speechVoice: '', speechRate: DEFAULT_SPEECH_RATE, listenModel: DEFAULT_LISTEN_MODEL, welcomeDone: false, workhubMcp: true }
+/** How long a working session may stay silent before it is flagged, and the choices Settings offers (0: off). */
+export const DEFAULT_STUCK_SESSION_MINUTES = 10
+export const MAX_STUCK_SESSION_MINUTES = 240
+export const STUCK_SESSION_CHOICES = [0, 5, 10, 15, 30, 60] as const
+
+export const DEFAULT_OPTIONS: AppOptions = { claudePlanUsage: false, notifyReplied: true, notifyNeedsAnswer: true, remindNeedsAnswerMinutes: DEFAULT_REMIND_NEEDS_ANSWER_MINUTES, notifyError: true, checkForUpdates: false, notifyPrEvents: DEFAULT_PR_EVENT_TOGGLES, codexUsage: false, kiroUsage: true, usageBudget: DEFAULT_USAGE_BUDGET, notifySlack: true, notifyAutomations: true, notifyTickets: true, notifyHealth: true, notifyFlowMaps: true, notifyMeetings: true, notifyMetricAlerts: true, healthRefreshFloorMinutes: DEFAULT_HEALTH_FLOOR_MINUTES, keepInTray: true, confirmQuit: true, stuckSessionMinutes: DEFAULT_STUCK_SESSION_MINUTES, reopenSessions: true, startSessionsAtLaunch: false, showAppBadge: true, trayPopover: DEFAULT_TRAY_POPOVER_OPTIONS, notificationsEnabled: true, readAloud: false, speechVoice: '', speechRate: DEFAULT_SPEECH_RATE, listenModel: DEFAULT_LISTEN_MODEL, welcomeDone: false, workhubMcp: true }
 
 export function appOptions(config: Pick<WorkhubConfig, 'options'>): AppOptions {
   const options = { ...DEFAULT_OPTIONS, ...config.options }
@@ -637,6 +646,8 @@ export const configSchema = z.object({
         .default(DEFAULT_HEALTH_FLOOR_MINUTES)
         .catch(DEFAULT_HEALTH_FLOOR_MINUTES),
       keepInTray: z.boolean().default(true),
+      confirmQuit: z.boolean().default(true),
+      stuckSessionMinutes: clamped([0, MAX_STUCK_SESSION_MINUTES], DEFAULT_STUCK_SESSION_MINUTES),
       reopenSessions: z.boolean().default(true),
       startSessionsAtLaunch: z.boolean().default(false),
       showAppBadge: z.boolean().default(true),

@@ -77,6 +77,7 @@ import type { SlackSnapshot } from '../shared/chat-api'
 import { TRAY_POPOVER_HASH, type TrayRendererState } from '../shared/tray-api'
 import type { PullRequestWindowTab } from '../shared/codehost-api'
 import { Notifier } from './notifier'
+import { createQuitGuard, watchSystemShutdown } from './quit-guard-electron'
 import { TrayService } from './tray'
 import { TrayPopover } from './tray-popover'
 import { TrayToday } from './tray-today'
@@ -746,6 +747,14 @@ const usage = new AgentUsageService({
 })
 const budgetOf = (agentId: string, accountId: string | null) => usage.budgetOf(agentId, accountId)
 
+/** Asks before quitting while sessions are busy, and can wait for them to go idle (see quit-guard.ts). */
+const quitGuard = createQuitGuard({
+  views: () => sessions.list(),
+  queuedPrompts: () => sessions.queuedPromptCount(),
+  text: () => trayText(trayLocale),
+  publish: (pending) => send('quit:pending', pending),
+  showMain: () => showMain()
+})
 const updates = new UpdateService((s) => send('updates:changed', s), (url) => openLink(null, url))
 // "A new version is available": after an automatic check, at most once a day, never for a skipped version.
 const updatePromptFile = db.state<UpdatePromptState>('update-prompt', 0)
@@ -1238,7 +1247,9 @@ function registerIpc(): void {
   ipc.handle('updates:status', () => updates.status())
   ipc.handle('updates:check', () => updates.check())
   ipc.handle('updates:install', () => updates.install())
-  ipc.handle('updates:restart', () => updates.restart())
+  ipc.handle('updates:restart', () => quitGuard.request('restart', () => updates.restart()))
+  ipc.handle('quit:pending', () => quitGuard.pending)
+  ipc.handle('quit:cancelPending', () => quitGuard.cancelPending())
   ipc.handle('updates:skip', (_e, version: unknown) => {
     if (typeof version === 'string' && version) saveUpdatePrompt({ skippedVersion: version })
   })
@@ -1462,6 +1473,7 @@ function registerIpc(): void {
   ipc.handle('windows:snapshot', (e, id: string) => sessionWindows.snapshot(id, e.sender))
   ipc.on('windows:snapshotReply', (_e, requestId: string, snapshot: SessionSnapshot | null) => sessionWindows.reply(requestId, snapshot))
   ipc.handle('sessions:cancel', (_e, id: string) => sessions.cancel(id))
+  ipc.handle('sessions:keepWaiting', (_e, id: string) => sessions.keepWaiting(id))
   ipc.handle('sessions:stop', (_e, id: string) => sessions.stop(id))
   ipc.on('sessions:permission', (_e, id: string, requestId: string, optionId: string | null, answers?: unknown) =>
     sessions.respondPermission(id, requestId, optionId, validAnswers(answers))
@@ -1824,6 +1836,7 @@ const ticketWatcher = new TicketWatcher({
 async function refreshOptionsCache(): Promise<void> {
   const options = appOptions(await configuration.current())
   keepInTray = options.keepInTray
+  quitGuard.setEnabled(options.confirmQuit)
   appBadge.setEnabled(options.showAppBadge)
   scheduleTray()
 }
@@ -2259,6 +2272,7 @@ void app.whenReady().then(async () => {
   // One after the other: both rewrite profiles.
   void fillDefaultFoldersOnStart().catch(() => undefined)
   await refreshOptionsCache()
+  watchSystemShutdown(quitGuard)
   try {
     startTray()
   } catch {
@@ -2325,6 +2339,8 @@ nativeUpdater.on('before-quit-for-update', () => {
   if (firstInstance) db.flushAll()
 })
 app.on('before-quit', (event) => {
+  // Busy sessions: ask first (or wait for idle); nothing below runs until the quit is decided.
+  if (quitGuard.intercept(() => app.quit())) return event.preventDefault()
   void remoteService.stop()
   allowWindowClose = true
   // Session windows closing from here on stay remembered: the next launch reopens them.

@@ -14,6 +14,7 @@ import { ChatPane } from './sessions/ChatPane'
 import { MonitorPanel } from './sessions/MonitorPanel'
 import { PendingSwitchBar } from './sessions/PendingSwitchBar'
 import { SessionHeader } from './sessions/SessionHeader'
+import { StallNotice } from './sessions/StallNotice'
 import { TerminalPane } from './sessions/TerminalPane'
 
 export interface SessionsScreenProps {
@@ -89,6 +90,7 @@ export const SessionPane = memo(function SessionPane({ data, visible, theme }: {
           {t('session.startingHint')}
         </div>
       )}
+      <StallNotice view={v} />
       <PendingSwitchBar view={v} />
       {v.error && (
         <div role="alert" className="flex max-h-40 shrink-0 items-start gap-2 overflow-y-auto border-b border-border bg-danger-soft px-4 py-1.5 text-sm whitespace-pre-wrap text-danger">

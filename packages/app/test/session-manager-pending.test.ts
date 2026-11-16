@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { emptyConfig, NO_CAPABILITIES, type AgentEvent, type AgentEventListener, type AgentRuntime, type ConfigurationService, type StartSessionRequest } from '@workhub/core'
 import { SessionManager } from '../src/main/session-manager'
 import type { SessionView } from '../src/shared/api'
@@ -173,5 +173,49 @@ describe('SessionManager: transcript polling', () => {
 
     expect(manager.remove(v.id)).toBe(true)
     expect(forgotten).toEqual([v.agentSessionId])
+  })
+})
+
+describe('SessionManager: stuck-session watchdog', () => {
+  afterEach(() => vi.useRealTimers())
+  const MIN = 60_000
+
+  it('flags a working session whose agent went silent, clears it on the next event, and Keep waiting restarts the count', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+    const { manager, changed, emit } = harness()
+    const v = await manager.start({ profileId: null, agentKey: 'claude', cwd: '/w/acme/api' })
+    emit({ sessionId: v.id, type: 'state', state: 'busy' })
+    await vi.advanceTimersByTimeAsync(9 * MIN)
+    expect(changed.at(-1)!.stalledSince).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(2 * MIN)
+    expect(changed.at(-1)!.stalledSince).toBeGreaterThan(0)
+
+    emit({ sessionId: v.id, type: 'message', role: 'agent', text: 'still here' })
+    expect(changed.at(-1)!.stalledSince).toBeUndefined()
+
+    await vi.advanceTimersByTimeAsync(11 * MIN)
+    expect(changed.at(-1)!.stalledSince).toBeGreaterThan(0)
+    manager.keepWaiting(v.id)
+    expect(changed.at(-1)!.stalledSince).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(9 * MIN)
+    expect(changed.at(-1)!.stalledSince).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(2 * MIN)
+    expect(changed.at(-1)!.stalledSince).toBeGreaterThan(0)
+
+    // The turn ends: nothing is stuck any more.
+    emit({ sessionId: v.id, type: 'state', state: 'ready' })
+    expect(changed.at(-1)!.stalledSince).toBeUndefined()
+    await manager.stopAll()
+  })
+
+  it('never flags a session that waits on a permission request', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+    const { manager, changed, emit } = harness()
+    const v = await manager.start({ profileId: null, agentKey: 'claude', cwd: '/w/acme/api' })
+    emit({ sessionId: v.id, type: 'state', state: 'busy' })
+    emit({ sessionId: v.id, type: 'permission', requestId: 'r1', title: 'Run ls?', options: [] })
+    await vi.advanceTimersByTimeAsync(60 * MIN)
+    expect(changed.every((c) => c.stalledSince === undefined)).toBe(true)
+    await manager.stopAll()
   })
 })

@@ -1,7 +1,7 @@
 import { Database, FolderCog } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { appOptions } from '@workhub/core'
-import { Button, Switch } from '../../components/atoms'
+import { appOptions, STUCK_SESSION_CHOICES } from '@workhub/core'
+import { Button, Select, Switch } from '../../components/atoms'
 import { SwitchRow, useToast } from '../../components/molecules'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { MessageKey } from '../../i18n/translate'
@@ -11,7 +11,7 @@ import { SetupEntryGroup } from '../SetupEntryGroup'
 import { UpdatesSettings } from '../UpdatesSettings'
 import { VoiceSettingsGroup } from '../VoiceSettings'
 import { LanguageAppearanceGroup } from './AppearanceGroup'
-import { SettingsGroup } from './SettingsLayout'
+import { SettingRow, SettingsGroup } from './SettingsLayout'
 import { StorageRecoveredNotice, useStorageInfo } from './StorageNotice'
 import { RestoreBackupsRow } from './RestoreBackupsRow'
 import { StorageUsageRow } from './StorageUsageRow'
@@ -19,6 +19,11 @@ import type { SectionProps } from './shared'
 
 /** "Keep running in the menu bar" says where the icon stays on each platform. */
 const KEEP_LABEL: Record<string, MessageKey> = { mac: 'settingsV2.general.keepInTray', windows: 'settingsV2.general.keepInTrayWindows', linux: 'settingsV2.general.keepInTrayLinux' }
+
+/** The silence limits offered, plus the stored one when it is not among them (typed in config.json). */
+function stuckChoices(current: number): number[] {
+  return STUCK_SESSION_CHOICES.includes(current as (typeof STUCK_SESSION_CHOICES)[number]) ? [...STUCK_SESSION_CHOICES] : [...STUCK_SESSION_CHOICES, current].sort((a, b) => a - b)
+}
 
 /** Settings → General: language and appearance, opening and closing, voice, and updates. */
 export function GeneralSection({ snap, run }: SectionProps) {
@@ -49,6 +54,18 @@ export function GeneralSection({ snap, run }: SectionProps) {
         <SwitchRow label={keepLabel} hint={t('settingsV2.general.keepInTrayHint')} help={t('help.general.menuBar')}>
           <Switch checked={options.keepInTray} disabled={!editable} aria-label={keepLabel} onChange={(on) => void run(() => window.hub.config.saveOptions({ keepInTray: on }))} />
         </SwitchRow>
+        <SwitchRow label={t('settingsV2.general.confirmQuit')} hint={t('settingsV2.general.confirmQuitHint')}>
+          <Switch checked={options.confirmQuit} disabled={!editable} aria-label={t('settingsV2.general.confirmQuit')} onChange={(on) => void run(() => window.hub.config.saveOptions({ confirmQuit: on }))} />
+        </SwitchRow>
+        <SettingRow label={t('settingsV2.general.stuckSessions')} hint={t('settingsV2.general.stuckSessionsHint')}>
+          <Select
+            aria-label={t('settingsV2.general.stuckSessions')}
+            value={String(options.stuckSessionMinutes)}
+            disabled={!editable}
+            options={stuckChoices(options.stuckSessionMinutes).map((m) => ({ value: String(m), label: m ? t('settingsV2.general.stuckAfter', { count: m }) : t('settingsV2.general.stuckOff') }))}
+            onChange={(v) => void run(() => window.hub.config.saveOptions({ stuckSessionMinutes: Number(v) }))}
+          />
+        </SettingRow>
       </SettingsGroup>
       <VoiceSettingsGroup config={snap.config} editable={editable} run={run} />
       <SettingsGroup anchor="updates" title={t('updates.group')} help={t('help.general.updates')} footnote={window.hub.platform === 'mac' ? t('updates.macNote') : undefined}>
