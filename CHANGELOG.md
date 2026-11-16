@@ -4,6 +4,14 @@ All notable changes to Workhub 2 are listed here. Entries from 2.0.0-alpha.2 on 
 [release-please](https://github.com/googleapis/release-please) from the Conventional Commits on
 `main`; see the release process in [CONTRIBUTING.md](CONTRIBUTING.md#releases).
 
+## [2.0.0-alpha.36](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.35...v2.0.0-alpha.36) (2026-11-16)
+
+
+### Features
+
+* **setup:** install the tools a clean machine needs, without administrator rights ([a613be2](https://github.com/SoldierIced/workhub/commit/a613be27f80995667c26eaa8cb295fdf98f2b8e8))
+* **setup:** the app installs what a clean machine needs ([9b251ae](https://github.com/SoldierIced/workhub/commit/9b251ae1b235cbb11b16050f73e9f88799ddb39a))
+
 ## [2.0.0-alpha.35](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.34...v2.0.0-alpha.35) (2026-11-16)
 
 
