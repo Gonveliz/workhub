@@ -53,11 +53,11 @@
  *   curl --unix-socket "$WORKHUB_SOCKET" "http://workhub/v1/analytics/report?session=$WORKHUB_SESSION&kind=spend_by_project"
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, statSync, unlinkSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, statSync, unlinkSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
 import type { AnalyticsControl } from './analytics-control'
 import type { AutomationControl } from './automation-control'
 import type { PlanControl } from './plan-control'
@@ -80,7 +80,7 @@ export type ControlResult = { ok: true } | { ok: false; status: number; error: s
 
 export interface ControlDeps {
   /** Opens the session's "Review changes" window on these repos (plus the ones it finds itself). */
-  openReview(sessionId: string, repos: ReviewRequestRepo[]): ControlResult
+  openReview(sessionId: string, repos: ReviewRequestRepo[]): ControlResult | Promise<ControlResult>
   /** Validates and stores a flow map (the Flow maps screen); errors name the fields. `file` is a display name (`<id>.json`): maps live in the database. */
   saveFlowMap?(map: unknown): { ok: true; file: string; id: string } | { ok: false; errors: string[] }
   /** Adds the items of a body to a profile's inbox as pending (`parseInboxProposals` checks it). */
@@ -191,6 +191,31 @@ export function parseReviewBody(body: unknown, isDir: (path: string) => boolean)
     out.push({ path, ...(typeof base === 'string' && base ? { base } : {}) })
   }
   return out
+}
+
+/**
+ * The first path of a review request that is not inside one of `roots` (the session's folder or
+ * worktree and the folders of its profile), compared by real path so a symlink or `..` cannot
+ * leave them; null when all are inside. A root that does not exist is skipped.
+ */
+export function reviewPathOutside(repos: readonly ReviewRequestRepo[], roots: readonly string[]): string | null {
+  const real = (p: string): string | null => {
+    try {
+      return realpathSync(p)
+    } catch {
+      return null
+    }
+  }
+  const allowed = roots.map(real).filter((r): r is string => r !== null)
+  for (const { path } of repos) {
+    const target = real(path)
+    const inside = target !== null && allowed.some((root) => {
+      const rel = relative(root, target)
+      return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+    })
+    if (!inside) return path
+  }
+  return null
 }
 
 const isDirectory = (path: string) => {
@@ -362,7 +387,7 @@ export async function handleControl(deps: ControlDeps, req: IncomingMessage, res
   }
   const repos = parseReviewBody(body, isDir)
   if (typeof repos === 'string') return send(res, 400, { ok: false, error: repos })
-  const result = deps.openReview(review[1]!, repos)
+  const result = await deps.openReview(review[1]!, repos)
   if (!result.ok) return send(res, result.status, { ok: false, error: result.error })
   return send(res, 200, { ok: true })
 }

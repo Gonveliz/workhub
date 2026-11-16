@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { GIT_HARDENING } from '@workhub/adapters/git-hardening'
 import type { BrowserWindow } from 'electron'
 import type { IpcRegistrar } from './ipc-guard'
 import type { Checkout, WorkhubConfig } from '@workhub/core'
@@ -9,7 +10,7 @@ const exec = promisify(execFile)
 
 async function git(folder: string, args: string[]): Promise<string | null> {
   try {
-    return (await exec('git', ['-C', folder, ...args], { windowsHide: true, timeout: 10_000 })).stdout.trim()
+    return (await exec('git', [...GIT_HARDENING, '-C', folder, ...args], { windowsHide: true, timeout: 10_000 })).stdout.trim()
   } catch {
     return null // Not a git repository, no origin, or git is not installed.
   }

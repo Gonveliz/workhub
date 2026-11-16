@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process'
 import { appendFile, mkdir, readFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { WorktreeStatus, Worktrees } from '@workhub/core'
+import { GIT_HARDENING } from '../git-hardening'
 import { worktreeOf } from '../token-spend/git-worktree'
 
 export interface GitOutput {
@@ -17,12 +18,12 @@ export interface GitOutput {
 
 export type WorktreeGit = (cwd: string, args: string[]) => Promise<GitOutput>
 
-/** Runs git without a shell or a pager; hooks are left as the repository has them. */
+/** Runs git without a shell or a pager; hooks are left as the repository has them, but the repository's config cannot start other programs (`GIT_HARDENING`). */
 export const runWorktreeGit: WorktreeGit = (cwd, args) =>
   new Promise((done) => {
     execFile(
       'git',
-      ['-c', 'core.pager=cat', '-c', 'color.ui=false', ...args],
+      ['-c', 'core.pager=cat', '-c', 'color.ui=false', ...GIT_HARDENING, ...args],
       { cwd, windowsHide: true, timeout: 120_000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' } },
       (err, stdout, stderr) => done({ ok: !err, stdout: String(stdout), stderr: String(stderr) })
     )

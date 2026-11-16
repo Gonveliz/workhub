@@ -155,6 +155,6 @@ port with a token made at each launch): replace `--unix-socket "$WORKHUB_SOCKET"
 `-H "Authorization: Bearer $WORKHUB_TOKEN" "$WORKHUB_URL"` in these examples.
 
 `repos` is optional: the listed repositories are added to the ones Workhub finds in the session's
-folder, and `base` picks what to compare with: a branch, or any commit (such as the last one you pushed). An open window reloads.
+folder, and `base` picks what to compare with: a branch, or any commit (such as the last one you pushed). An open window reloads. Every listed path must be inside the session's folder (or its worktree) or inside one of its profile's folders, compared by real path (a symlink that points outside does not count); any other path is refused with a 400 error.
 
 Next: [Pull requests](pull-requests.md).

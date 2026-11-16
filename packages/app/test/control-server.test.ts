@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync } from 'node:fs'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { controlEnv, controlSocketPath, NO_CONTROL_ENV, newControlToken, parseReviewBody, privateSocketDir, probeSocket, startControlServer, startLoopbackControlServer, usesLoopbackControl, type ReviewRequestRepo } from '../src/main/control-server'
+import { controlEnv, controlSocketPath, NO_CONTROL_ENV, newControlToken, parseReviewBody, privateSocketDir, probeSocket, reviewPathOutside, startControlServer, startLoopbackControlServer, usesLoopbackControl, type ReviewRequestRepo } from '../src/main/control-server'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -192,5 +192,23 @@ describe.skipIf(process.platform === 'win32')('control socket ownership', () => 
     } finally {
       server?.close()
     }
+  })
+})
+
+describe.skipIf(process.platform === 'win32')('reviewPathOutside', () => {
+  it('accepts folders inside a root, refuses outside ones and symlinks that point outside', () => {
+    const base = mkdtempSync(join(tmpdir(), 'wh-rev-'))
+    dirs.push(base)
+    const session = join(base, 'session')
+    const profile = join(base, 'profile')
+    const outside = join(base, 'outside')
+    for (const d of [join(session, 'repo'), profile, outside]) mkdirSync(d, { recursive: true })
+    symlinkSync(outside, join(session, 'link'))
+    const roots = [session, profile]
+    expect(reviewPathOutside([{ path: join(session, 'repo') }, { path: session }, { path: profile }], roots)).toBeNull()
+    expect(reviewPathOutside([{ path: join(session, 'repo') }, { path: outside }], roots)).toBe(outside)
+    expect(reviewPathOutside([{ path: join(session, 'link') }], roots)).toBe(join(session, 'link'))
+    expect(reviewPathOutside([{ path: join(session, '..', 'outside') }], roots)).toBe(join(session, '..', 'outside'))
+    expect(reviewPathOutside([{ path: join(session, 'missing') }], roots)).toBe(join(session, 'missing'))
   })
 })

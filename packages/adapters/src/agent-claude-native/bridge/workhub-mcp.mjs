@@ -254,7 +254,7 @@ const TOOLS = [
   {
     name: "review_open",
     description: "Opens Workhub's human review of this session's changes (the user comments, the comments come back as a message). Needs a Workhub session.",
-    inputSchema: obj({ repos: { type: "array", maxItems: 20, items: obj({ path: { type: "string", description: "Absolute repo path" }, base: str }, ["path"]) } }),
+    inputSchema: obj({ repos: { type: "array", maxItems: 20, items: obj({ path: { type: "string", description: "Absolute repo path, inside this session's folder, its worktree or its profile's folders" }, base: str }, ["path"]) } }),
     call: (a) => (SESSION ? ["POST", `/v1/sessions/${encodeURIComponent(SESSION)}/review`, { repos: a.repos ?? [] }] : null),
   },
   {

@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createCliRunner, type CliRunner } from '@workhub/adapters/cli'
+import { GIT_HARDENING } from '@workhub/adapters/git-hardening'
 import { GitHubCodeHost, createDemoRunner } from '@workhub/adapters/codehost-github'
 import { GitLabCodeHost } from '@workhub/adapters/codehost-gitlab'
 import {
@@ -100,7 +101,7 @@ export class CodeHostService {
     const out: string[] = []
     for (const folder of folders) {
       try {
-        out.push((await exec('git', ['-C', folder, 'remote', 'get-url', 'origin'], { windowsHide: true, timeout: 10_000 })).stdout.trim())
+        out.push((await exec('git', [...GIT_HARDENING, '-C', folder, 'remote', 'get-url', 'origin'], { windowsHide: true, timeout: 10_000 })).stdout.trim())
       } catch {
         // Not a git repository, or no origin.
       }

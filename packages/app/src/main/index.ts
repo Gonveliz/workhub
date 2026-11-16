@@ -12,7 +12,7 @@ import { JsonConfigStore } from '@workhub/adapters/config-json'
 import { SafeStorageSecretStore } from '@workhub/adapters/secrets-electron'
 import { TerminalRuntime } from '@workhub/adapters/agent-terminal'
 import { createCliRunner } from '@workhub/adapters/cli'
-import { augmentedPath, readLoginShellPath, utf8LocaleEnv } from '@workhub/adapters/login-path'
+import { augmentedPath, pathKeyOf, refreshLoginPath, utf8LocaleEnv } from '@workhub/adapters/login-path'
 import { readNotificationPermission } from '@workhub/adapters/notification-permission'
 import { ClaudeTranscriptReader, copyClaudeSession, readClaudeHandoffFacts } from '@workhub/adapters/transcript-claude'
 import { CodexPlanUsageReader, CodexSessionHistory, CodexTranscriptReader } from '@workhub/adapters/transcript-codex'
@@ -100,7 +100,7 @@ import { registerListenIpc } from './listen-ipc'
 import { CodeHostService, registerCodeHostIpc } from './codehost'
 import { ContinuityService, type ContinuityDeps } from './continuity'
 import { HealthService } from './health-service'
-import { guardIpc, isTrustedRendererUrl } from './ipc-guard'
+import { guardIpc, isTrustedRendererUrl, rendererDevServerUrl } from './ipc-guard'
 import { timeIpc } from './ipc-timing'
 import { broadcastToWindowsAndDevices, isRemoteSender, pageHistory, promptFromDevice, readActivity, recordIpc, RemoteActivityLog, RemoteHub, RemoteService, registerRemoteIpc, readRemoteFile, touchedPaths, type RemoteState } from './remote'
 import { rendererReporter, startDiagnostics } from './diagnostics'
@@ -115,7 +115,7 @@ import { OwnerStarts } from './owner-starts'
 import { resolveChoice, SessionManager, ticketPrefixes } from './session-manager'
 import { registerLinksIpc } from './links'
 import { LocalReviewService, opensAsProgram, registerLocalReviewIpc } from './local-review'
-import { CONTROL_ENV_KEYS, controlEnv, controlSocketPath, newControlToken, startControlServer, startLoopbackControlServer, usesLoopbackControl, type ControlDeps, type ControlEndpoint } from './control-server'
+import { CONTROL_ENV_KEYS, controlEnv, controlSocketPath, newControlToken, reviewPathOutside, startControlServer, startLoopbackControlServer, usesLoopbackControl, type ControlDeps, type ControlEndpoint } from './control-server'
 import { createAnalyticsControl } from './analytics-control'
 import { kiroUsageProbeEnabled } from './kiro-usage-probe'
 import { AnalyticsQueries, type QueryWorker } from './analytics-queries'
@@ -161,7 +161,7 @@ import { meetingReminderWords, planView, registerPlanIpc } from './plan-ipc'
 import { PlannerService, type PlannerState } from './planner-service'
 import { addControlInboxItems, registerPlannerIpc } from './planner-ipc'
 import { expandHome } from './automations'
-import { defaultStartMode, gatePrompt, owningProfile, profileRefreshMs, productCalendarEvents, ticketsInProgress, type CalendarState, type DueAction } from '@workhub/core'
+import { defaultStartMode, gatePrompt, owningProfile, profileFolderPaths, profileRefreshMs, productCalendarEvents, ticketsInProgress, type CalendarState, type DueAction } from '@workhub/core'
 import type { SetupPage } from '../shared/setup-api'
 
 // The control endpoint of a Workhub this one was started from (a dev run launched from a session of
@@ -443,10 +443,17 @@ const bridgeDir = app.isPackaged ? join(process.resourcesPath, 'bridge') : join(
  * and when it cannot be, the inherited PATH plus the usual CLI folders. Windows: unchanged.
  */
 Object.assign(process.env, utf8LocaleEnv(process.platform, process.env))
-let cliPath = augmentedPath({ platform: process.platform, inherited: process.env['PATH'], loginShell: null })
-void readLoginShellPath().then((loginShell) => {
-  if (loginShell) cliPath = augmentedPath({ platform: process.platform, inherited: process.env['PATH'], loginShell })
-})
+const launchPath = process.env['PATH']
+let cliPath = augmentedPath({ platform: process.platform, inherited: launchPath, loginShell: null })
+// The same PATH goes into this process's environment, which gh, glab and git inherit: they would
+// otherwise run under the Finder's bare PATH while Setup (sessionPath) finds them. Read again after
+// a Setup install, which may have added a folder to the shell profile.
+const refreshCliPath = async (): Promise<void> => {
+  const path = await refreshLoginPath(process.env, launchPath)
+  if (path) cliPath = path
+}
+if (process.platform !== 'win32') process.env[pathKeyOf(process.env)] = cliPath
+void refreshCliPath()
 const sessionPath = (): string | undefined => (process.platform === 'win32' ? undefined : cliPath)
 // The Claude Code binary the Agent SDK ships with: the terminal's `claude` when the user has none.
 const bundledClaudeDir = join(
@@ -558,6 +565,7 @@ const analyticsRecorder = new AnalyticsRecorder({
   log: (m) => diagnostics.log.warn(m) })
 const sessions = new SessionManager({
   config: configuration,
+  log: (m) => diagnostics.log.warn(m),
   worktrees: new GitWorktrees(),
   sessionEnv: (sessionId) => controlEnv(sessionId, controlEndpoint),
   // Workhub's MCP server (Settings → Agents → Workhub tools), for sessions that reach the endpoint.
@@ -1251,7 +1259,15 @@ function registerIpc(): void {
   })
 
   ipc.handle('setup:run', () => setup.run())
-  registerSetupInstallIpc(ipc, { install: (id) => setupInstaller.install(id) })
+  registerSetupInstallIpc(ipc, {
+    install: async (id) => {
+      try {
+        return await setupInstaller.install(id)
+      } finally {
+        await refreshCliPath()
+      }
+    }
+  })
   registerAgentToolsIpc(ipc, agentTools)
   ipc.on('setup:openWindow', (_e, page: SetupPage) => {
     if (page === 'welcome' || page === 'check' || page === 'help') openSetupWindow(page)
@@ -1905,14 +1921,18 @@ function createAuxWindow(hash: string, title: string, size: AuxWindowSize = TICK
   })
   // Links inside the app never navigate or open windows of their own.
   aux.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  if (process.env['ELECTRON_RENDERER_URL']) void aux.loadURL(process.env['ELECTRON_RENDERER_URL'] + hash)
+  if (devServerUrl()) void aux.loadURL(devServerUrl() + hash)
   else void aux.loadFile(rendererFile, { hash: hash.replace(/^#/, '') })
   return aux
 }
 
 const rendererFile = join(__dirname, '../renderer/index.html')
+/** The dev server's address; always undefined in a packaged app, whatever its environment holds. */
+function devServerUrl(): string | undefined {
+  return rendererDevServerUrl(process.env, app.isPackaged)
+}
 /** The only pages allowed to talk to the main process. */
-const rendererOrigin = { fileUrl: pathToFileURL(rendererFile).href, devServerUrl: process.env['ELECTRON_RENDERER_URL'] }
+const rendererOrigin = { fileUrl: pathToFileURL(rendererFile).href, devServerUrl: devServerUrl() }
 
 /**
  * Every window and webview the app ever creates stays on the app's renderer: navigations and
@@ -1966,7 +1986,7 @@ function createWindow(): void {
     }
   })
   // Navigation and new-window guards for every window: see 'web-contents-created' above.
-  if (process.env['ELECTRON_RENDERER_URL']) void win.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  if (devServerUrl()) void win.loadURL(devServerUrl()!)
   else void win.loadFile(rendererFile)
   appBadge.refresh()
   // "Keep running in the menu bar": closing hides the window; sessions, watchers and notifications go on.
@@ -1979,7 +1999,7 @@ function createWindow(): void {
 
 /** The renderer's popover route (main.tsx), in the dev server or the built files. */
 function loadPopover(popover: BrowserWindow): void {
-  if (process.env['ELECTRON_RENDERER_URL']) void popover.loadURL(process.env['ELECTRON_RENDERER_URL'] + TRAY_POPOVER_HASH)
+  if (devServerUrl()) void popover.loadURL(devServerUrl() + TRAY_POPOVER_HASH)
   else void popover.loadFile(rendererFile, { hash: TRAY_POPOVER_HASH.slice(1) })
 }
 
@@ -2103,10 +2123,15 @@ void app.whenReady().then(async () => {
       .catch((err: unknown) => diagnostics.log.warn(`agent options: ${err instanceof Error ? err.message : String(err)}`))
   }, 8_000).unref()
   const controlDeps: ControlDeps = {
-    openReview: (sessionId, repos) => {
+    openReview: async (sessionId, repos) => {
       const v = sessions.list().find((s) => s.id === sessionId)
       if (!v) return { ok: false, status: 404, error: 'unknown session' }
       if (v.readOnly) return { ok: false, status: 403, error: 'a reviewer session cannot open a review' }
+      // An agent may only point the review at its own folder, its worktree or its profile's folders.
+      const profile = (await configuration.current()).profiles.find((p) => p.id === v.profileId)
+      const roots = [v.cwd, ...(profile ? profileFolderPaths(profile, homedir()).map((f) => f.path) : [])]
+      const outside = reviewPathOutside(repos, roots)
+      if (outside) return { ok: false, status: 400, error: `not inside this session's folder, worktree or profile folders: ${outside}` }
       localReview.request(sessionId, repos)
       openLocalReviewWindow(sessionId, true)
       return { ok: true }
