@@ -94,6 +94,7 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
     },
     history: {
       list: () => invoke('history:list'),
+      listOlder: () => invoke('history:listOlder'),
       search: (query, options) => invoke('history:search', query, options),
       indexProgress: () => invoke('history:indexProgress'),
       onIndexProgress: (cb) => subscribe<[HistoryIndexProgress]>('history:indexProgress', cb),

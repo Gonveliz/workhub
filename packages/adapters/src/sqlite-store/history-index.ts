@@ -310,6 +310,27 @@ export class SqliteHistoryIndex {
     })
   }
 
+  /**
+   * The indexed sessions of one account, as the listing gave them when they were indexed (their
+   * stamp then matches, so the indexer does not read them again). History lists the ones a listing
+   * cut at its limit left out.
+   */
+  entries(agentId: string, accountId: string | null): HistoryEntry[] {
+    if (!this.db.isOpen) return []
+    const rows = this.db.raw
+      .prepare('SELECT agent_session_id, cwd, branch, title, first_prompt, started_at, source_mtime, source_size FROM history_index WHERE agent = ? AND account_id = ?')
+      .all(agentId, accountId ?? '') as { agent_session_id: string; cwd: string | null; branch: string | null; title: string | null; first_prompt: string | null; started_at: number | null; source_mtime: number; source_size: number }[]
+    return rows.map((r) => {
+      const e: HistoryEntry = { agentId, accountId, agentSessionId: r.agent_session_id, title: r.title || r.agent_session_id, lastModified: Number(r.source_mtime) }
+      if (r.first_prompt) e.firstPrompt = r.first_prompt
+      if (r.cwd) e.cwd = r.cwd
+      if (r.branch) e.gitBranch = r.branch
+      if (r.started_at !== null) e.createdAt = Number(r.started_at)
+      if (Number(r.source_size) >= 0) e.sizeBytes = Number(r.source_size)
+      return e
+    })
+  }
+
   /** Sessions in the index. */
   count(): number {
     const row = this.db.raw.prepare('SELECT COUNT(*) AS n FROM history_index').get() as { n: number }

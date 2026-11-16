@@ -48,6 +48,33 @@ describe('listAllHistory', () => {
     expect(result.entries.map((e) => e.agentSessionId)).toEqual(['k1'])
   })
 
+  it('marks an account with more sessions than the depth as truncated, never as fully listed', async () => {
+    const many = Array.from({ length: 6 }, (_, i) => entry('kiro', `k${i}`, 100 - i))
+    const limits: (number | undefined)[] = []
+    const kiro: SessionHistorySource = { list: async (_a, o) => (limits.push(o?.limit), many.slice(0, o?.limit)), messages: async () => [] }
+    const cut = await listAllHistory(config(), '/home/u', { kiro }, { depth: 4 })
+    expect(limits).toEqual([5])
+    expect(cut.entries.map((e) => e.agentSessionId)).toEqual(['k0', 'k1', 'k2', 'k3'])
+    expect(cut.truncated).toEqual(['kiro\u0000'])
+    expect(cut.listed).toEqual([])
+    const whole = await listAllHistory(config(), '/home/u', { kiro }, { depth: 6 })
+    expect([whole.truncated, whole.listed]).toEqual([[], ['kiro\u0000']])
+  })
+
+  it('lists the older indexed sessions still on disk of a truncated account, which is then complete for the index', async () => {
+    const many = Array.from({ length: 6 }, (_, i) => entry('claude', `c${i}`, 100 - i))
+    const claude: SessionHistorySource = { list: async (_a, o) => many.slice(0, o?.limit), messages: async () => [], sessionIds: async () => new Set(['c0', 'c1', 'c2', 'c4']) }
+    const indexed = (agentId: string, accountId: string | null) => (agentId === 'claude' && accountId === null ? [many[1]!, many[4]!, many[5]!] : [])
+    const result = await listAllHistory(config(), '/home/u', { claude }, { depth: 2, indexed })
+    // c4 is older than the depth and still on disk; c5 is indexed but its transcript is gone.
+    expect(result.entries.map((e) => e.agentSessionId)).toEqual(['c0', 'c1', 'c4'])
+    expect(result.truncated).toEqual(['claude\u0000'])
+    expect(result.listed).toEqual(['claude\u0000'])
+    const failing: SessionHistorySource = { ...claude, sessionIds: async () => Promise.reject(new Error('EACCES')) }
+    const unsure = await listAllHistory(config(), '/home/u', { claude: failing }, { depth: 2, indexed })
+    expect([unsure.entries.length, unsure.listed]).toEqual([2, []])
+  })
+
   it('skips agents without a history source and the Claude ACP alias', async () => {
     const result = await listAllHistory(config(), '/home/u', { claude: source([entry('claude', 'c1', 1)]) })
     expect(result.entries.map((e) => e.agentId)).toEqual(['claude'])

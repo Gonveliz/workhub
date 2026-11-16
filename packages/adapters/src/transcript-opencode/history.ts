@@ -3,7 +3,7 @@
  * sessions are subagents of their parent). Listing only; OpenCode sessions cannot be resumed
  * from Workhub yet.
  */
-import type { HistoryEntry, HistoryMessage, SessionHistorySource } from '@workhub/core'
+import type { HistoryEntry, HistoryListOptions, HistoryMessage, SessionHistorySource } from '@workhub/core'
 import { num, oneLine, str } from '../shared/reader-utils'
 import { defaultOpenCodeDbPath, withDatabase } from './db'
 
@@ -16,7 +16,7 @@ export interface OpenCodeHistoryOptions {
 export class OpenCodeSessionHistory implements SessionHistorySource {
   constructor(private readonly options: OpenCodeHistoryOptions = {}) {}
 
-  async list(account: { agentId: string; accountId: string | null }): Promise<HistoryEntry[]> {
+  async list(account: { agentId: string; accountId: string | null }, options?: HistoryListOptions): Promise<HistoryEntry[]> {
     const rows = await withDatabase(this.options.dbPath ?? defaultOpenCodeDbPath(), (q) =>
       q(
         `SELECT s.id, s.title, s.directory, s.time_created, s.time_updated,
@@ -25,7 +25,7 @@ export class OpenCodeSessionHistory implements SessionHistorySource {
            FROM session_v2 s
           WHERE s.parent_id IS NULL AND s.time_archived IS NULL
           ORDER BY s.time_updated DESC LIMIT ?`,
-        this.options.limit ?? 400
+        options?.limit ?? this.options.limit ?? 400
       )
     )
     return (rows ?? []).flatMap((r): HistoryEntry[] => {

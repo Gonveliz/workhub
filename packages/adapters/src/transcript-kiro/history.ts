@@ -5,7 +5,7 @@
  */
 import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { HistoryEntry, HistoryMessage, SessionHistorySource } from '@workhub/core'
+import type { HistoryEntry, HistoryListOptions, HistoryMessage, SessionHistorySource } from '@workhub/core'
 import { arr, isDirectory, isFile, obj, oneLine, parseLine, str } from '../shared/reader-utils'
 import { parseKiroCliMeta, parseKiroSessionJson } from './parser'
 import { defaultKiroDir } from './reader'
@@ -48,9 +48,9 @@ export class KiroSessionHistory implements SessionHistorySource {
     this.limit = options.limit ?? 400
   }
 
-  async list(account: { agentId: string; accountId: string | null }): Promise<HistoryEntry[]> {
+  async list(account: { agentId: string; accountId: string | null }, options?: HistoryListOptions): Promise<HistoryEntry[]> {
     const [cli, chat] = await Promise.all([this.listCli(account), this.listChat(account)])
-    return [...cli, ...chat].sort((a, b) => b.lastModified - a.lastModified).slice(0, this.limit)
+    return [...cli, ...chat].sort((a, b) => b.lastModified - a.lastModified).slice(0, options?.limit ?? this.limit)
   }
 
   /** Not supported: Kiro sessions are listed only. */

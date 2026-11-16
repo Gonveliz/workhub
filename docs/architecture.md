@@ -219,7 +219,15 @@ stops (then with a listing at most 3 s old): it reads again only the sessions wh
 `SessionHistorySource.messages`, writes at most about 1 MB of text per transaction with a macrotask
 between transactions, skips a session it could not read until its stamp changes, drops the sessions
 of fully listed accounts that are gone and of accounts no longer configured, and reports
-`indexed/total` on `history:indexProgress`. A search builds its `MATCH` from quoted words only (the
+`indexed/total` on `history:indexProgress`. The listing (`listAllHistory`) asks each source for
+`HISTORY_LIST_DEPTH` (400) sessions plus one, so it knows when an account has more and reports it
+in `truncated`; **List older sessions** (`history:listOlder`) raises the depth by 400 for the rest
+of the run. A truncated account counts as fully listed only when its source can name the
+transcripts on disk (`SessionHistorySource.sessionIds`, Claude: file names under `projects/`, no
+reads): its older indexed sessions still on disk are then listed from the index
+(`SqliteHistoryIndex.entries`, with the stamp they were indexed with, so not read again) and the
+others are dropped. The other sources' truncated accounts are not fully listed, so a cap never
+drops an indexed session. A search builds its `MATCH` from quoted words only (the
 last as a prefix from two characters; control characters dropped; one-character queries skip the
 index), applies agent, account, folders, session keys and time inside the query, ranks every
 matching session by its best chunk's `bm25` (title weighs more) without snippets, then computes

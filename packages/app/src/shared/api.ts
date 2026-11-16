@@ -231,8 +231,13 @@ export interface HistoryResult {
   entries: HistoryItem[]
   /** Accounts that could not be listed, with the reason. */
   errors: { account: string; message: string }[]
-  /** The accounts listed completely (`agentId` NUL `accountId or ''`), so the search index drops only their missing sessions. */
+  /**
+   * The accounts whose listing holds every session they still have that the search index may hold
+   * (`agentId` NUL `accountId or ''`), so the index drops only their missing sessions.
+   */
   listed?: string[]
+  /** The accounts with more sessions than the listing went to (`listed`'s keys): History can list further back. */
+  truncated?: string[]
   /** Every account the listing tried, failed or not: the index drops the sessions of any other. */
   accounts?: string[]
 }
@@ -390,6 +395,8 @@ export interface SessionsApi {
 
 export interface HistoryApi {
   list(): Promise<HistoryResult>
+  /** Lists again, a page of sessions further back for every account that has more. */
+  listOlder(): Promise<HistoryResult>
   /** Full-text search of past sessions (titles, prompts, folders and conversations), with snippets. */
   search(query: string, options?: HistorySearchOptions): Promise<HistorySearchResult>
   /** How far the search index is. */

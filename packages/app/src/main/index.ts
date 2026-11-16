@@ -106,7 +106,7 @@ import { isRemoteSender, pageHistory, promptFromDevice, readActivity, recordIpc,
 import { rendererReporter, startDiagnostics } from './diagnostics'
 import { ReloadGuard, watchRenderer } from './render-recovery'
 import { permissionAllowed } from './permissions'
-import { historySearchOptions, listAllHistory, searchAllHistory } from './history'
+import { HISTORY_LIST_DEPTH, historySearchOptions, listAllHistory, searchAllHistory } from './history'
 import { HistoryIndexer } from './history-indexer'
 import { RecentCall } from './recent-call'
 import { PrEventService, registerPrEventsIpc } from './pr-events-service'
@@ -1044,11 +1044,19 @@ function openSetupWindow(page: SetupPage): void {
   created.on('closed', () => setupWindows.delete(page))
 }
 
-// Listing the history starts a process per account that reads every transcript's head: calls made
-// meanwhile share it, and the sidebar's lookups (several right after start-up) take one up to 10 s old.
+// Listing the history starts a process per account that reads the newest transcripts' heads: calls
+// made meanwhile share it, and the sidebar's lookups (several right after start-up) take one up to
+// 10 s old. Each account lists `historyDepth` sessions, deeper once the user asks for older ones;
+// older sessions the search index holds are listed from it, not read again.
+let historyDepth = HISTORY_LIST_DEPTH
+let listedDepth = 0
 const namedHistory = new RecentCall(async () => {
+  const depth = historyDepth
   const config = await configuration.current()
-  const result = await diagnostics.activity.run('history list', async () => listAllHistory(config, homedir(), historySources))
+  const result = await diagnostics.activity.run('history list', async () =>
+    listAllHistory(config, homedir(), historySources, { depth, indexed: (agentId, accountId) => historyIndex?.entries(agentId, accountId) ?? [] })
+  )
+  listedDepth = depth
   // A session the user named shows that name in the history too; an automation's runs say which one they are.
   const named = result.entries.map((e) => ({ ...e, title: sessionNames.get(e.agentSessionId) ?? e.title }))
   return { ...result, entries: linkAutomationHistory(named, config.automations ?? [], automations.engine.snapshot().owned, homedir()) }
@@ -1168,6 +1176,12 @@ function registerIpc(): void {
     if (typeof version === 'string' && version) saveUpdatePrompt({ skippedVersion: version })
   })
   ipc.handle('history:list', () => namedHistory.get())
+  ipc.handle('history:listOlder', async () => {
+    historyDepth += HISTORY_LIST_DEPTH
+    const result = await namedHistory.get()
+    // A listing already under way went only as deep as before: list once more.
+    return listedDepth < historyDepth ? namedHistory.get() : result
+  })
   ipc.handle('history:search', (_e, query: unknown, options: unknown) => searchPastSessions(typeof query === 'string' ? query.slice(0, 500) : '', historySearchOptions(options)))
   ipc.handle('history:indexProgress', () => historyIndexer.progress())
   ipc.handle('history:find', async (_e, keys: unknown) => {

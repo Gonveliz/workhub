@@ -4,7 +4,7 @@
  */
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { HistoryEntry, HistoryMessage, SessionHistorySource } from '@workhub/core'
+import type { HistoryEntry, HistoryListOptions, HistoryMessage, SessionHistorySource } from '@workhub/core'
 import { obj, oneLine, parseLine, str } from '../shared/reader-utils'
 import { defaultCodexHome, readRolloutHead, rolloutFiles, rolloutId } from './files'
 import { readSessionMeta, userItemText, userMessageText } from './parser'
@@ -22,9 +22,9 @@ const HEAD_BYTES = 256 * 1024
 export class CodexSessionHistory implements SessionHistorySource {
   constructor(private readonly options: CodexHistoryOptions = {}) {}
 
-  async list(account: { agentId: string; accountId: string | null; configDir?: string }): Promise<HistoryEntry[]> {
+  async list(account: { agentId: string; accountId: string | null; configDir?: string }, options?: HistoryListOptions): Promise<HistoryEntry[]> {
     const sessionsDir = join(account.configDir || this.options.defaultHome || defaultCodexHome(), 'sessions')
-    const limit = this.options.limit ?? 400
+    const limit = options?.limit ?? this.options.limit ?? 400
     const entries: HistoryEntry[] = []
     for await (const path of rolloutFiles(sessionsDir)) {
       const entry = await this.entry(path, account)

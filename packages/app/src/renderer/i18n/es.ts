@@ -451,6 +451,8 @@ export const es: Record<keyof typeof en, string> = {
   'history.accountFailed': '{account}: no se pudieron listar las sesiones ({message})',
   'history.showMore.one': 'Mostrar más ({count} sesión más)',
   'history.showMore.other': 'Mostrar más ({count} sesiones más)',
+  'history.truncated': 'Las sesiones anteriores solo aparecen si ya están indexadas para la búsqueda.',
+  'history.loadOlder': 'Listar sesiones anteriores',
   'history.indexing': 'Indexando… {done}/{total} · puede que falten resultados',
   'history.results': 'Resultados de la búsqueda',
   'history.resultsPending': 'Coincidencias en títulos, pedidos y carpetas; buscando en las conversaciones…',

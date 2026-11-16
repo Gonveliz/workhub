@@ -452,6 +452,8 @@ export const en = {
   'history.accountFailed': '{account}: the sessions could not be listed ({message})',
   'history.showMore.one': 'Show more ({count} more session)',
   'history.showMore.other': 'Show more ({count} more sessions)',
+  'history.truncated': 'Older sessions are listed only if they are already indexed for search.',
+  'history.loadOlder': 'List older sessions',
   'history.indexing': 'Indexing… {done}/{total} · results may be incomplete',
   'history.results': 'Search results',
   'history.resultsPending': 'Matches in titles, prompts and folders; searching the conversations…',

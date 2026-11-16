@@ -112,6 +112,18 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
   useEffect(() => {
     if (visible) void load()
   }, [load, visible])
+  // Accounts with more sessions than the listing went to: list a page further back.
+  const loadOlder = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      setResult(await window.hub.history.listOlder())
+    } catch (e) {
+      setError(errorText(e))
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const [home, setHome] = useState<string | undefined>()
   useEffect(() => {
@@ -456,6 +468,14 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
           {tn('history.showMore', page.hidden)}
         </Button>
       )}
+      {result?.truncated?.length && (searching ? searched && !searched.nextCursor : page.hidden === 0) ? (
+        <div className="flex flex-col items-center gap-1.5" data-testid="history-older">
+          <p className="text-xs text-subtle">{t('history.truncated')}</p>
+          <Button variant="secondary" disabled={loading} onClick={() => void loadOlder()}>
+            {t('history.loadOlder')}
+          </Button>
+        </div>
+      ) : null}
       {result && (searching ? found.length > 0 : groups.length > 0) && <p className="text-xs text-subtle">{t('history.doubleClick')}</p>}
       <Dialog
         open={tagging !== null}

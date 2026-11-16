@@ -124,6 +124,7 @@ describe('KiroSessionHistory', () => {
       [CHAT, 'Fix the login form', '/tmp/acme-web']
     ])
     expect(entries[0]).toMatchObject({ agentId: 'kiro', accountId: null, firstPrompt: 'Add the health endpoint for ABC-77' })
+    expect((await new KiroSessionHistory({ kiroDir }).list({ agentId: 'kiro', accountId: null }, { limit: 1 })).map((e) => e.agentSessionId)).toEqual([CLI])
   })
 
   it('lists nothing when Kiro has no sessions folder, and keeps no messages', async () => {

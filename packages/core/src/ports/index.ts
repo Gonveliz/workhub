@@ -64,9 +64,20 @@ export type HistoryMessage =
   | { kind: 'interrupted'; at?: number }
   | { kind: 'tool'; at?: number; id: string; title: string; detail?: string; failed?: boolean; view?: ToolView; result?: ToolResultView }
 
+export interface HistoryListOptions {
+  /** Most sessions listed, newest first. */
+  limit?: number
+}
+
 /** Lists and reads past sessions of one agent account (Claude: the Agent SDK's session store). */
 export interface SessionHistorySource {
-  list(account: { agentId: string; accountId: string | null; configDir?: string }): Promise<HistoryEntry[]>
+  /** The account's sessions, newest first, at most `limit` (the source's own default when absent). */
+  list(account: { agentId: string; accountId: string | null; configDir?: string }, options?: HistoryListOptions): Promise<HistoryEntry[]>
+  /**
+   * The id of every session the account keeps on disk, without reading any: a listing cut at its
+   * limit uses it to tell a session that is gone from one that is only older.
+   */
+  sessionIds?(account: { agentId: string; accountId: string | null; configDir?: string }): Promise<ReadonlySet<string>>
   messages(agentSessionId: string, cwd: string, configDir?: string): Promise<HistoryMessage[]>
   /** Gives a session the title its agent shows (Claude: `/rename`'s custom title in the transcript). */
   rename?(agentSessionId: string, cwd: string, title: string, configDir?: string): Promise<void>

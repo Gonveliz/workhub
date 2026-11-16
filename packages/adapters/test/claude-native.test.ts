@@ -468,6 +468,27 @@ describe('Claude session history', () => {
     expect(await history.messages('sess-1', '/tmp/acme-web')).toEqual([{ kind: 'user', text: 'hello from sess-1 in /tmp/acme-web' }])
   })
 
+  it('lists at most the limit the caller asks for', async () => {
+    const entries = await new ClaudeSessionHistory({ bridgeDir: fakeBridge }).list({ agentId: 'claude', accountId: null, configDir: '/tmp/acme-work' }, { limit: 1 })
+    expect(entries.map((e) => e.agentSessionId)).toEqual(['sess-1'])
+  })
+
+  it('names every transcript on disk without reading it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wh-ids-'))
+    try {
+      const history = new ClaudeSessionHistory({ bridgeDir: fakeBridge })
+      expect(await history.sessionIds({ configDir: dir })).toEqual(new Set())
+      mkdirSync(join(dir, 'projects', '-w-acme-api', 'sess-a', 'subagents'), { recursive: true })
+      mkdirSync(join(dir, 'projects', '-w-acme-web'), { recursive: true })
+      writeFileSync(join(dir, 'projects', '-w-acme-api', 'sess-a.jsonl'), '')
+      writeFileSync(join(dir, 'projects', '-w-acme-web', 'sess-b.jsonl'), '')
+      writeFileSync(join(dir, 'projects', '-w-acme-web', 'notes.txt'), '')
+      expect(await history.sessionIds({ configDir: dir })).toEqual(new Set(['sess-a', 'sess-b']))
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('renames a session the way /rename does, through sessions.mjs', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'wh-rename-'))
     const log = join(dir, 'rename.json')

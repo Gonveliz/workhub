@@ -1,10 +1,10 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cutSnippet, HISTORY_MARK, snippetHtmlMarks, snippetParts, type HistoryEntry, type HistoryMessage } from '@workhub/core'
+import { cutSnippet, emptyConfig, HISTORY_MARK, snippetHtmlMarks, snippetParts, type HistoryEntry, type HistoryMessage, type SessionHistorySource } from '@workhub/core'
 import { SqliteHistoryIndex, type WorkhubDb } from '@workhub/adapters/sqlite-store'
 import { HistoryIndexer, listedKey } from '../src/main/history-indexer'
-import { historySearchOptions, searchAllHistory } from '../src/main/history'
+import { historySearchOptions, listAllHistory, searchAllHistory } from '../src/main/history'
 import { HISTORY_SEARCH_BYTES, recordIpc, RemoteHub, remoteHistorySearch } from '../src/main/remote'
 import { REMOTE_INVOKES } from '../src/main/remote/allowlist'
 import type { IpcRegistrar } from '../src/main/ipc-guard'
@@ -148,6 +148,60 @@ describe('HistoryIndexer', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('History beyond the listing depth', () => {
+  // 450 Claude sessions on disk, newest first; s449 is the oldest. Each conversation names its session.
+  function deepHistory(options: { sessionIds?: boolean } = {}) {
+    const db = openTestDb()
+    dbs.push(db)
+    const index = new SqliteHistoryIndex(db)
+    const onDisk = new Set(Array.from({ length: 450 }, (_, i) => `s${i}`))
+    const all = () => [...onDisk].map((id) => item(id, { lastModified: T - Number(id.slice(1)) * 60_000 }))
+    const source: SessionHistorySource = {
+      list: async (_a, o) => all().slice(0, o?.limit ?? 400),
+      messages: async (id) => [{ kind: 'user', text: `conversation about topic${id}` }],
+      ...(options.sessionIds === false ? {} : { sessionIds: async () => new Set(onDisk) })
+    }
+    let depth = 400
+    const list = () => listAllHistory(emptyConfig(), '/home/u', { claude: source }, { depth, indexed: (a, acc) => index.entries(a, acc) })
+    const indexer = new HistoryIndexer({ index, list: () => list(), messages: (e) => source.messages(e.agentSessionId, e.cwd ?? ''), batchSize: 50, pause: async () => undefined })
+    const search = async (q: string) => ids(searchAllHistory(await list(), index, q, {}, idle))
+    return { index, indexer, onDisk, list, search, deeper: () => (depth = 500), shallower: () => (depth = 400) }
+  }
+  
+  it('keeps older sessions indexed, listed and found, and drops one only once its transcript is gone', async () => {
+    const h = deepHistory()
+    // The user listed further back once: every session is indexed.
+    h.deeper()
+    await h.indexer.refresh()
+    expect(h.index.count()).toBe(450)
+    // Back to the start-up depth (the app restarted): the older 50 stay in the index, the listing and search.
+    h.shallower()
+    const listing = await h.list()
+    expect(listing.truncated).toEqual([listedKey('claude', null)])
+    expect(listing.entries.some((e) => e.agentSessionId === 's449')).toBe(true)
+    await h.indexer.refresh()
+    expect(h.index.count()).toBe(450)
+    expect(await h.search('topics449')).toEqual(['s449'])
+    // An old transcript deleted on disk leaves the index; its neighbours stay.
+    h.onDisk.delete('s420')
+    await h.indexer.refresh()
+    expect(h.index.count()).toBe(449)
+    expect(await h.search('topics420')).toEqual([])
+    expect(await h.search('topics421')).toEqual(['s421'])
+  })
+
+  it('never drops an older indexed session of a source that cannot tell which transcripts exist', async () => {
+    const h = deepHistory({ sessionIds: false })
+    h.deeper()
+    await h.indexer.refresh()
+    h.shallower()
+    const listing = await h.list()
+    expect([listing.entries.length, listing.listed]).toEqual([400, []])
+    await h.indexer.refresh()
+    expect(h.index.count()).toBe(450)
   })
 })
 

@@ -1,4 +1,4 @@
-import { accountAgentId, knownAgents, matchesHistory, type AgentDefinition, type SessionHistorySource, type WorkhubConfig } from '@workhub/core'
+import { accountAgentId, knownAgents, matchesHistory, type AgentDefinition, type HistoryEntry, type SessionHistorySource, type WorkhubConfig } from '@workhub/core'
 import { historyIndexKey, type HistoryScope, type HistorySnippets } from '@workhub/adapters/sqlite-store'
 import type { HistoryIndexProgress, HistoryItem, HistoryMatch, HistoryResult, HistorySearchOptions, HistorySearchResult } from '../shared/api'
 import { claudeAccounts } from './claude-accounts'
@@ -36,22 +36,59 @@ export function canResume(agent: AgentDefinition): boolean {
   return agent.adapter === 'native' || agent.console !== undefined
 }
 
+/** Sessions listed per account at first, and how many more each "older sessions" request adds. */
+export const HISTORY_LIST_DEPTH = 400
+
+export interface ListHistoryOptions {
+  /** Most sessions read from each account's files (`HISTORY_LIST_DEPTH` by default). */
+  depth?: number
+  /** The sessions of an account the search index holds (`SqliteHistoryIndex.entries`). */
+  indexed?: (agentId: string, accountId: string | null) => HistoryEntry[]
+}
+
 /**
- * Every past session of every known agent that has a history source, newest first. An agent or
+ * The newest `depth` sessions of an account. When it has more, the account is `truncated`, and the
+ * older sessions the index holds whose transcript is still on disk are listed too, read from the
+ * index rather than from their files; the listing then still has every session the index may keep
+ * (`complete`). A source that cannot tell which transcripts exist leaves its older sessions out of
+ * the listing but in the index: a cut listing never drops anything.
+ */
+async function listAccount(source: SessionHistorySource, account: { agentId: string; accountId: string | null; configDir?: string }, options: ListHistoryOptions): Promise<{ entries: HistoryEntry[]; truncated: boolean; complete: boolean }> {
+  const depth = options.depth ?? HISTORY_LIST_DEPTH
+  // One more than shown: whether the account has more is then known without a second read.
+  const listed = (await source.list(account, { limit: depth + 1 })).sort((x, y) => y.lastModified - x.lastModified)
+  if (listed.length <= depth) return { entries: listed, truncated: false, complete: true }
+  const entries = listed.slice(0, depth)
+  if (!source.sessionIds || !options.indexed) return { entries, truncated: true, complete: false }
+  let onDisk: ReadonlySet<string>
+  try {
+    onDisk = await source.sessionIds(account)
+  } catch {
+    return { entries, truncated: true, complete: false }
+  }
+  const shown = new Set(entries.map((e) => e.agentSessionId))
+  const older = options.indexed(account.agentId, account.accountId).filter((e) => !shown.has(e.agentSessionId) && onDisk.has(e.agentSessionId))
+  return { entries: [...entries, ...older], truncated: true, complete: true }
+}
+
+/**
+ * Every past session of every known agent that has a history source, newest first, up to
+ * `options.depth` per account plus the older ones the index holds (see `listAccount`). An agent or
  * account that fails is reported, not fatal.
  */
-export async function listAllHistory(config: WorkhubConfig, home: string, sources: Partial<Record<string, SessionHistorySource>>): Promise<HistoryResult> {
-  const result: HistoryResult = { entries: [], errors: [], listed: [], accounts: [] }
+export async function listAllHistory(config: WorkhubConfig, home: string, sources: Partial<Record<string, SessionHistorySource>>, options: ListHistoryOptions = {}): Promise<HistoryResult> {
+  const result: HistoryResult = { entries: [], errors: [], listed: [], accounts: [], truncated: [] }
   const agents = knownAgents(config).filter((a) => a.capabilities.history && !a.accountsOf && sources[a.id])
   for (const agent of agents) for (const a of historyAccounts(config, agent, home)) result.accounts!.push(historyAccountKey(agent.id, a.accountId))
   await Promise.all(
     agents.flatMap((agent) =>
       historyAccounts(config, agent, home).map(async (a) => {
         try {
-          const entries = await sources[agent.id]!.list({ agentId: agent.id, accountId: a.accountId, configDir: a.configDir })
+          const { entries, truncated, complete } = await listAccount(sources[agent.id]!, { agentId: agent.id, accountId: a.accountId, configDir: a.configDir }, options)
           const resumable = canResume(agent)
           result.entries.push(...entries.map((e): HistoryItem => ({ ...e, agentName: agent.name, resumable, accountName: a.name || undefined })))
-          result.listed!.push(historyAccountKey(agent.id, a.accountId))
+          if (complete) result.listed!.push(historyAccountKey(agent.id, a.accountId))
+          if (truncated) result.truncated!.push(historyAccountKey(agent.id, a.accountId))
         } catch (err) {
           // Claude names its accounts in the message; the other agents say which agent failed.
           const label = agent.id === 'claude' ? a.name : [agent.name, a.name].filter(Boolean).join(' · ')

@@ -4,11 +4,11 @@
  * `CLAUDE_CONFIG_DIR`, the same way `claude` itself picks the account.
  */
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, type Dirent } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { promptTitle, stripPromptWrappers, type HistoryEntry, type HistoryMessage, type ImageInput, type SessionHistorySource } from '@workhub/core'
+import { promptTitle, stripPromptWrappers, type HistoryEntry, type HistoryListOptions, type HistoryMessage, type ImageInput, type SessionHistorySource } from '@workhub/core'
 import { claudeToolResult, claudeToolView } from '../shared/claude-tool-view'
 import { describeTool } from '../shared/claude-tools'
 
@@ -23,7 +23,7 @@ const HISTORY_TITLE_MAX = 200
 export interface ClaudeHistoryOptions {
   bridgeDir: string
   nodeCommand?: string
-  /** Most sessions listed per account (Workhub 1: 400). */
+  /** Most sessions listed per account when the caller does not say (Workhub 1: 400). */
   limit?: number
 }
 
@@ -210,9 +210,27 @@ export async function transcriptMessages(agentSessionId: string, configDir?: str
 export class ClaudeSessionHistory implements SessionHistorySource {
   constructor(private readonly options: ClaudeHistoryOptions) {}
 
-  async list(account: { agentId: string; accountId: string | null; configDir?: string }): Promise<HistoryEntry[]> {
-    const raw = await this.run(['all', String(this.options.limit ?? 400)], account.configDir)
+  async list(account: { agentId: string; accountId: string | null; configDir?: string }, options?: HistoryListOptions): Promise<HistoryEntry[]> {
+    const raw = await this.run(['all', String(options?.limit ?? this.options.limit ?? 400)], account.configDir)
     return toHistoryEntries(raw, account.agentId, account.accountId)
+  }
+
+  /** The transcripts under `<config dir>/projects/<project>/<id>.jsonl`, by name only; none when the folder does not exist. */
+  async sessionIds(account: { configDir?: string }): Promise<ReadonlySet<string>> {
+    const projects = join(account.configDir || process.env['CLAUDE_CONFIG_DIR'] || join(homedir(), '.claude'), 'projects')
+    const ids = new Set<string>()
+    let dirs: Dirent[]
+    try {
+      dirs = await readdir(projects, { withFileTypes: true })
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return ids
+      throw err
+    }
+    for (const d of dirs) {
+      if (!d.isDirectory()) continue
+      for (const name of await readdir(join(projects, d.name))) if (name.endsWith('.jsonl')) ids.add(name.slice(0, -'.jsonl'.length))
+    }
+    return ids
   }
 
   /**

@@ -1,4 +1,4 @@
-// A fake of sessions.mjs: prints canned sessions, tagged with the account's CLAUDE_CONFIG_DIR.
+// A fake of sessions.mjs: prints canned sessions (at most `all <limit>`), tagged with the account's CLAUDE_CONFIG_DIR.
 // `rename` writes its arguments to FAKE_SESSIONS_LOG.
 import { writeFileSync } from 'node:fs'
 const [command, ...args] = process.argv.slice(2)
@@ -8,7 +8,7 @@ if (command === 'all') {
     { sessionId: 'sess-1', summary: 'Fix the build', customTitle: 'Build fix', firstPrompt: 'fix it', lastModified: 2000, cwd: '/tmp/acme-web', gitBranch: 'main', createdAt: 1000 },
     { sessionId: 'sess-2', summary: `Account ${account}`, lastModified: 1500 },
     { summary: 'no id, skipped' }
-  ]))
+  ].slice(0, Number(args[0]) || undefined)))
 } else if (command === 'messages' && args[1] === '/tmp/moved') {
   // The transcript is not under this folder: found only when every project is searched.
   process.stdout.write('[]')

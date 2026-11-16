@@ -19,6 +19,15 @@ you open one from Usage and reports).
 - Filter by **Profile**, **Account** and **Agent**.
 - **Reload** reads the sessions again.
 
+### Older sessions
+
+To keep start-up quick, History reads the newest 400 sessions of each account from their files.
+Older sessions that are already in the search index stay listed and searchable without being read
+again (Claude Code; for Kiro, OpenCode and Codex they stay in the index but are not listed). When an
+account has more, the end of the list says so and **List older sessions** reads 400 more of each
+account, which are then indexed and stay listed from then on. A session leaves History and the
+index only when its file is gone.
+
 ### The search index
 
 The search uses an index Workhub keeps on this computer, inside its database (`workhub.db`, so the
