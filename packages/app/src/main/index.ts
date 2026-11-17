@@ -161,6 +161,7 @@ import { registerSessionsIpc } from './ipc/sessions'
 import { registerHealthIpc } from './ipc/health'
 import { registerStorageIpc } from './ipc/storage'
 import { registerRemoteAccessIpc } from './ipc/remote'
+import { windowsAppUserModelId } from './app-identity'
 
 // The control endpoint of a Workhub this one was started from (a dev run launched from a session of
 // the installed app) must not leak into this app's processes: sessions get this app's own endpoint
@@ -187,6 +188,11 @@ if (!app.isPackaged) {
   app.setName('Workhub 2 Dev')
   app.setPath('userData', join(dataDir, 'electron'))
 }
+
+// Before any window or notification: the installed app takes the installer's id, so Windows groups
+// it with its pinned taskbar icon instead of giving it a button of its own.
+const appUserModelId = windowsAppUserModelId(process.platform, app.isPackaged)
+if (appUserModelId) app.setAppUserModelId(appUserModelId)
 
 // One instance per data folder (Electron keys the lock on userData): launching the app again (a
 // Start menu entry, a desktop launcher) brings the running one up, which matters once closing the
@@ -904,7 +910,8 @@ const automations = new AutomationService({
   },
   configChanged: () => send('config:changed'),
   notice: (n) => send('slack:notice', n),
-  recordRuns: (runs, profileOf) => void automationRuns.record(runs, profileOf)
+  recordRuns: (runs, profileOf) => void automationRuns.record(runs, profileOf),
+  log: (m) => diagnostics.log.info(m)
 })
 
 // Plan: reminders and meeting briefs (the `calendar-state` key of `kv_state` keeps what fired and which briefs started).

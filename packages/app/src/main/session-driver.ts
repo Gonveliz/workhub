@@ -48,6 +48,8 @@ export class SessionDriver {
   private readonly pasteMode = new Map<string, boolean>()
   private readonly identities = new Map<string, string>()
   private readonly usage = new Map<string, SessionUsage>()
+  /** Prompts the user sent into each session (not the text this driver typed for Workhub). */
+  private readonly userPrompts = new Map<string, number>()
   private viewing: string | null = null
   /** Called when a session gets its real identity after starting (ACP agents). */
   onIdentityChanged: (oldKey: string, newKey: string) => void = () => undefined
@@ -87,6 +89,16 @@ export class SessionDriver {
     }
   }
 
+  /** The user sent a prompt into the session (its chat window or a paired device). */
+  userPrompted(sessionId: string): void {
+    this.userPrompts.set(sessionId, (this.userPrompts.get(sessionId) ?? 0) + 1)
+  }
+
+  /** The user typed into a terminal: Enter in a session's agent console counts as a prompt of theirs. */
+  userTyped(channelId: string, data: string): void {
+    if (typeof channelId === 'string' && typeof data === 'string' && channelId.endsWith(':console') && data.includes('\r')) this.userPrompted(channelId.slice(0, -':console'.length))
+  }
+
   setViewing(sessionId: string | null): void {
     this.viewing = sessionId
   }
@@ -109,7 +121,8 @@ export class SessionDriver {
       ...(this.lastOutput.has(v.id) ? { lastOutputAt: this.lastOutput.get(v.id)! } : {}),
       ...(v.error ? { error: v.error } : {}),
       onScreen: this.viewing === v.id,
-      ...(this.usage.has(v.id) ? { usage: this.usage.get(v.id)! } : {})
+      ...(this.usage.has(v.id) ? { usage: this.usage.get(v.id)! } : {}),
+      ...(this.userPrompts.has(v.id) ? { userPrompts: this.userPrompts.get(v.id)! } : {})
     }))
   }
 
@@ -182,7 +195,7 @@ export class SessionDriver {
   /** Drops a stopped session the engine replaced: out of the list and out of the driver's own books. */
   async forget(sessionId: string): Promise<void> {
     if (!this.sessions.remove(sessionId)) return
-    for (const m of [this.turns, this.lastState, this.engine, this.lastOutput, this.pasteMode, this.identities, this.usage]) m.delete(sessionId)
+    for (const m of [this.turns, this.lastState, this.engine, this.lastOutput, this.pasteMode, this.identities, this.usage, this.userPrompts]) m.delete(sessionId)
     if (this.viewing === sessionId) this.viewing = null
   }
 }

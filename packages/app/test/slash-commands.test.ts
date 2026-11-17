@@ -40,6 +40,10 @@ function actions(fail = false) {
       log.push(`login ${id}`)
       return !fail
     }),
+    exit: vi.fn(async (id: string) => {
+      if (fail) throw new Error('window is gone')
+      log.push(`exit ${id}`)
+    }),
     remoteControl: vi.fn(async (id: string) => {
       log.push(`remote-control ${id}`)
       return !fail
@@ -56,13 +60,13 @@ describe('the composer\'s commands', () => {
     expect(before.map((c) => c.name)).toContain('compact')
     const after = sessionSlashCommands(view({ commands: [{ name: 'deploy-docs', group: 'skill' }, { name: 'rename', group: 'agent' }] }), t)
     // The agent's own /rename is hidden by Workhub's.
-    expect(after.map((c) => `${c.group}:${c.name}`)).toEqual(['workhub:rename', 'skill:deploy-docs'])
+    expect(after.map((c) => `${c.group}:${c.name}`)).toEqual(['workhub:rename', 'workhub:exit', 'skill:deploy-docs'])
   })
 
   it('owns /model only for agents whose model it switches (not Claude, which runs its own)', () => {
     const models = [{ id: 'acme-model-1', name: 'Acme 1' }, { id: 'acme-model-2', name: 'Acme 2' }]
-    expect(workhubCommands(view({ modelControl: true, models }), t).map((c) => c.name)).toEqual(['rename'])
-    expect(workhubCommands(view({ agentId: 'kiro', adapter: 'acp', modelControl: true, models }), t).map((c) => c.name)).toEqual(['rename', 'model'])
+    expect(workhubCommands(view({ modelControl: true, models }), t).map((c) => c.name)).toEqual(['rename', 'exit'])
+    expect(workhubCommands(view({ agentId: 'kiro', adapter: 'acp', modelControl: true, models }), t).map((c) => c.name)).toEqual(['rename', 'model', 'exit'])
   })
 })
 
@@ -103,9 +107,9 @@ describe('runWorkhubCommand', () => {
 
 describe('/login', () => {
   it('is Workhub\'s for Claude in the chat when the session has a console, and not for other agents', () => {
-    expect(workhubCommands(view({ modes: ['app', 'console', 'shell'] }), t).map((c) => c.name)).toEqual(['rename', 'login', 'remote-control'])
-    expect(workhubCommands(view({ modes: ['app'] }), t).map((c) => c.name)).toEqual(['rename'])
-    expect(workhubCommands(view({ agentId: 'kiro', adapter: 'acp', modes: ['app', 'console'] }), t).map((c) => c.name)).toEqual(['rename'])
+    expect(workhubCommands(view({ modes: ['app', 'console', 'shell'] }), t).map((c) => c.name)).toEqual(['rename', 'login', 'remote-control', 'exit'])
+    expect(workhubCommands(view({ modes: ['app'] }), t).map((c) => c.name)).toEqual(['rename', 'exit'])
+    expect(workhubCommands(view({ agentId: 'kiro', adapter: 'acp', modes: ['app', 'console'] }), t).map((c) => c.name)).toEqual(['rename', 'exit'])
     expect(runWorkhubCommand(view({ agentId: 'kiro', adapter: 'acp', modes: ['app', 'console'] }), '/login', actions(), t)).toBe(false)
   })
 
@@ -118,6 +122,44 @@ describe('/login', () => {
     runWorkhubCommand(view({ modes: ['app', 'console'] }), '/login', late, t)
     await settle()
     expect(late.log.at(-1)).toBe('error: The Terminal view did not come up in time. Type /login there yourself.')
+  })
+})
+
+describe('/exit', () => {
+  it('is Workhub\'s for every session, without arguments, and hides an agent\'s own /exit', () => {
+    for (const v of [view(), view({ agentId: 'kiro', adapter: 'acp' }), view({ agentId: 'codex', adapter: 'acp', modes: ['app'] })]) {
+      const exit = workhubCommands(v, t).find((c) => c.name === 'exit')
+      expect(exit).toEqual({ name: 'exit', group: 'workhub', description: 'Close this session' })
+    }
+    const listed = sessionSlashCommands(view({ commands: [{ name: 'exit', group: 'agent' }, { name: 'compact', group: 'agent' }] }), t)
+    expect(listed.filter((c) => c.name === 'exit').map((c) => c.group)).toEqual(['workhub'])
+  })
+
+  it('closes the session and never sends /exit to the agent, whatever follows it', async () => {
+    for (const text of ['/exit', '/exit now please', ' /EXIT ']) {
+      const a = actions()
+      expect(runWorkhubCommand(view(), text, a, t)).toBe(true)
+      await settle()
+      // A session that closes needs no "done" line in its chat.
+      expect(a.log).toEqual(['exit s1'])
+    }
+    const acp = actions()
+    expect(runWorkhubCommand(view({ id: 's2', agentId: 'kiro', adapter: 'acp' }), '/exit', acp, t)).toBe(true)
+    await settle()
+    expect(acp.log).toEqual(['exit s2'])
+  })
+
+  it('reports in the chat when the session could not be closed', async () => {
+    const a = actions(true)
+    expect(runWorkhubCommand(view(), '/exit', a, t)).toBe(true)
+    await settle()
+    expect(a.log).toEqual(['error: Could not close the session: window is gone'])
+  })
+
+  it('leaves a command that only starts with exit to the agent', () => {
+    const a = actions()
+    for (const text of ['/exit-plan-mode', '/exits', 'exit']) expect(runWorkhubCommand(view(), text, a, t)).toBe(false)
+    expect(a.exit).not.toHaveBeenCalled()
   })
 })
 

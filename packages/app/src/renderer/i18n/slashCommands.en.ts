@@ -18,6 +18,7 @@ export const slashCommandsEn = {
   'slash.rename.usage': 'Usage: /rename <name>',
   'slash.rename.done': 'Renamed the session to “{name}”',
   'slash.rename.failed': 'Could not rename the session: {message}',
+  'slash.exit.description': 'Close this session',
   'slash.model.description': 'Switch this session to another model',
   'slash.model.hint': '<model>',
   'slash.model.usage': 'Usage: /model <model>. Models: {models}',

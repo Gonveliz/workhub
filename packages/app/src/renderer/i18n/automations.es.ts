@@ -72,6 +72,7 @@ export const automationsEs: Record<keyof typeof automationsEn, string> = {
   'automations.detail.neverIdle': 'la sesión nunca quedó libre',
   'automations.detail.clearFailed': 'no se pudo limpiar el contexto',
   'automations.detail.stoppedByUser': 'la detuviste',
+  'automations.detail.takenOver': 'tomaste su sesión',
   'automations.detail.moduleOff': 'el módulo Automatizaciones está apagado',
   'automations.detail.paused': 'la automatización está apagada',
   'automations.detail.usage': 'límite de uso',

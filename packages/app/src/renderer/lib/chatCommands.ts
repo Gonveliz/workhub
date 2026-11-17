@@ -35,6 +35,8 @@ export function workhubCommands(v: CommandView, t: Translate): SlashCommandInfo[
   if (ownsLogin(v)) out.push({ name: 'login', group: 'workhub', description: t('slash.login.description') })
   if (ownsRemoteControl(v)) out.push({ name: 'remote-control', group: 'workhub', description: t('slash.remoteControl.description') })
   if (ownsModel(v)) out.push({ name: 'model', group: 'workhub', description: t('slash.model.description'), argumentHint: t('slash.model.hint') })
+  // Claude Code's own /exit belongs to its terminal UI (the chat goes through the SDK), so Workhub closes the session.
+  out.push({ name: 'exit', group: 'workhub', description: t('slash.exit.description') })
   return out
 }
 
@@ -48,6 +50,11 @@ export interface WorkhubCommandActions {
   setModel(sessionId: string, modelId: string): Promise<void>
   /** Opens the console and types `/login`; false when the console did not come up. */
   login(sessionId: string): Promise<boolean>
+  /**
+   * Closes the session as its close button does: resolves once it is closed or its close dialog is
+   * up (a working session, or a worktree to keep or remove), rejects when it could not be closed.
+   */
+  exit(sessionId: string): Promise<void>
   /** Opens the console and types `/remote-control`; false when the console did not come up. */
   remoteControl(sessionId: string): Promise<boolean>
   /** A line in the chat: what the command did, or why it did not run. */
@@ -88,6 +95,11 @@ export function runWorkhubCommand(v: CommandView, text: string, actions: Workhub
   }
   if ((name === 'remote-control' || name === 'rc') && ownsRemoteControl(v)) {
     reportConsoleCommand(actions, actions.remoteControl(v.id), 'remoteControl', t)
+    return true
+  }
+  if (name === 'exit') {
+    // Arguments are ignored; a session that closes needs no "done" line in its chat.
+    actions.exit(v.id).catch((e: unknown) => actions.report('error', t('sessions.closeFailed', { message: e instanceof Error ? e.message : String(e) })))
     return true
   }
   if (name === 'model' && ownsModel(v)) {

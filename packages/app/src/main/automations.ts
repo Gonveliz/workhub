@@ -48,6 +48,8 @@ export interface AutomationServiceDeps {
    * its automation: the full history lives in the database.
    */
   recordRuns?: (runs: readonly AutomationRun[], profileOf: (automationId: string) => string | null) => void
+  /** Where the engine's lines go (`main.log`): sessions it retired, or kept because the user talks in them. */
+  log?: (message: string) => void
 }
 
 const TICK_MS = 2_000
@@ -164,6 +166,7 @@ export class AutomationService {
       },
       transferThreads: (oldKey, newKey, agentKey) => this.deps.watcher.transferThreads(oldKey, newKey, agentKey),
       listeningThreads: (identity) => this.deps.watcher.listeningThreads(identity),
+      log: (message) => this.deps.log?.(message),
       notify: (n: AutomationNotice) => this.deps.notice({ kind: 'automationFailed', automationName: n.automationName, outcome: n.outcome, detail: n.detail }),
       persist: (state) => {
         this.deps.state.save(state)

@@ -35,7 +35,7 @@ export interface SessionsIpcDeps {
   configuration: ConfigurationService
   configChanged: () => void
   ownerStarts: Pick<OwnerStarts, 'start'>
-  driver: Pick<SessionDriver, 'typeInConsoleWhenSettled'>
+  driver: Pick<SessionDriver, 'typeInConsoleWhenSettled' | 'userPrompted' | 'userTyped'>
   localGit: Pick<GitReview, 'localChanges'>
   sessionWindows: SessionWindows
   continuity: Pick<ContinuityService, 'options' | 'failover' | 'handoff'>
@@ -74,7 +74,10 @@ export function registerSessionsIpc(ipc: IpcRegistrar, deps: SessionsIpcDeps): v
       return promptFromDevice(
         {
           prompt: (sid, t, imgs, options) => sessions.prompt(sid, t, imgs, options),
-          showPrompt: (sid, t) => send('automations:prompted', sid, t),
+          showPrompt: (sid, t) => {
+            deps.driver.userPrompted(sid)
+            send('automations:prompted', sid, t)
+          },
           showTurnEnd: (sid, stopReason) => send('automations:turnEnded', sid, stopReason)
         },
         id,
@@ -82,10 +85,12 @@ export function registerSessionsIpc(ipc: IpcRegistrar, deps: SessionsIpcDeps): v
         images
       )
     }
-    if (typeof token !== 'number') return sessions.prompt(id, text, images)
+    // The user's own prompts: an automation lets go of a session the user talks in.
+    if (typeof token !== 'number') return sessions.prompt(id, text, images, { onStart: () => deps.driver.userPrompted(id) })
     let started = false
     const onStart = () => {
       started = true
+      deps.driver.userPrompted(id)
       // The sender shows its own bubble (with its images) and learns its number first, so the
       // broadcast that puts the prompt in the journal and every other window is not shown twice.
       if (!e.sender.isDestroyed()) e.sender.send('sessions:promptStarted', id, token, chatJournal.nextSeq(id))
@@ -146,7 +151,10 @@ export function registerSessionsIpc(ipc: IpcRegistrar, deps: SessionsIpcDeps): v
   ipc.on('sessions:permission', (_e, id: string, requestId: string, optionId: string | null, answers?: unknown) =>
     sessions.respondPermission(id, requestId, optionId, validAnswers(answers))
   )
-  ipc.on('sessions:write', (_e, id: string, data: string) => sessions.write(id, data))
+  ipc.on('sessions:write', (_e, id: string, data: string) => {
+    deps.driver.userTyped(id, data)
+    sessions.write(id, data)
+  })
   ipc.on('sessions:resize', (_e, id: string, cols: number, rows: number) => sessions.resize(id, cols, rows))
   ipc.handle('sessions:exportConversation', createConversationExporter({ window: deps.liveMain }))
   ipc.handle('continuity:options', (_e, id: string) => continuity.options(id))

@@ -34,6 +34,11 @@ export interface DrivenSession {
   onScreen?: boolean
   /** Cumulative cost and tokens of the session, when its agent reports them. */
   usage?: SessionUsage
+  /**
+   * Prompts the user sent into it (its chat, a paired device or Enter in its console), never the
+   * text Workhub typed in through `deliver`. Absent or 0: the user has not talked in it.
+   */
+  userPrompts?: number
 }
 
 /** How the engine drives sessions; the app implements it on its session manager. */
@@ -80,6 +85,8 @@ export interface AutomationHost {
   listeningThreads(identity: string): number
   notify(notice: AutomationNotice): void
   persist(state: AutomationsState): void
+  /** A line for the app's log (a session retired, or kept because the user talks in it). */
+  log?(message: string): void
 }
 
 interface Pending {
@@ -160,6 +167,10 @@ export const CLEAR_CONTEXT_PROMPT = '/clear'
  * position, and the chat threads it listens to (so a reply reaches exactly one session). The
  * previous session is then retired: stopped once it is idle, off screen and no open thread wakes
  * it, never before.
+ *
+ * With "new session each run", a session the user talks in (a prompt the engine did not deliver)
+ * becomes the user's: the automation lets go of it, so later runs neither type into it nor hand it over, and it is never
+ * retired. The next run opens a session of its own, as its session policy says.
  */
 export class AutomationEngine {
   private state: AutomationsState
@@ -347,6 +358,7 @@ export class AutomationEngine {
     if (this.ticking) return
     this.ticking = true
     try {
+      this.release()
       for (const a of this.host.definitions()) await this.step(a)
       await this.retire()
       this.settleUsage()
@@ -524,8 +536,45 @@ export class AutomationEngine {
   }
 
   /**
+   * Lets go of the sessions the user has talked in, for "new session each run" automations (a
+   * "reuse" one keeps its session, replies included): an automation no longer runs in them (its next
+   * run opens its own session), and one waiting to be retired stays open. Matched by identity as
+   * well as by id, so it holds after a restart or once the session was reopened under a new id.
+   */
+  private release(): void {
+    const used = this.host.sessions.list().filter((s) => (s.userPrompts ?? 0) > 0 && s.state !== 'stopped' && s.state !== 'error')
+    if (!used.length) return
+    const ids = new Set(used.map((s) => s.id))
+    const identities = new Set(used.map((s) => s.identity))
+    const sessions = { ...this.state.sessions }
+    let changed = false
+    // Only "new session each run": a "reuse" automation keeps its one session, chat replies included.
+    for (const a of this.host.definitions().filter((d) => d.sessionPolicy === 'newEachRun')) {
+      const ownerId = this.owner.get(a.id)
+      const identity = sessions[a.id]
+      const byId = ownerId !== undefined && ids.has(ownerId)
+      const byIdentity = identity !== undefined && identities.has(identity)
+      if (!byId && !byIdentity) continue
+      this.owner.delete(a.id)
+      if (byIdentity) {
+        delete sessions[a.id]
+        changed = true
+      }
+      const taken = byIdentity ? identity : used.find((s) => s.id === ownerId)!.identity
+      this.host.log?.(`automations: "${a.name}" let go of session ${taken}, the user talks in it; the next run opens its own`)
+    }
+    const retiring = this.state.retiring.filter((identity) => {
+      if (!identities.has(identity)) return true
+      this.host.log?.(`automations: kept session ${identity}${this.ofAutomation(identity)} open instead of retiring it, the user talks in it`)
+      return false
+    })
+    if (changed || retiring.length !== this.state.retiring.length) this.save({ ...this.state, sessions, retiring })
+  }
+
+  /**
    * Stops replaced sessions that are done with: idle, off screen, not in a run and with no open
-   * chat thread waking them. A session a thread still wakes is never stopped here.
+   * chat thread waking them. A session a thread still wakes, or one the user talks in, is never
+   * stopped here.
    */
   private async retire(): Promise<void> {
     if (!this.state.retiring.length) return
@@ -534,15 +583,26 @@ export class AutomationEngine {
     for (const identity of this.state.retiring) {
       const open = this.live(identity)
       if (!open) continue
+      // `release` drops these first; checked again so a session the user talks in is never stopped.
+      if ((open.userPrompts ?? 0) > 0) continue
       if (this.host.listeningThreads(identity) > 0 || open.state !== 'ready' || open.onScreen || inRun.has(open.id)) {
         keep.push(identity)
         continue
       }
       const stopped = await this.host.sessions.stop(open.id).then(() => true, () => false)
       // Only a session this hand-over stopped leaves the list; one that would not stop stays visible.
-      if (stopped) await this.host.sessions.forget(open.id).catch(() => undefined)
+      if (stopped) {
+        await this.host.sessions.forget(open.id).catch(() => undefined)
+        this.host.log?.(`automations: retired session ${identity}${this.ofAutomation(identity)}, replaced by a newer one`)
+      }
     }
     if (keep.length !== this.state.retiring.length) this.save({ ...this.state, retiring: keep })
+  }
+
+  /** ` of "<automation>"` for a log line, when the session belongs to one. */
+  private ofAutomation(identity: string): string {
+    const a = this.automationOf(identity)
+    return a ? ` of "${a.name}"` : ''
   }
 
   private live(identity: string): DrivenSession | undefined {
@@ -574,6 +634,8 @@ export class AutomationEngine {
       const text = session.error ?? 'sessionFailed'
       return looksRateLimited(text) ? this.finish(a, 'rateLimited', text, resetTimeIn(text) ?? undefined) : this.finish(a, 'error', text)
     }
+    // The user talked in the session before the prompt went in: it is theirs now (see `release`).
+    if (a.sessionPolicy === 'newEachRun' && (active.stage === 'clearing' || active.stage === 'delivering') && (session.userPrompts ?? 0) > 0) return this.finish(a, 'stopped', 'takenOver')
     if (active.stage === 'clearing') {
       // `/clear` runs as a turn of its own: the prompt goes in once it ended.
       if (session.turnsEnded > active.turnsAtSubmit && session.state === 'ready') this.patchActive(a.id, { stage: 'delivering', cleared: true })

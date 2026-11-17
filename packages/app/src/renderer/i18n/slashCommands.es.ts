@@ -20,6 +20,7 @@ export const slashCommandsEs: Record<keyof typeof slashCommandsEn, string> = {
   'slash.rename.usage': 'Uso: /rename <nombre>',
   'slash.rename.done': 'La sesión ahora se llama “{name}”',
   'slash.rename.failed': 'No se pudo renombrar la sesión: {message}',
+  'slash.exit.description': 'Cierra esta sesión',
   'slash.model.description': 'Cambia el modelo de esta sesión',
   'slash.model.hint': '<modelo>',
   'slash.model.usage': 'Uso: /model <modelo>. Modelos: {models}',
