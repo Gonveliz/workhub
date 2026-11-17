@@ -203,6 +203,10 @@ brings it back; its icon shows whether the panel is open.
   with its status, and no tool output.
 - **Sign in** (Claude): `/login` in the chat opens the Terminal view and runs `/login` there, since
   Claude Code only signs in from its terminal UI. Once signed in, go back to App (⌘⌥1).
+- **Remote Control** (Claude): `/remote-control` (or `/rc`) in the chat opens the Terminal view and
+  runs `/remote-control` there, since Claude Code only turns it on from its terminal UI. Remote
+  Control stays on only while the Terminal view runs: a session has one engine at a time, so
+  switching back to App stops the console and ends it.
 - **Close**: the close button on the row, `/exit` in the chat (in App mode, for every agent;
   anything typed after it is ignored), or ⌘/Ctrl+Shift+W. A session that is working asks first
   (**Stop and close**). A session in a worktree Workhub created offers to keep or remove the
