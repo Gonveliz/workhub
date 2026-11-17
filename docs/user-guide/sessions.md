@@ -203,9 +203,11 @@ brings it back; its icon shows whether the panel is open.
   with its status, and no tool output.
 - **Sign in** (Claude): `/login` in the chat opens the Terminal view and runs `/login` there, since
   Claude Code only signs in from its terminal UI. Once signed in, go back to App (⌘⌥1).
-- **Close**: the close button on the row. A session that is working asks first (**Stop and
-  close**). A session in a worktree Workhub created offers to keep or remove the worktree. The
-  conversation stays in History.
+- **Close**: the close button on the row, `/exit` in the chat (in App mode, for every agent;
+  anything typed after it is ignored), or ⌘/Ctrl+Shift+W. A session that is working asks first
+  (**Stop and close**). A session in a worktree Workhub created offers to keep or remove the
+  worktree. The conversation stays in History. In the Terminal view, `/exit` goes to the agent's
+  own terminal UI as before.
 - **Delete session**: in the menu of a session that is closed or stopped, in a group or not. It
   asks first, then takes the session out of the sidebar, and out of its group, for good. The
   conversation stays in History and in the agent's own files; nothing is erased there. A session

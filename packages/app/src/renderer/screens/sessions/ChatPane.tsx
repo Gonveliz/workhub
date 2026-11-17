@@ -6,6 +6,8 @@ import { CopyButton, Markdown, type MarkdownActions } from '../../components/mol
 import { useToast } from '../../components/molecules/Toast'
 import { BrandMark, ToolCallCard } from '../../components/organisms'
 import { ChatFind } from './ChatFind'
+import { CloseSessionDialog } from '../../components/organisms/CloseSessionDialog'
+import { isWorking } from '../../components/organisms/SessionList'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { MessageKey } from '../../i18n/translate'
 import { cn } from '../../lib/cn'
@@ -18,11 +20,12 @@ import { isEditable, shouldFocusComposer } from '../../lib/composer-focus'
 import { interruptSession, onRecoveredPrompts, removeQueuedPrompt, submitPrompt, useQueuedPrompts } from '../../promptQueue'
 import { markPermission, openChatImage, pushItem, pushNotice, type ChatItem, type SessionData } from '../../store'
 import { runWorkhubCommand, sessionSlashCommands } from '../../lib/chatCommands'
+import { requestSessionClose } from '../../lib/closeSession'
 import { SlashCommandMenu, slashOptionId } from './SlashCommandMenu'
 import { FileMentionMenu, mentionOptionId } from './FileMentionMenu'
 import { followLog, isAtBottom, lastPromptId, type FollowMark } from '../../lib/chatScroll'
 import { onRevealChatItem, revealEarlier, revealItemStart, showJumpToLatest, windowAfterScroll, windowStart } from '../../lib/chatWindow'
-import { refreshConfig, useConfig } from '../../configStore'
+import { currentConfig, refreshConfig, useConfig } from '../../configStore'
 import { isLongMessage } from '../../lib/longMessage'
 import { listen, listenId, stopListening, toggleListen, useListenPhase, type ListenOutcome } from '../../lib/listen'
 import { sessionBudget } from '../../lib/agent-usage'
@@ -612,6 +615,17 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
   const allCommands = useMemo(() => sessionSlashCommands(v, t), [v, t])
   const [menuSelected, setMenuSelected] = useState(0)
   const [menuDismissedFor, setMenuDismissedFor] = useState<string | null>(null)
+  // `/exit`: the close button's path (the dialog for a working session or a worktree, else closing at once), here in the chat so every window has it.
+  const [closing, setClosing] = useState(false)
+  const exit = (id: string) =>
+    requestSessionClose(v, isWorking(data), {
+      profiles: async () => (currentConfig() ?? (await refreshConfig())).config.profiles,
+      ask: () => setClosing(true),
+      close: () => window.hub.sessions.close(id),
+      fail: (e) => {
+        throw e
+      }
+    })
   const query = slashQuery(text)
   const menu = useMemo(() => (query === null || menuDismissedFor === text ? [] : filterSlashCommands(allCommands, query)), [allCommands, query, menuDismissedFor, text])
   const menuIndex = Math.min(menuSelected, Math.max(0, menu.length - 1))
@@ -672,6 +686,7 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
           rename: (id, name) => window.hub.sessions.rename(id, name),
           setModel: (id, model) => window.hub.sessions.setModel(id, model),
           login: (id) => window.hub.sessions.login(id),
+          exit,
           report: (kind, message) => (kind === 'error' ? pushItem(v.id, 'error', message) : pushNotice(v.id, message, value))
         },
         t
@@ -1087,6 +1102,7 @@ export function ChatPane({ data, active = false }: { data: SessionData; active?:
           </div>
         </div>
       </div>
+      {closing && <CloseSessionDialog session={data} working={isWorking(data)} onDone={() => setClosing(false)} onError={(message) => pushItem(v.id, 'error', message)} />}
     </div>
   )
 }
