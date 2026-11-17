@@ -51,6 +51,9 @@ class FakeWorld implements AutomationHost {
   budget: { window: string; resetsAt?: number } | null = null
   gate: unknown = undefined
   clears = true
+  log?: (message: string) => void
+  /** Sessions cannot take a prompt yet (`deliver` answers `waiting`). */
+  holding = false
 
   now = () => this.time
   newId = () => `id${++this.ids}`
@@ -79,11 +82,12 @@ class FakeWorld implements AutomationHost {
       this.live.push(s)
       return s
     },
-    deliver: async (sessionId: string, text: string) => {
+    deliver: async (sessionId: string, text: string): Promise<'delivered' | 'waiting'> => {
+      if (this.holding) return 'waiting'
       const s = this.live.find((x) => x.id === sessionId)!
       this.delivered.push({ sessionId, text })
       s.state = 'busy'
-      return 'delivered' as const
+      return 'delivered'
     },
     interrupt: async () => undefined,
     stop: async (sessionId: string) => {
@@ -395,6 +399,62 @@ describe('new session each run (Workhub 1 bugs)', () => {
     expect(engine.snapshot().retiring).toEqual([])
   })
 
+  it('never retires a session the user talks in, after a restart or a new id, and logs it', async () => {
+    const { world, engine: before } = setup({ sessionPolicy: 'newEachRun' })
+    before.runNow('a1')
+    await runOnce(world, before)
+    const used = world.live[0]!
+    // The user prompts it, then the app restarts and the session comes back under a new id.
+    Object.assign(used, { id: 'ui-reopened', userPrompts: 1 })
+    const lines: string[] = []
+    world.log = (m: string) => void lines.push(m)
+    const engine = new AutomationEngine(world, before.snapshot())
+    engine.runNow('a1')
+    await runOnce(world, engine)
+    const fresh = world.live.find((s) => s.id !== used.id)!
+    expect(fresh.identity).not.toBe(used.identity)
+    expect(world.delivered.at(-1)!.sessionId).toBe(fresh.id)
+    // Idle and off screen for a while: it stays open, it is not retired.
+    used.onScreen = false
+    for (let i = 0; i < 5; i++) {
+      world.time += 2_000
+      await engine.tick()
+    }
+    expect(world.stopped).not.toContain(used.id)
+    expect(world.forgotten).not.toContain(used.id)
+    expect(world.live).toContain(used)
+    expect(engine.snapshot().retiring).not.toContain(used.identity)
+    expect(lines.some((l) => l.includes(used.identity) && l.includes('user talks in it'))).toBe(true)
+  })
+
+  it('drops a retiring session from retirement once the user prompts it', async () => {
+    const { world, engine, old } = await firstRun()
+    world.transferThreads = () => 0
+    engine.runNow('a1')
+    await runOnce(world, engine)
+    expect(engine.snapshot().retiring).toContain(old.identity)
+    old.userPrompts = 1
+    world.chat = { ...world.chat, threads: world.chat.threads.map((t) => ({ ...t, closed: true })) }
+    await engine.tick()
+    await engine.tick()
+    expect(engine.snapshot().retiring).toEqual([])
+    expect(world.stopped).toEqual([])
+    expect(world.live).toContain(old)
+  })
+
+  it('still retires an untouched previous session, and logs it', async () => {
+    const { world, engine, old } = await firstRun()
+    const lines: string[] = []
+    world.log = (m: string) => void lines.push(m)
+    world.chat = { ...world.chat, threads: world.chat.threads.map((t) => ({ ...t, closed: true })) }
+    engine.runNow('a1')
+    await runOnce(world, engine)
+    await engine.tick()
+    expect(world.stopped).toEqual([old.id])
+    expect(world.forgotten).toEqual([old.id])
+    expect(lines).toEqual([`automations: retired session ${old.identity} of "Reviews", replaced by a newer one`])
+  })
+
   it('blocks wakes of an automation that is off or takes no replies', async () => {
     const { world, engine, old } = await firstRun()
     world.defs[0] = { ...world.defs[0]!, enabled: false }
@@ -521,6 +581,58 @@ describe('one session per automation while the app runs', () => {
     engine.runNow('a1')
     await runOnce(world, engine)
     expect(world.delivered.slice(3).map((d) => d.text)).toEqual(['/review', '/review'])
+  })
+
+  it('lets go of a session the user took over: later runs open their own and never type into it', async () => {
+    {
+      const { world, engine } = setup({ sessionPolicy: 'newEachRun' })
+      engine.runNow('a1')
+      await runOnce(world, engine)
+      const taken = world.live[0]!
+      taken.userPrompts = 1
+      engine.runNow('a1')
+      await runOnce(world, engine)
+      expect(world.live).toHaveLength(2)
+      const fresh = world.live[1]!
+      expect(fresh.identity).not.toBe(taken.identity)
+      expect(sessionTexts(world)).toEqual(['0:/review', '1:/review'])
+      // The taken-over session was not handed over or retired either.
+      expect(engine.snapshot().retiring).toEqual([])
+      expect(engine.snapshot().sessions['a1']).toBe(fresh.identity)
+      engine.runNow('a1')
+      await runOnce(world, engine)
+      expect(sessionTexts(world)).toEqual(['0:/review', '1:/review', '1:/review'])
+    }
+  })
+
+  it('keeps a "reuse" automation in its session when the user replies there', async () => {
+    const { world, engine } = setup({ sessionPolicy: 'reuse' })
+    engine.runNow('a1')
+    await runOnce(world, engine)
+    const session = world.live[0]!
+    session.userPrompts = 1
+    engine.runNow('a1')
+    await runOnce(world, engine)
+    expect(world.live).toHaveLength(1)
+    expect(sessionTexts(world)).toEqual(['0:/review', '0:/review'])
+    expect(engine.snapshot().sessions['a1']).toBe(session.identity)
+  })
+
+  it('does not deliver a waiting run into a session the user takes over meanwhile', async () => {
+    const { world, engine } = setup({ sessionPolicy: 'newEachRun' })
+    engine.runNow('a1')
+    await runOnce(world, engine)
+    const session = world.live[0]!
+    // The next run starts while the session cannot take its prompt yet.
+    world.holding = true
+    engine.runNow('a1')
+    await engine.tick()
+    expect(engine.runState('a1').active?.stage).toBe('delivering')
+    session.userPrompts = 1
+    await engine.tick()
+    expect(engine.runState('a1').active).toBeUndefined()
+    expect(engine.snapshot().runs[0]).toMatchObject({ outcome: 'stopped', detail: 'takenOver' })
+    expect(world.delivered.filter((d) => d.sessionId === session.id)).toHaveLength(1)
   })
 
   it('keeps the old identity linked to the automation when the session moves to a new one', async () => {

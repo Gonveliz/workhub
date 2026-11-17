@@ -70,6 +70,7 @@ export const automationsEn = {
   'automations.detail.neverIdle': 'the session never became idle',
   'automations.detail.clearFailed': 'the context could not be cleared',
   'automations.detail.stoppedByUser': 'stopped by you',
+  'automations.detail.takenOver': 'you took over its session',
   'automations.detail.moduleOff': 'the Automations module is off',
   'automations.detail.paused': 'the automation is off',
   'automations.detail.usage': 'usage guard',
