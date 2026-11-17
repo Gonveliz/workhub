@@ -84,7 +84,7 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       closeRemovingWorktree: (id, force) => invoke('sessions:closeRemovingWorktree', id, force),
       setModel: (id, model) => invoke('sessions:setModel', id, model),
       setAgentMode: (id, modeId) => invoke('sessions:setAgentMode', id, modeId),
-      login: (id) => invoke('sessions:login', id),
+      typeInConsole: (id, command) => invoke('sessions:typeInConsole', id, command),
       mcp: (id, action, server) => send('sessions:mcp', id, action, server),
       subagent: (id, subagentId) => invoke('sessions:subagent', id, subagentId),
       revealFile: (id, path) => invoke('sessions:revealFile', id, path),

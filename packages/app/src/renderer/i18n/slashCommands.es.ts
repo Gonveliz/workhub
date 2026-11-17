@@ -10,6 +10,11 @@ export const slashCommandsEs: Record<keyof typeof slashCommandsEn, string> = {
   'slash.login.done': 'Iniciá sesión en la vista Terminal. Cuando termines, volvé a App (⌘⌥1 o Ctrl+Alt+1).',
   'slash.login.timeout': 'La vista Terminal no llegó a abrirse a tiempo. Escribí /login ahí.',
   'slash.login.failed': 'No se pudo abrir la vista Terminal para iniciar sesión: {message}',
+  'slash.remoteControl.description': 'Activá Remote Control: abre la vista Terminal y corre /remote-control ahí',
+  'slash.remoteControl.done':
+    'Remote Control quedó activo en la vista Terminal. Sigue activo solo mientras la vista Terminal esté corriendo: volver a App lo termina, porque una sesión corre con un solo motor a la vez.',
+  'slash.remoteControl.timeout': 'La vista Terminal no llegó a abrirse a tiempo. Escribí /remote-control ahí.',
+  'slash.remoteControl.failed': 'No se pudo abrir la vista Terminal para activar Remote Control: {message}',
   'slash.rename.description': 'Renombra esta sesión en la barra lateral, su ventana y el Historial',
   'slash.rename.hint': '<nombre>',
   'slash.rename.usage': 'Uso: /rename <nombre>',

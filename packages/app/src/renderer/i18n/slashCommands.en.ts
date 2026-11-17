@@ -8,6 +8,11 @@ export const slashCommandsEn = {
   'slash.login.done': 'Sign in in the Terminal view. Once done, go back to App (⌘⌥1 or Ctrl+Alt+1).',
   'slash.login.timeout': 'The Terminal view did not come up in time. Type /login there yourself.',
   'slash.login.failed': 'Could not open the Terminal view to sign in: {message}',
+  'slash.remoteControl.description': 'Turn on Remote Control: opens the Terminal view and runs /remote-control there',
+  'slash.remoteControl.done':
+    'Remote Control is on in the Terminal view. It stays on only while the Terminal view runs: switching back to App ends it, because only one engine runs a session at a time.',
+  'slash.remoteControl.timeout': 'The Terminal view did not come up in time. Type /remote-control there yourself.',
+  'slash.remoteControl.failed': 'Could not open the Terminal view to turn on Remote Control: {message}',
   'slash.rename.description': 'Rename this session in the sidebar, its window and History',
   'slash.rename.hint': '<name>',
   'slash.rename.usage': 'Usage: /rename <name>',

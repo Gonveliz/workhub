@@ -21,10 +21,19 @@ function ownsLogin(v: CommandView): boolean {
   return v.adapter === 'native' && (v.modes?.includes('console') ?? false)
 }
 
+/**
+ * `/remote-control` (alias `/rc`) is Workhub's for the same reason and the same sessions as `/login`:
+ * Claude Code turns Remote Control on only from its terminal UI.
+ */
+function ownsRemoteControl(v: CommandView): boolean {
+  return ownsLogin(v)
+}
+
 /** The commands Workhub runs itself for this session, first in the menu. */
 export function workhubCommands(v: CommandView, t: Translate): SlashCommandInfo[] {
   const out: SlashCommandInfo[] = [{ name: 'rename', group: 'workhub', description: t('slash.rename.description'), argumentHint: t('slash.rename.hint') }]
   if (ownsLogin(v)) out.push({ name: 'login', group: 'workhub', description: t('slash.login.description') })
+  if (ownsRemoteControl(v)) out.push({ name: 'remote-control', group: 'workhub', description: t('slash.remoteControl.description') })
   if (ownsModel(v)) out.push({ name: 'model', group: 'workhub', description: t('slash.model.description'), argumentHint: t('slash.model.hint') })
   return out
 }
@@ -39,8 +48,18 @@ export interface WorkhubCommandActions {
   setModel(sessionId: string, modelId: string): Promise<void>
   /** Opens the console and types `/login`; false when the console did not come up. */
   login(sessionId: string): Promise<boolean>
+  /** Opens the console and types `/remote-control`; false when the console did not come up. */
+  remoteControl(sessionId: string): Promise<boolean>
   /** A line in the chat: what the command did, or why it did not run. */
   report(kind: 'done' | 'error', text: string): void
+}
+
+/** Reports how a command typed into the console went: typed, console timed out, or failed. */
+function reportConsoleCommand(actions: WorkhubCommandActions, run: Promise<boolean>, key: 'login' | 'remoteControl', t: Translate): void {
+  run.then(
+    (typed) => actions.report(typed ? 'done' : 'error', t(typed ? `slash.${key}.done` : `slash.${key}.timeout`)),
+    (e: unknown) => actions.report('error', t(`slash.${key}.failed`, { message: e instanceof Error ? e.message : String(e) }))
+  )
 }
 
 /**
@@ -64,10 +83,11 @@ export function runWorkhubCommand(v: CommandView, text: string, actions: Workhub
     return true
   }
   if (name === 'login' && ownsLogin(v)) {
-    actions.login(v.id).then(
-      (typed) => actions.report(typed ? 'done' : 'error', t(typed ? 'slash.login.done' : 'slash.login.timeout')),
-      (e: unknown) => actions.report('error', t('slash.login.failed', { message: e instanceof Error ? e.message : String(e) }))
-    )
+    reportConsoleCommand(actions, actions.login(v.id), 'login', t)
+    return true
+  }
+  if ((name === 'remote-control' || name === 'rc') && ownsRemoteControl(v)) {
+    reportConsoleCommand(actions, actions.remoteControl(v.id), 'remoteControl', t)
     return true
   }
   if (name === 'model' && ownsModel(v)) {

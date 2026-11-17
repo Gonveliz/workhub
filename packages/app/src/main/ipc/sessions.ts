@@ -113,9 +113,10 @@ export function registerSessionsIpc(ipc: IpcRegistrar, deps: SessionsIpcDeps): v
     if (typeof modeId !== 'string' || !modeId) throw new Error('a mode id is required')
     return sessions.setAgentMode(id, modeId)
   })
-  ipc.handle('sessions:login', async (_e, id: string) => {
+  ipc.handle('sessions:typeInConsole', async (_e, id: string, command: string) => {
+    if (command !== '/login' && command !== '/remote-control') throw new Error('this command cannot be typed into the console')
     await sessions.setMode(id, 'console', { now: true })
-    return deps.driver.typeInConsoleWhenSettled(id, '/login')
+    return deps.driver.typeInConsoleWhenSettled(id, command)
   })
   ipc.on('sessions:mcp', (_e, id: string, action: 'refresh' | 'reconnect' | 'enable' | 'disable', server?: string) => sessions.mcp(id, action, server))
   ipc.handle('sessions:subagent', (_e, id: string, subagentId: string) => sessions.subagent(id, subagentId))

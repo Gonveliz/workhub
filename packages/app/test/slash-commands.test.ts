@@ -40,6 +40,10 @@ function actions(fail = false) {
       log.push(`login ${id}`)
       return !fail
     }),
+    remoteControl: vi.fn(async (id: string) => {
+      log.push(`remote-control ${id}`)
+      return !fail
+    }),
     report: (kind: 'done' | 'error', text: string) => log.push(`${kind}: ${text}`)
   }
 }
@@ -99,7 +103,7 @@ describe('runWorkhubCommand', () => {
 
 describe('/login', () => {
   it('is Workhub\'s for Claude in the chat when the session has a console, and not for other agents', () => {
-    expect(workhubCommands(view({ modes: ['app', 'console', 'shell'] }), t).map((c) => c.name)).toEqual(['rename', 'login'])
+    expect(workhubCommands(view({ modes: ['app', 'console', 'shell'] }), t).map((c) => c.name)).toEqual(['rename', 'login', 'remote-control'])
     expect(workhubCommands(view({ modes: ['app'] }), t).map((c) => c.name)).toEqual(['rename'])
     expect(workhubCommands(view({ agentId: 'kiro', adapter: 'acp', modes: ['app', 'console'] }), t).map((c) => c.name)).toEqual(['rename'])
     expect(runWorkhubCommand(view({ agentId: 'kiro', adapter: 'acp', modes: ['app', 'console'] }), '/login', actions(), t)).toBe(false)
@@ -114,6 +118,46 @@ describe('/login', () => {
     runWorkhubCommand(view({ modes: ['app', 'console'] }), '/login', late, t)
     await settle()
     expect(late.log.at(-1)).toBe('error: The Terminal view did not come up in time. Type /login there yourself.')
+  })
+})
+
+describe('/remote-control', () => {
+  const claude = () => view({ modes: ['app', 'console'] })
+
+  it('is in the menu only for Claude with a console', () => {
+    expect(workhubCommands(claude(), t).map((c) => c.name)).toContain('remote-control')
+    expect(workhubCommands(view({ modes: ['app'] }), t).map((c) => c.name)).not.toContain('remote-control')
+    expect(workhubCommands(view({ agentId: 'kiro', adapter: 'acp', modes: ['app', 'console'] }), t).map((c) => c.name)).not.toContain('remote-control')
+  })
+
+  it('routes /remote-control and /rc to the console and never to the agent', async () => {
+    for (const text of ['/remote-control', '/rc', '/RC']) {
+      const a = actions()
+      expect(runWorkhubCommand(claude(), text, a, t)).toBe(true)
+      await settle()
+      expect(a.log[0]).toBe('remote-control s1')
+      expect(a.log[1]).toMatch(/^done: Remote Control is on .*only while the Terminal view runs.*switching back to App ends it/)
+      expect(a.login).not.toHaveBeenCalled()
+    }
+  })
+
+  it('is left to the agent where Workhub does not own it', () => {
+    for (const v of [view({ modes: ['app'] }), view({ agentId: 'kiro', adapter: 'acp', modes: ['app', 'console'] })]) {
+      expect(runWorkhubCommand(v, '/remote-control', actions(), t)).toBe(false)
+      expect(runWorkhubCommand(v, '/rc', actions(), t)).toBe(false)
+    }
+  })
+
+  it('reports a console that did not come up and one that failed', async () => {
+    const late = actions(true)
+    runWorkhubCommand(claude(), '/rc', late, t)
+    await settle()
+    expect(late.log.at(-1)).toBe('error: The Terminal view did not come up in time. Type /remote-control there yourself.')
+    const broken = actions()
+    broken.remoteControl.mockRejectedValueOnce(new Error('no pty'))
+    runWorkhubCommand(claude(), '/remote-control', broken, t)
+    await settle()
+    expect(broken.log.at(-1)).toBe('error: Could not open the Terminal view to turn on Remote Control: no pty')
   })
 })
 

@@ -399,10 +399,11 @@ export interface SessionsApi {
   /** Switches the session's agent mode (an id of `availableModes`). */
   setAgentMode(id: string, modeId: string): Promise<void>
   /**
-   * Signs the agent in: Claude's `/login` only runs in its terminal UI, so the session moves to its
-   * console and `/login` is typed there. False when the console did not come up in time.
+   * Runs a command that Claude Code only handles in its terminal UI (`/login`, `/remote-control`): the
+   * session moves to its console and the command is typed there. False when the console did not come
+   * up in time.
    */
-  login(id: string): Promise<boolean>
+  typeInConsole(id: string, command: '/login' | '/remote-control'): Promise<boolean>
   mcp(id: string, action: 'refresh' | 'reconnect' | 'enable' | 'disable', server?: string): void
   /** One subagent's conversation (prompt, steps, answer); null when the agent keeps none. */
   subagent(id: string, subagentId: string): Promise<SubagentConversation | null>
