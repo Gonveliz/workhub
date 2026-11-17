@@ -55,8 +55,9 @@ profile's folders (see [Remote access](remote-access.md)).
 Claude Code, Kiro, OpenCode and Codex sessions can be resumed. A resumed conversation replays its
 earlier messages and marks where it resumed. ACP agents first try `session/load`; when the agent
 supports `session/resume`, Workhub also tries that if loading is unavailable or fails. Resume
-restores the agent's stored context without replaying messages into the window: a chat can have
-its original context even when its earlier messages are not displayed.
+restores the agent's stored context without replaying messages into the window. Claude Code and
+Codex chats show their earlier messages from the agent's own transcript; for Kiro and OpenCode the
+agent can remember a conversation whose earlier messages the chat does not show.
 
 If both attempts fail for Codex, the session shows the agent's error and keeps the original
 session id; it does not start an empty conversation in its place. If the error says another Codex

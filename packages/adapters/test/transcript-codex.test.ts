@@ -1,9 +1,9 @@
-import { cp, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { zstdCompressSync } from 'node:zlib'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CodexRolloutParser, CodexSessionHistory, CodexTranscriptReader, findRollout, rolloutId, windowLabel } from '../src/transcript-codex'
+import { CodexRolloutParser, CodexSessionHistory, CodexTranscriptReader, findRollout, rolloutId, rolloutMessages, windowLabel } from '../src/transcript-codex'
 
 // Synthetic rollouts written by hand from the documented structure (test/fixtures/codex-home):
 // one full session in /tmp/acme-web, a short one, and a subagent's rollout.
@@ -164,10 +164,70 @@ describe('CodexSessionHistory', () => {
     expect(await new CodexSessionHistory({ limit: 5 }).list({ agentId: 'codex', accountId: null, configDir: dir }, { limit: 1 })).toHaveLength(1)
   })
 
-  it('lists nothing without a sessions folder, and keeps no messages', async () => {
+  it('lists nothing without a sessions folder, and reads no messages', async () => {
     const history = new CodexSessionHistory({ defaultHome: join(home, 'missing') })
     expect(await history.list({ agentId: 'codex', accountId: null })).toEqual([])
-    expect(await history.messages()).toEqual([])
+    expect(await history.messages(ID, '/tmp/acme-web')).toEqual([])
+  })
+
+  it('reads a session back from its rollout: prompts, tool calls and answers, without injected context', async () => {
+    const messages = await new CodexSessionHistory().messages(THREAD, '/tmp/acme-shop', current)
+    expect(messages).toEqual([
+      { kind: 'user', at: Date.parse('2026-10-20T08:00:02.000Z'), text: 'Make the cart total include taxes' },
+      { kind: 'tool', at: Date.parse('2026-10-20T08:00:04.000Z'), id: 'call_1', title: 'Ran a command', detail: '$ rg -n total src/cart' },
+      { kind: 'tool', at: Date.parse('2026-10-20T08:00:06.000Z'), id: 'call_2', title: 'Edited total.ts', detail: 'src/cart/total.ts' },
+      { kind: 'agent', at: Date.parse('2026-10-20T08:00:09.000Z'), text: 'Done: https://github.com/acme/shop/pull/7' }
+    ])
+  })
+
+  it('marks failed tool calls and keeps only the last messages asked for', async () => {
+    const history = new CodexSessionHistory({ defaultHome: home })
+    const messages = await history.messages(ID, '/tmp/acme-web')
+    expect(messages.map((m) => (m.kind === 'tool' ? [m.kind, m.title, m.failed ?? false] : [m.kind]))).toEqual([
+      ['user'],
+      ['tool', 'Ran a command', false],
+      ['tool', 'Edited login.ts and 1 more', false],
+      ['tool', 'Ran a command', true],
+      ['tool', 'Ran a command', false],
+      ['tool', 'Updated the plan', false]
+    ])
+    expect((await history.messages(ID, '/tmp/acme-web', undefined, { last: 2 })).map((m) => m.kind === 'tool' && m.title)).toEqual(['Ran a command', 'Updated the plan'])
+  })
+
+  it('describes code-mode exec calls by the command they run and reads their failures', () => {
+    const line = (payload: object) => JSON.stringify({ timestamp: '2026-11-01T10:00:00Z', type: 'response_item', payload })
+    const script = 'const r = await tools.exec_command({cmd: "npm test -- --run", shell: "powershell", yield_time_ms: 1000}); text(JSON.stringify(r));'
+    const rollout = [
+      line({ type: 'custom_tool_call', name: 'exec', call_id: 'x1', input: script }),
+      line({ type: 'custom_tool_call_output', call_id: 'x1', output: [{ type: 'input_text', text: 'Script finished' }, { type: 'input_text', text: '{"output":"1 failed","exit_code":3}' }] }),
+      line({ type: 'custom_tool_call', name: 'exec', call_id: 'x2', input: 'text(String(1 + 1))' }),
+      line({ type: 'custom_tool_call_output', call_id: 'x2', output: [{ type: 'input_text', text: '2' }] }),
+      line({ type: 'function_call', name: 'exec_command', call_id: 'x3', arguments: '{"cmd":"false"}' }),
+      line({ type: 'function_call_output', call_id: 'x3', output: 'Chunk ID: 2\nProcess exited with code 1\nOutput:\n' })
+    ].join('\n')
+    expect(rolloutMessages(rollout).map((m) => m.kind === 'tool' && [m.title, m.detail, m.failed ?? false])).toEqual([
+      ['Ran a command', '$ npm test -- --run', true],
+      ['Ran code', undefined, false],
+      ['Ran a command', '$ false', true]
+    ])
+  })
+
+  it('reads a compressed rollout and counts the images a prompt carried', async () => {
+    const dir = await tmp()
+    const day = join(dir, 'sessions', '2026', '10', '03')
+    const id = '0199bbbb-cccc-4ddd-8eee-ffff00001111'
+    const lines = [
+      '{"timestamp":"2026-10-03T10:00:00Z","type":"session_meta","payload":{"id":"' + id + '"}}',
+      '{"timestamp":"2026-10-03T10:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"What is in this screenshot?"},{"type":"input_image","image_url":"data:image/png;base64,AAAA"}]}}',
+      '{"timestamp":"2026-10-03T10:00:02Z","type":"response_item","payload":{"type":"reasoning","summary":[]}}',
+      '{"timestamp":"2026-10-03T10:00:03Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"A login form."}]}}'
+    ]
+    await mkdir(day, { recursive: true })
+    await writeFile(join(day, `rollout-2026-10-03T10-00-00-${id}.jsonl.zst`), zstdCompressSync(Buffer.from(lines.join('\n'))))
+    expect(await new CodexSessionHistory().messages(id, '/tmp', dir)).toEqual([
+      { kind: 'user', at: Date.parse('2026-10-03T10:00:01Z'), text: 'What is in this screenshot?', images: 1 },
+      { kind: 'agent', at: Date.parse('2026-10-03T10:00:03Z'), text: 'A login form.' }
+    ])
   })
 })
 

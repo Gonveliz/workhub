@@ -1,13 +1,14 @@
 /**
- * Session history of Codex: the newest rollout files under `<codex home>/sessions`, each read only
- * as far as its first prompt. Listing only; Codex sessions cannot be resumed from Workhub yet.
+ * Session history of Codex: the newest rollout files under `<codex home>/sessions`, each listed from
+ * as far as its first prompt, and a session's conversation read back from its rollout when it is
+ * resumed (ACP restores the agent's context but does not show the earlier messages).
  */
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { HistoryEntry, HistoryListOptions, HistoryMessage, SessionHistorySource } from '@workhub/core'
-import { obj, oneLine, parseLine, str } from '../shared/reader-utils'
-import { defaultCodexHome, readRolloutHead, rolloutFiles, rolloutId } from './files'
-import { readSessionMeta, userItemText, userMessageText } from './parser'
+import type { HistoryEntry, HistoryListOptions, HistoryMessage, HistoryMessagesOptions, SessionHistorySource } from '@workhub/core'
+import { arr, obj, oneLine, parseLine, str, toMillis, type Obj } from '../shared/reader-utils'
+import { defaultCodexHome, findRollout, readRollout, readRolloutHead, rolloutFiles, rolloutId } from './files'
+import { describeCodexTool, jsonArgs, outputFailed, readSessionMeta, userItemText, userMessageText } from './parser'
 
 export interface CodexHistoryOptions {
   /** The Codex home of an account without one. */
@@ -34,9 +35,14 @@ export class CodexSessionHistory implements SessionHistorySource {
     return entries.sort((a, b) => b.lastModified - a.lastModified)
   }
 
-  /** Not supported: Codex sessions are listed only. */
-  async messages(): Promise<HistoryMessage[]> {
-    return []
+  /** The conversation stored in the session's rollout; empty when it has none. */
+  async messages(agentSessionId: string, _cwd: string, configDir?: string, options?: HistoryMessagesOptions): Promise<HistoryMessage[]> {
+    const sessionsDir = join(configDir || this.options.defaultHome || defaultCodexHome(), 'sessions')
+    const path = await findRollout(sessionsDir, agentSessionId)
+    if (!path) return []
+    const messages = rolloutMessages(await readRollout(path))
+    const last = options?.last
+    return last && messages.length > last ? messages.slice(-last) : messages
   }
 
   private async entry(path: string, account: { agentId: string; accountId: string | null }): Promise<HistoryEntry | null> {
@@ -70,4 +76,67 @@ export class CodexSessionHistory implements SessionHistorySource {
     if (meta.createdAt !== undefined) entry.createdAt = meta.createdAt
     return entry
   }
+}
+
+/** The text parts of a message response item whose content parts have the given type. */
+function contentText(item: Obj, type: string): string {
+  return arr(item['content'])
+    .map((c) => obj(c))
+    .filter((c) => c?.['type'] === type)
+    .map((c) => str(c?.['text']))
+    .filter((t): t is string => !!t)
+    .join('\n')
+    .trim()
+}
+
+/**
+ * A rollout's conversation, from its `response_item` lines: what the model was sent and answered,
+ * which every Codex version writes. User messages Codex injects (environment context, AGENTS.md)
+ * are skipped, and so is reasoning; tool calls become tool messages, failed when their output says so.
+ */
+export function rolloutMessages(text: string): HistoryMessage[] {
+  const messages: HistoryMessage[] = []
+  const tools = new Map<string, Extract<HistoryMessage, { kind: 'tool' }>>()
+  for (const line of text.split('\n')) {
+    const entry = parseLine(line)
+    const item = obj(entry?.['payload'])
+    if (!entry || !item || entry['type'] !== 'response_item') continue
+    const at = toMillis(entry['timestamp'])
+    const stamp = at !== undefined ? { at } : {}
+    switch (item['type']) {
+      case 'message': {
+        if (item['role'] === 'user') {
+          const prompt = userMessageText(item)
+          const images = arr(item['content']).filter((c) => obj(c)?.['type'] === 'input_image').length
+          if (prompt) messages.push({ kind: 'user', ...stamp, text: prompt, ...(images ? { images } : {}) })
+        } else if (item['role'] === 'assistant') {
+          const answer = contentText(item, 'output_text')
+          if (answer) messages.push({ kind: 'agent', ...stamp, text: answer })
+        }
+        break
+      }
+      case 'function_call':
+      case 'custom_tool_call':
+      case 'local_shell_call': {
+        const id = str(item['call_id']) ?? str(item['id'])
+        if (!id) break
+        const isShell = item['type'] === 'local_shell_call'
+        const name = isShell ? 'shell' : (str(item['name']) ?? 'tool')
+        const input = typeof item['input'] === 'string' ? item['input'] : undefined
+        const args = isShell ? { command: obj(item['action'])?.['command'] } : jsonArgs(item['arguments'])
+        const { title, detail } = describeCodexTool(name, args, input)
+        const tool: Extract<HistoryMessage, { kind: 'tool' }> = { kind: 'tool', ...stamp, id, title, ...(detail ? { detail } : {}) }
+        tools.set(id, tool)
+        messages.push(tool)
+        break
+      }
+      case 'function_call_output':
+      case 'custom_tool_call_output': {
+        const tool = tools.get(str(item['call_id']) ?? '')
+        if (tool && outputFailed(item['output'])) tool.failed = true
+        break
+      }
+    }
+  }
+  return messages
 }
