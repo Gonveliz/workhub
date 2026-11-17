@@ -5,7 +5,7 @@
  * The format is internal to Claude Code: every field is optional and unknown lines are skipped.
  */
 import { homedir } from 'node:os'
-import { noteWorkPath, toolChangePaths, toolWorkPaths, type SessionMonitorSnapshot, type SessionPullRequestLink, type SubagentSummary, type TokenUsage, type ToolCallSummary } from '@workhub/core'
+import { noteWorkPath, toolChangePaths, toolWorkPaths, type SessionMonitorSnapshot, type Money, type SessionPullRequestLink, type SubagentSummary, type TokenUsage, type ToolCallSummary } from '@workhub/core'
 import { contextWindow, describeTool, estimateCost, pullRequestNumbers, pullRequestUrls, ticketKeys, toolKind } from '../shared/claude-tools'
 import { noteLink, SessionLinks } from './session-links'
 
@@ -18,6 +18,23 @@ const int = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v)
 function time(v: unknown, fallback: number): number {
   const t = typeof v === 'string' ? Date.parse(v) : NaN
   return Number.isNaN(t) ? fallback : t
+}
+
+/**
+ * List-price cost of a conversation, each message at the model that answered it (a session can
+ * switch models, `/model`) and its own request size: the same per-request pricing the usage
+ * database uses. Undefined when no message has a known price.
+ */
+function conversationCost(usage: ReadonlyMap<string, TokenUsage>, models: ReadonlyMap<string, string>, fallbackModel: string | undefined): Money | undefined {
+  let amount = 0
+  let priced = false
+  for (const [id, tokens] of usage) {
+    const cost = estimateCost(models.get(id) ?? fallbackModel, tokens, true)
+    if (!cost) continue
+    amount += cost.amount
+    priced = true
+  }
+  return priced ? { amount, currency: 'USD' } : undefined
 }
 
 function parseLine(line: string): Obj | undefined {
@@ -102,6 +119,8 @@ export interface ClaudeTranscriptOptions {
 export class ClaudeTranscriptParser {
   private model: string | undefined
   private readonly usage = new Map<string, TokenUsage>()
+  /** The model of each message in `usage`. */
+  private readonly models = new Map<string, string>()
   private contextTokens = 0
   /**
    * The prompt cache: the lifetime its writes asked for, and when the last request that used it was
@@ -176,6 +195,7 @@ export class ClaudeTranscriptParser {
         }
         // A streamed message repeats its usage on every block it writes.
         this.usage.set(id, usage)
+        if (model && model !== '<synthetic>') this.models.set(id, model)
         if (!this.turnMessages.includes(id)) this.turnMessages.push(id)
         this.contextTokens = (usage.input ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0)
       }
@@ -256,7 +276,7 @@ export class ClaudeTranscriptParser {
       snap.tokens = tokens
       const requests = this.turnMessages.map((id) => this.usage.get(id)).filter((u): u is TokenUsage => !!u).map((u) => (u.input ?? 0) + (u.cacheWrite ?? 0) + (u.output ?? 0))
       if (requests.length) snap.turnRequests = requests
-      const cost = estimateCost(this.model, tokens)
+      const cost = conversationCost(this.usage, this.models, this.model)
       if (cost) snap.cost = cost
       const size = contextWindow(this.model, this.contextTokens)
       snap.context = { used: this.contextTokens, size, percent: (this.contextTokens / size) * 100 }
@@ -366,6 +386,8 @@ export function parseSubagentMeta(text: string): SubagentMeta {
 /** One subagent transcript: totals and the last step, for the monitor. */
 export class SubagentParser {
   private readonly usage = new Map<string, TokenUsage>()
+  /** The model of each message in `usage`. */
+  private readonly models = new Map<string, string>()
   model: string | undefined
   startedAt: number | undefined
   lastActivityAt: number | undefined
@@ -411,7 +433,10 @@ export class SubagentParser {
     if (model && model !== '<synthetic>') this.model = model
     const id = str(message['id'])
     const usage = usageOf(message)
-    if (id && usage) this.usage.set(id, usage)
+    if (id && usage) {
+      this.usage.set(id, usage)
+      if (model && model !== '<synthetic>') this.models.set(id, model)
+    }
     // A streamed message is written one block per record; only the last carries the stop reason.
     this.isTerminal = message['stop_reason'] === 'end_turn'
     for (const raw of arr(message['content'])) {
@@ -430,6 +455,11 @@ export class SubagentParser {
 
   tokens(): TokenUsage {
     return sumTokens(this.usage.values())
+  }
+
+  /** List-price cost, each message at its own model; `fallbackModel` for messages without one. */
+  cost(fallbackModel: string | undefined): Money | undefined {
+    return conversationCost(this.usage, this.models, fallbackModel)
   }
 }
 
@@ -468,7 +498,7 @@ export function subagentSummary(
   if (meta.description) summary.description = meta.description
   if (meta.toolUseId) summary.toolUseId = meta.toolUseId
   if (model) summary.model = model
-  const cost = estimateCost(model ?? fallbackModel, tokens)
+  const cost = parser.cost(model ?? fallbackModel)
   if (cost) summary.cost = cost
   if (parser.lastStep) summary.lastStep = parser.lastStep
   if (parser.startedAt !== undefined) summary.startedAt = parser.startedAt

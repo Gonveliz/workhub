@@ -146,6 +146,18 @@ describe('Claude tool helpers', () => {
     expect(snap.ticketKeys).toContain('PAY-124')
   })
 
+  it('prices each message at the model that answered it after a model switch', () => {
+    const parser = new ClaudeTranscriptParser()
+    const reply = (id: string, model: string, usage: Record<string, number>) =>
+      parser.ingest(JSON.stringify({ type: 'assistant', message: { id, model, usage, content: [{ type: 'text', text: 'ok' }] } }))
+    reply('m1', 'claude-opus-5-5', { input_tokens: 0, cache_read_input_tokens: 1_000_000, output_tokens: 0 })
+    reply('m2', 'claude-fable-5-2', { input_tokens: 0, cache_read_input_tokens: 1_000_000, output_tokens: 0 })
+    const snap = parser.snapshot()
+    expect(snap.model).toBe('claude-fable-5-2')
+    // Opus 5.5 reads at 0.2 per million, Fable at 1: not 2 million at the last model's price.
+    expect(snap.cost?.amount).toBeCloseTo(0.2 + 1, 10)
+  })
+
   it('prices known models only', () => {
     expect(estimateCost('claude-haiku-5', { input: 1_000_000 })?.amount).toBe(1)
     expect(estimateCost('some-other-model', { input: 1 })).toBeUndefined()
