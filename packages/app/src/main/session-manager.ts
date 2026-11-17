@@ -435,10 +435,12 @@ export class SessionManager {
       this.deps.emitChanged(view)
       return view
     }
-    // Opening a session that waited stopped replaces it, so removing the new one removes it for good.
+    // Opening a session that waited stopped, or one whose start failed (a resume the agent refused),
+    // replaces it, so removing the new one removes it for good.
     for (const old of [...this.sessions.values()]) {
       const key = input.resumeAgentSessionId ?? input.identity
-      if (old.dormant && old.view.state === 'stopped' && key && (old.view.agentSessionId === key || old.view.identity === key)) this.remove(old.view.id)
+      const replaced = (old.dormant && old.view.state === 'stopped') || old.view.state === 'error'
+      if (replaced && key && (old.view.agentSessionId === key || old.view.identity === key)) this.remove(old.view.id)
     }
     this.sessions.set(view.id, session)
     this.deps.emitChanged(view)

@@ -191,10 +191,12 @@ brings it back; its icon shows whether the panel is open.
 
 - **Resume**: History lists past sessions of every account and agent; see
   [History](history.md). In the sidebar, a folder's menu has **Resume session…**. Claude Code,
-  Kiro, OpenCode and Codex sessions can be resumed. Kiro, OpenCode, Codex and Gemini CLI continue
-  the conversation only when the agent can load a past session; otherwise a new conversation starts
-  below the earlier messages, with a **New conversation** notice saying the agent does not remember
-  them.
+  Kiro, OpenCode and Codex sessions can be resumed, also by reopening a closed one from its group.
+  Kiro, OpenCode, Codex and Gemini CLI continue the conversation only when the agent can load or
+  resume a past session; otherwise a new conversation starts below the earlier messages, with a
+  **New conversation** notice saying the agent does not remember them. When another Codex client
+  holds the conversation, the session shows Codex's error instead; reopening it after closing that
+  client replaces the failed copy.
 - **Rename**: **Rename…** in the session's menu, or double-click its name, or `/rename <name>` in
   the chat. Leave the name empty to show the agent's name again.
 - **Export conversation…**: in the session's menu in the sidebar. A save dialog asks where; the
