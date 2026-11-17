@@ -206,7 +206,8 @@ describe('Keep and Revert', () => {
 })
 
 describe('caps', () => {
-  const journal = () => new AgentChangeJournal({ store: memoryStore(), now: () => NOW })
+  // A fixed id: a random UUID could itself contain the hex letters the redaction test looks for.
+  const journal = () => new AgentChangeJournal({ store: memoryStore(), now: () => NOW, newId: () => 'change-1' })
 
   it('keeps a long value shortened and never restores it', async () => {
     const j = journal()
