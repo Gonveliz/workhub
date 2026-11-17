@@ -8,12 +8,13 @@ import tailwindcss from '@tailwindcss/vite'
 const bundled = ['@workhub/core', '@workhub/adapters', '@workhub/protocol', '@noble/curves', '@noble/ciphers', '@noble/hashes', '@agentclientprotocol/sdk', 'zod', 'electron-updater']
 
 interface Brand {
+  appId: string
   repo: { owner: string; name: string }
   relay: string
 }
 
 export default defineConfig(async () => {
-  // The release repository is named in scripts/brand.mjs only (plain JavaScript, so loaded by URL).
+  // The release repository and the app id are named in scripts/brand.mjs only (plain JavaScript, so loaded by URL).
   const { BRAND } = (await import(new URL('../../scripts/brand.mjs', import.meta.url).href)) as { BRAND: Brand }
   return {
     main: {
@@ -22,7 +23,7 @@ export default defineConfig(async () => {
         // The analytics and transcript workers run in their own utility processes (out/main/analytics-worker.js, transcript-worker.js).
         rollupOptions: { input: { index: resolve('src/main/index.ts'), 'analytics-worker': resolve('src/main/analytics-worker.ts'), 'transcript-worker': resolve('src/main/transcript-worker.ts') } }
       },
-      define: { __WORKHUB_RELEASE_REPO__: JSON.stringify(`${BRAND.repo.owner}/${BRAND.repo.name}`), __WORKHUB_DEFAULT_RELAY__: JSON.stringify(BRAND.relay) }
+      define: { __WORKHUB_RELEASE_REPO__: JSON.stringify(`${BRAND.repo.owner}/${BRAND.repo.name}`), __WORKHUB_DEFAULT_RELAY__: JSON.stringify(BRAND.relay), __WORKHUB_APP_ID__: JSON.stringify(BRAND.appId) }
     },
     preload: {},
     renderer: {
