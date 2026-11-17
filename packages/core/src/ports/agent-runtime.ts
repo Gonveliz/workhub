@@ -72,9 +72,10 @@ export interface StartedSession {
   /** A mode was asked for but the agent does not offer it (or refused): it runs in its default. */
   modeIgnored?: boolean
   /**
-   * A resume was asked for but a new conversation started instead (ACP): the agent does not offer
-   * neither `session/load` nor `session/resume` (`unsupported`), or it refused the stored session
-   * (`failed`). Codex restore failures reject start instead, preserving the original identity.
+   * A resume was asked for but a new conversation started instead (ACP): the agent offers neither
+   * `session/load` nor `session/resume` (`unsupported`), or it refused the stored session
+   * (`failed`). For an agent with `strictResume`, a refused restore rejects the start instead,
+   * keeping the original session id.
    */
   resumeFailed?: 'unsupported' | 'failed'
   /** Whether prompts can carry images, when the agent says at start (ACP `promptCapabilities.image`). */

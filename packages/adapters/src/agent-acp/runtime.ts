@@ -278,9 +278,9 @@ export class AcpRuntime implements AgentRuntime, ModelControl, SessionModeContro
           session.loading = false
         }
       }
-      // Preserve the original Codex identity on a failed restore. In particular, a conversation
-      // held by another client must be released there, not replaced with an unrelated new one.
-      if (resuming && req.agent.id === 'codex' && !loaded && restoreError !== undefined) {
+      // An agent with `strictResume` keeps its original identity on a failed restore: a
+      // conversation held by another client must be released there, not replaced with a new one.
+      if (resuming && req.agent.strictResume === true && !loaded && restoreError !== undefined) {
         throw new Error(restoreError)
       }
       const created = loaded

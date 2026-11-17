@@ -252,6 +252,8 @@ describe('AcpRuntime against a fake ACP agent', () => {
 
   describe('resuming a stored session', () => {
     const resume = { agent: fakeAgent, account: null, cwd: process.cwd(), agentSessionId: 'stored-session-7', resume: true }
+    // An agent whose conversations another client can hold (the built-in Codex sets this).
+    const strictAgent: AgentDefinition = { ...fakeAgent, strictResume: true }
     const chat = (events: AgentEvent[], id: string) => events.filter((e) => e.sessionId === id && (e.type === 'message' || e.type === 'tool'))
 
     it('loads it through session/load when the agent advertises loadSession, without replaying it as chat', async () => {
@@ -299,9 +301,9 @@ describe('AcpRuntime against a fake ACP agent', () => {
       })
     })
 
-    it('tries native resume after Codex fails to load the history, keeping the original identity', async () => {
+    it('tries native resume after a failed load, keeping the original identity', async () => {
       await withRuntime(async (rt, events) => {
-        const started = await rt.start({ ...resume, agent: { ...fakeAgent, id: 'codex' }, sessionId: 's-codex', env: { FAKE_ACP_LOAD: 'fail', FAKE_ACP_RESUME: 'ok' } })
+        const started = await rt.start({ ...resume, agent: strictAgent, sessionId: 's-codex', env: { FAKE_ACP_LOAD: 'fail', FAKE_ACP_RESUME: 'ok' } })
         expect(started.agentSessionId).toBe('stored-session-7')
         expect(started.resumeFailed).toBeUndefined()
         await rt.prompt('s-codex', 'continue')
@@ -312,18 +314,27 @@ describe('AcpRuntime against a fake ACP agent', () => {
       })
     })
 
-    it('does not replace a Codex conversation another client owns with a new empty session', async () => {
+    it('does not replace a conversation another client owns when the agent has strictResume', async () => {
       await withRuntime(async (rt, events) => {
-        await expect(rt.start({ ...resume, agent: { ...fakeAgent, id: 'codex' }, sessionId: 's-owned', env: { FAKE_ACP_LOAD: 'fail', FAKE_ACP_RESUME: 'fail' } })).rejects.toThrow(/in use by another Codex client/)
+        await expect(rt.start({ ...resume, agent: strictAgent, sessionId: 's-owned', env: { FAKE_ACP_LOAD: 'fail', FAKE_ACP_RESUME: 'fail' } })).rejects.toThrow(/in use by another Codex client/)
         expect(events).not.toContainEqual(expect.objectContaining({ type: 'stderr', line: 'new-session' }))
         expect(events.filter((e) => e.type === 'state').at(-1)).toMatchObject({ state: 'error', error: expect.stringContaining('Close the session there') })
       })
     })
 
-    it('preserves a failed Codex load when there is no alternative resume method', async () => {
+    it('keeps a failed load with strictResume when there is no resume method to try', async () => {
       await withRuntime(async (rt, events) => {
-        await expect(rt.start({ ...resume, agent: { ...fakeAgent, id: 'codex' }, sessionId: 's-codex-fail', env: { FAKE_ACP_LOAD: 'fail' } })).rejects.toThrow(/session not found/)
+        await expect(rt.start({ ...resume, agent: strictAgent, sessionId: 's-codex-fail', env: { FAKE_ACP_LOAD: 'fail' } })).rejects.toThrow(/session not found/)
         expect(events).not.toContainEqual(expect.objectContaining({ type: 'stderr', line: 'new-session' }))
+      })
+    })
+
+    it('starts a new conversation when both restores fail for an agent without strictResume', async () => {
+      await withRuntime(async (rt, events) => {
+        const started = await rt.start({ ...resume, sessionId: 's-lenient', env: { FAKE_ACP_LOAD: 'fail', FAKE_ACP_RESUME: 'fail' } })
+        expect(started).toMatchObject({ agentSessionId: 'fake-session-1', resumeFailed: 'failed' })
+        expect(events).toContainEqual({ sessionId: 's-lenient', type: 'stderr', line: 'resume:stored-session-7' })
+        expect(events).toContainEqual({ sessionId: 's-lenient', type: 'stderr', line: 'new-session' })
       })
     })
 
@@ -335,9 +346,9 @@ describe('AcpRuntime against a fake ACP agent', () => {
       })
     })
 
-    it('redacts credentials in a failed Codex restore before reporting the error', async () => {
+    it('redacts credentials in a failed strict restore before reporting the error', async () => {
       await withRuntime(async (rt, events) => {
-        await expect(rt.start({ ...resume, agent: { ...fakeAgent, id: 'codex' }, sessionId: 's-secret', env: { FAKE_ACP_LOAD: 'fail', FAKE_ACP_LOAD_ERROR: 'restore refused: token=example-sensitive-value' } })).rejects.toThrow('restore refused: token=[redacted]')
+        await expect(rt.start({ ...resume, agent: strictAgent, sessionId: 's-secret', env: { FAKE_ACP_LOAD: 'fail', FAKE_ACP_LOAD_ERROR: 'restore refused: token=example-sensitive-value' } })).rejects.toThrow('restore refused: token=[redacted]')
         expect(JSON.stringify(events)).not.toContain('example-sensitive-value')
       })
     })

@@ -63,7 +63,8 @@ session id; it does not start an empty conversation in its place. If the error s
 client owns the session, close that conversation in the Codex app, CLI or IDE, then retry from
 History. Workhub does not take over an active writer. An unsupported resume, or a failed resume
 for another ACP agent, still starts a new conversation with a **New conversation** notice: any
-earlier messages shown are history only and the new agent does not remember them.
+earlier messages shown are history only and the new agent does not remember them. An agent you
+define in `config.json` can behave like Codex with `"strictResume": true`.
 
 Runs of an automation reuse its open session and are grouped in History.
 
