@@ -80,6 +80,22 @@ describe('session driver', () => {
     expect(driver.list()[0]).toMatchObject({ identity: 'real-1', turnsEnded: 1 })
   })
 
+  it('counts the user\'s prompts, not the text it delivers for Workhub', async () => {
+    const { views, driver } = setup()
+    views.push(view('v1', 'ready'), view('c1', 'ready', { mode: 'console', modes: ['console'] }))
+    views.forEach((v) => driver.onChanged(v))
+    expect(await driver.deliver('v1', '/review')).toBe('delivered')
+    expect(await driver.deliver('c1', '/review')).toBe('delivered')
+    expect(driver.list().map((s) => s.userPrompts)).toEqual([undefined, undefined])
+    driver.userPrompted('v1')
+    // Keystrokes without Enter, or in the shell next to the agent, are not a prompt.
+    driver.userTyped('c1:console', 'hel')
+    driver.userTyped('c1:shell', 'ls\r')
+    expect(driver.list().map((s) => s.userPrompts)).toEqual([1, undefined])
+    driver.userTyped('c1:console', 'lo\r')
+    expect(driver.list().map((s) => s.userPrompts)).toEqual([1, 1])
+  })
+
   it('forgets a stopped session it drops, and keeps a live one', async () => {
     const { views, driver } = setup()
     views.push(view('v1', 'ready'), view('v2', 'stopped'))

@@ -910,7 +910,8 @@ const automations = new AutomationService({
   },
   configChanged: () => send('config:changed'),
   notice: (n) => send('slack:notice', n),
-  recordRuns: (runs, profileOf) => void automationRuns.record(runs, profileOf)
+  recordRuns: (runs, profileOf) => void automationRuns.record(runs, profileOf),
+  log: (m) => diagnostics.log.info(m)
 })
 
 // Plan: reminders and meeting briefs (the `calendar-state` key of `kv_state` keeps what fired and which briefs started).
