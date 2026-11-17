@@ -30,7 +30,13 @@ if (!builderArch) {
   process.exit(1)
 }
 
-const run = (cmd, argv, cwd = root) => execFileSync(cmd, argv, { cwd, stdio: 'inherit', shell: process.platform === 'win32' })
+// Windows runs a .cmd (npm, electron-builder) only through a shell, which splits an unquoted path at
+// its spaces ("C:\Program Files\..."): quote what goes through it. Node itself needs no shell.
+const quote = (s) => (/\s/.test(s) ? `"${s}"` : s)
+const run = (cmd, argv, cwd = root) =>
+  process.platform === 'win32' && /\.(cmd|bat)$/i.test(cmd)
+    ? execFileSync(quote(cmd), argv.map(quote), { cwd, stdio: 'inherit', shell: true })
+    : execFileSync(cmd, argv, { cwd, stdio: 'inherit' })
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 
 run(process.execPath, [join(root, 'scripts', 'stage-bridge.mjs'), '--platform', platform, '--arch', arch])
