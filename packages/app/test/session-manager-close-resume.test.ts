@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { emptyConfig, NO_CAPABILITIES, type AgentRuntime, type ConfigurationService, type StartSessionRequest, type TranscriptReader } from '@workhub/core'
 import { SessionManager } from '../src/main/session-manager'
 
-function harness(hasTranscript: boolean) {
+function harness(hasTranscript: boolean, failStarts = 0) {
   const started: StartSessionRequest[] = []
   const stopped: string[] = []
   const runtime: AgentRuntime = {
@@ -10,6 +10,7 @@ function harness(hasTranscript: boolean) {
     capabilities: () => ({ ...NO_CAPABILITIES, appMode: true }),
     start: async (r: StartSessionRequest) => {
       started.push(r)
+      if (started.length <= failStarts) throw new Error('This session is in use by another client.')
       return { agentName: 'Claude Code', permissionMode: null, agentSessionId: r.agentSessionId }
     },
     prompt: async () => ({ stopReason: 'end_turn' }),
@@ -73,5 +74,16 @@ describe('SessionManager: reopening a kept session', () => {
     await manager.start({ profileId: null, agentKey: 'claude', cwd: '/w/acme/api', resumeAgentSessionId: 'agent-1' })
     await settle()
     expect(started[0]).toMatchObject({ agentSessionId: 'agent-1', resume: false })
+  })
+
+  it('replaces the copy whose resume failed instead of keeping both', async () => {
+    const { manager, started } = harness(true, 1)
+    const failed = await manager.start({ profileId: null, agentKey: 'claude', cwd: '/w/acme/api', resumeAgentSessionId: 'agent-1' })
+    await settle()
+    expect(manager.list().find((v) => v.id === failed.id)?.state).toBe('error')
+    const retried = await manager.start({ profileId: null, agentKey: 'claude', cwd: '/w/acme/api', resumeAgentSessionId: 'agent-1' })
+    await settle()
+    expect(started).toHaveLength(2)
+    expect(manager.list().map((v) => v.id)).toEqual([retried.id])
   })
 })

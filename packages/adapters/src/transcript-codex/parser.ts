@@ -135,7 +135,7 @@ function commandText(raw: unknown): string | undefined {
   return parts.length >= 3 && /^(ba|z|fi)?sh$|^cmd(\.exe)?$|powershell/i.test(fileBase(parts[0] ?? '')) ? parts[parts.length - 1] : parts.join(' ')
 }
 
-function jsonArgs(raw: unknown): Obj {
+export function jsonArgs(raw: unknown): Obj {
   if (typeof raw === 'string') {
     try {
       return obj(JSON.parse(raw)) ?? {}
@@ -151,7 +151,39 @@ function patchedFiles(patch: string): string[] {
   return [...patch.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)].map((m) => (m[1] ?? '').trim())
 }
 
-function describeCodexTool(name: string, args: Obj, input: string | undefined): { title: string; kind: string; detail?: string } {
+/** A JavaScript string literal's value (`"…"`, `'…'` or a template without substitutions). */
+function jsString(literal: string): string | undefined {
+  const quote = literal[0]
+  const body = literal.slice(1, -1)
+  if (quote === '"') {
+    try {
+      return JSON.parse(literal) as string
+    } catch {
+      return undefined
+    }
+  }
+  if (quote === '`' && body.includes('${')) return undefined
+  return body.replace(/\\(.)/g, '$1')
+}
+
+/**
+ * The first tool a code-mode `exec` call runs (Codex 0.16x writes the turn as JavaScript, e.g.
+ * `await tools.exec_command({cmd: "npm test", …})`): its name and, for a command, its `cmd`.
+ */
+function codeModeCall(source: string): { name: string; args: Obj } | undefined {
+  const call = /\btools\.([A-Za-z_][\w]*)\s*\(/.exec(source)
+  if (!call?.[1]) return undefined
+  const rest = source.slice(call.index + call[0].length)
+  const cmd = /\b(?:cmd|command)\s*:\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`[^`]*`)/.exec(rest)?.[1]
+  const value = cmd ? jsString(cmd) : undefined
+  return { name: call[1], args: value ? { cmd: value } : {} }
+}
+
+export function describeCodexTool(name: string, args: Obj, input: string | undefined): { title: string; kind: string; detail?: string } {
+  if (name === 'exec' && input) {
+    const inner = codeModeCall(input)
+    return inner && inner.name !== 'exec' ? describeCodexTool(inner.name, inner.args, undefined) : { title: 'Ran code', kind: 'execute' }
+  }
   const command = commandText(args['command'] ?? args['cmd'])
   const detail = (d: string | undefined) => (d ? { detail: d } : {})
   if (['shell', 'exec_command', 'local_shell', 'container.exec', 'shell_command'].includes(name)) {
@@ -168,11 +200,25 @@ function describeCodexTool(name: string, args: Obj, input: string | undefined): 
   return { title: name.replaceAll('_', ' ').replaceAll('__', ': '), kind: 'other' }
 }
 
-/** Whether a tool output reports a failure (a non-zero exit code or `success: false`). */
-function outputFailed(output: unknown): boolean {
+/**
+ * Whether a tool output reports a failure: a non-zero exit code or `success: false` in a JSON
+ * output, Codex's "Process exited with code N" line, or, in a code-mode output (an array of
+ * `input_text` parts holding what the script printed), an `"exit_code"` other than 0.
+ */
+export function outputFailed(output: unknown): boolean {
+  if (Array.isArray(output)) {
+    return arr(output).some((part) => {
+      const text = str(obj(part)?.['text'])
+      if (text === undefined) return false
+      const code = /"exit_code"\s*:\s*(-?\d+)/.exec(text)?.[1]
+      return outputFailed(text) || (code !== undefined && Number(code) !== 0)
+    })
+  }
   const o = typeof output === 'string' ? jsonArgs(output) : (obj(output) ?? {})
   const exit = num(obj(o['metadata'])?.['exit_code']) ?? num(o['exit_code'])
-  return (exit !== undefined && exit !== 0) || o['success'] === false
+  if ((exit !== undefined && exit !== 0) || o['success'] === false) return true
+  const exited = typeof output === 'string' ? /^Process exited with code (-?\d+)$/m.exec(output)?.[1] : undefined
+  return exited !== undefined && Number(exited) !== 0
 }
 
 function outputText(output: unknown): string {

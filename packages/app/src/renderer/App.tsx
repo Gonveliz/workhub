@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { appOptions, EMPTY_SESSION_GROUPS, groupOf, nextNeedingYou, notificationTitle, orderAgents, pickAgent, profileDefaultFolder, refreshMembers, sessionIdentity, setGroupCollapsed, statusLevel, stepSession, worktreeDefault, type EffectiveAgent, type GroupMember } from '@workhub/core'
+import { appOptions, EMPTY_SESSION_GROUPS, groupOf, nextNeedingYou, notificationTitle, orderAgents, pickAgent, profileDefaultFolder, refreshMembers, resumesBySessionId, sessionIdentity, setGroupCollapsed, statusLevel, stepSession, worktreeDefault, type EffectiveAgent, type GroupMember } from '@workhub/core'
 import type { SessionView, WorkspaceFolder } from '@shared/api'
 import { TooltipProvider } from './components/atoms'
 import { ToastProvider, useToast } from './components/molecules'
@@ -416,8 +416,7 @@ function Shell() {
 
   const reopenMember = async (member: GroupMember) => {
     const choice = agents.find((a) => a.key === member.agentKey)
-    // Claude and agents with their own terminal UI resume by session id; others start again under the same identity.
-    const resumes = choice ? choice.agent.adapter === 'native' || Boolean(choice.agent.console) : false
+    const resumes = choice ? resumesBySessionId(choice.agent) : false
     try {
       // The same single start per identity as a Slack wake: both at once open one session.
       const view = await window.hub.sessions.reopen(member.key, {

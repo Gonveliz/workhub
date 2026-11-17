@@ -148,6 +148,9 @@ export const BUILTIN_AGENTS: readonly AgentDefinition[] = [
     modeSemantics: 'permission',
     accountConfigEnv: 'CODEX_HOME',
     transcript: 'codex',
+    // Another Codex client (the app, CLI or IDE) can hold a conversation: a refused resume is
+    // reported, not replaced with a new conversation.
+    strictResume: true,
     builtIn: true
   },
   {

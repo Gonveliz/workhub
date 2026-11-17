@@ -7,6 +7,7 @@ import {
   moduleScreens,
   NO_CAPABILITIES,
   resolveEffectiveAgents,
+  resumesBySessionId,
   sessionScreens,
   visibleMonitorFields,
   type AgentDefinition
@@ -78,6 +79,18 @@ describe('built-in agents over ACP', () => {
 
   it('pass the Codex account folder through CODEX_HOME', () => {
     expect(launchEnvironment(agent('codex'), { id: 'c', agentId: 'codex', name: 'C', configDir: '/tmp/codex-a' })).toEqual({ CODEX_HOME: '/tmp/codex-a' })
+  })
+
+  it('reopen by session id the agents that can resume one, and start the others again', () => {
+    const ids = (resumes: boolean) => BUILTIN_AGENTS.filter((a) => resumesBySessionId(a) === resumes).map((a) => a.id)
+    expect(ids(true)).toEqual(expect.arrayContaining(['claude', 'codex']))
+    expect(resumesBySessionId({ adapter: 'acp', capabilities: { ...NO_CAPABILITIES, resume: true } })).toBe(true)
+    expect(resumesBySessionId({ adapter: 'acp', capabilities: NO_CAPABILITIES })).toBe(false)
+    expect(resumesBySessionId({ adapter: 'terminal', capabilities: NO_CAPABILITIES })).toBe(false)
+  })
+
+  it('keep a refused resume as an error only for Codex, whose conversations another client can hold', () => {
+    expect(BUILTIN_AGENTS.filter((a) => a.strictResume).map((a) => a.id)).toEqual(['codex'])
   })
 })
 

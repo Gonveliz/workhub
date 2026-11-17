@@ -1,6 +1,6 @@
 import { Bot, ChevronRight, FolderClosed, FolderOpen, Plus, RotateCcw, Search, X } from 'lucide-react'
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { accountColor, EMPTY_SESSION_GROUPS, memberAgentId, profileColor, sidebarRows, statusLevel, subtreeMembers, type GroupMember, type GroupRow, type StatusLevel, type SubagentSummary } from '@workhub/core'
+import { accountColor, EMPTY_SESSION_GROUPS, memberAgentId, profileColor, resumesBySessionId, sidebarRows, statusLevel, subtreeMembers, type GroupMember, type GroupRow, type StatusLevel, type SubagentSummary } from '@workhub/core'
 import { useI18n } from '../../renderer/i18n/I18nProvider'
 import { cn } from '../../renderer/lib/cn'
 import { LEVEL_LABEL, LEVEL_TONE } from '../../renderer/lib/attention'
@@ -122,7 +122,7 @@ export function HomeScreen() {
       const agents = await window.hub.config.effectiveAgents(memberProfile)
       const choice = agents.find((a) => a.key === member.agentKey)
       if (!choice) throw new Error(member.agentName ?? member.agentKey)
-      const resumes = choice.agent.adapter === 'native' || Boolean(choice.agent.console)
+      const resumes = resumesBySessionId(choice.agent)
       const view = await window.hub.sessions.reopen(member.key, {
         profileId: memberProfile,
         agentKey: member.agentKey,

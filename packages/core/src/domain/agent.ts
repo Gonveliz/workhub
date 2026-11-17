@@ -41,8 +41,8 @@ export interface AgentCapabilities {
   /**
    * A past session can be continued by its id, so History offers Resume and a session reopened at
    * launch resumes. Native Claude and agents with a console resume anyway; an ACP agent does it
-   * through `session/load`, and falls back to a new conversation, with a notice, when the agent
-   * does not advertise `loadSession` at start.
+   * through `session/load`, or `session/resume` when it advertises that, and falls back to a new
+   * conversation, with a notice, when it offers neither or both fail (see `strictResume`).
    */
   resume?: boolean
 }
@@ -106,6 +106,13 @@ export interface AgentDefinition {
   transcript?: string
   /** Another agent whose accounts this one uses (Claude over ACP uses the native Claude accounts). */
   accountsOf?: string
+  /**
+   * A resume the agent refuses fails the start with the agent's error and keeps the session's
+   * original id, instead of starting a new conversation in its place (ACP). For agents whose
+   * conversations can be held by another client, such as Codex: the user releases it there and
+   * retries, rather than ending up in an unrelated empty conversation.
+   */
+  strictResume?: boolean
   /** True for agents shipped with Workhub; false for agents defined in the user's config. */
   builtIn?: boolean
 }
@@ -183,6 +190,15 @@ export interface AgentAccount {
 export function accountAgent<A extends Pick<AgentDefinition, 'command'>>(agent: A, account: Pick<AgentAccount, 'command'> | null): A {
   const command = account?.command?.trim()
   return command ? { ...agent, command } : agent
+}
+
+/**
+ * Whether reopening a past session of this agent continues it by its session id: native Claude,
+ * agents with their own terminal UI, and ACP agents that resume (`session/load` or
+ * `session/resume`). Any other agent starts again under the same identity.
+ */
+export function resumesBySessionId(agent: Pick<AgentDefinition, 'adapter' | 'console' | 'capabilities'>): boolean {
+  return agent.adapter === 'native' || Boolean(agent.console) || (agent.adapter === 'acp' && agent.capabilities.resume === true)
 }
 
 /** The agent id an agent's accounts are bound to. */

@@ -283,6 +283,7 @@ const agent = z.object({
   effortArgs: z.array(z.string()).optional(),
   transcript: z.string().optional(),
   accountsOf: id.optional(),
+  strictResume: z.boolean().optional(),
   builtIn: z.boolean().optional()
 })
 
