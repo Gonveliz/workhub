@@ -192,6 +192,15 @@ export function accountAgent<A extends Pick<AgentDefinition, 'command'>>(agent: 
   return command ? { ...agent, command } : agent
 }
 
+/**
+ * Whether reopening a past session of this agent continues it by its session id: native Claude,
+ * agents with their own terminal UI, and ACP agents that resume (`session/load` or
+ * `session/resume`). Any other agent starts again under the same identity.
+ */
+export function resumesBySessionId(agent: Pick<AgentDefinition, 'adapter' | 'console' | 'capabilities'>): boolean {
+  return agent.adapter === 'native' || Boolean(agent.console) || (agent.adapter === 'acp' && agent.capabilities.resume === true)
+}
+
 /** The agent id an agent's accounts are bound to. */
 export function accountAgentId(agent: Pick<AgentDefinition, 'id' | 'accountsOf'>): string {
   return agent.accountsOf ?? agent.id
