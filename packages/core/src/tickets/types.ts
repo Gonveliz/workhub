@@ -80,6 +80,8 @@ export interface TrackerCapabilities {
   search?: boolean
   /** `createIssue`: new issues (Plan's inbox creates them on approval). */
   create?: boolean
+  /** `listBacklog`: the open tickets of the team's projects, whoever has them (the Tickets screen's Backlog view). */
+  backlog?: boolean
 }
 
 /** One ticket a query found: enough to count it and link it. */
@@ -135,6 +137,13 @@ export type ConnectionTest = { ok: true; account: string } | { ok: false; error:
 export interface ListTicketsOptions {
   /** Status names to leave out (Jira: the "statuses to hide" setting of Workhub 1). */
   ignoredStatuses?: string[]
+}
+
+export interface BacklogOptions extends ListTicketsOptions {
+  /** The connection's backlog query (Jira: JQL). Empty: the open tickets of `projectKeys`. */
+  query?: string
+  /** The connection's project keys, the default scope when there is no query. */
+  projectKeys?: string[]
 }
 
 /** The session facts that link it to a ticket. Every field is optional: agents give different data. */

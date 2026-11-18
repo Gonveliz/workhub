@@ -105,3 +105,73 @@ export function pullRequestsForTicket<P extends TicketPullRequestRef>(
     return findTicketKeys(text, providers).some((m) => m.key === key)
   })
 }
+
+/** The assignee filter value for tickets nobody has. */
+export const UNASSIGNED = ':unassigned'
+
+/** What the Tickets screen narrows a list by; empty fields match everything. */
+export interface TicketFilter {
+  /** Words that must all be in the key or the title (case-insensitive). */
+  text?: string
+  /** A project, as `ticketProject` names it. */
+  project?: string
+  /** An assignee's name, or `UNASSIGNED`. */
+  assignee?: string
+  /** A tracker status name. */
+  status?: string
+}
+
+/** The project part of a key: `ABC` for `ABC-123`, `acme/app` for `acme/app#12`. */
+export function ticketProject(key: string): string {
+  const hash = key.lastIndexOf('#')
+  if (hash > 0) return key.slice(0, hash)
+  const dash = key.lastIndexOf('-')
+  return dash > 0 ? key.slice(0, dash) : key
+}
+
+/** The tickets a filter keeps, in their order. */
+export function filterTickets<T extends Pick<Ticket, 'key' | 'title' | 'status' | 'assignee'>>(tickets: readonly T[], filter: TicketFilter): T[] {
+  const words = (filter.text ?? '').toLowerCase().split(/\s+/).filter(Boolean)
+  return tickets.filter((t) => {
+    if (filter.project && ticketProject(t.key) !== filter.project) return false
+    if (filter.status && t.status !== filter.status) return false
+    if (filter.assignee) {
+      if (filter.assignee === UNASSIGNED ? Boolean(t.assignee) : t.assignee !== filter.assignee) return false
+    }
+    if (words.length > 0) {
+      const text = `${t.key} ${t.title}`.toLowerCase()
+      if (!words.every((w) => text.includes(w))) return false
+    }
+    return true
+  })
+}
+
+/** One value a list can be filtered by, with how many tickets have it. */
+export interface FacetValue {
+  value: string
+  count: number
+}
+
+/** The values a list can be filtered by, sorted, with their counts; `unassigned` counts tickets nobody has. */
+export interface TicketFacets {
+  projects: FacetValue[]
+  assignees: FacetValue[]
+  statuses: FacetValue[]
+  unassigned: number
+}
+
+export function ticketFacets(tickets: readonly Pick<Ticket, 'key' | 'status' | 'assignee'>[]): TicketFacets {
+  const projects = new Map<string, number>()
+  const assignees = new Map<string, number>()
+  const statuses = new Map<string, number>()
+  const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1)
+  let unassigned = 0
+  for (const t of tickets) {
+    bump(projects, ticketProject(t.key))
+    bump(statuses, t.status)
+    if (t.assignee) bump(assignees, t.assignee)
+    else unassigned += 1
+  }
+  const sorted = (m: Map<string, number>) => [...m].map(([value, count]) => ({ value, count })).sort((a, b) => a.value.localeCompare(b.value))
+  return { projects: sorted(projects), assignees: sorted(assignees), statuses: sorted(statuses), unassigned }
+}

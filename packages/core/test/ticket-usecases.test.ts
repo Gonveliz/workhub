@@ -8,6 +8,10 @@ import {
   ticketKeysOfSession,
   ticketsInProgress,
   withoutIgnoredStatuses,
+  UNASSIGNED,
+  filterTickets,
+  ticketFacets,
+  ticketProject,
   type Ticket
 } from '../src'
 
@@ -82,5 +86,40 @@ describe('pull requests linked to a ticket', () => {
       { url: 'https://github.com/a/b/pull/4', title: 'release' }
     ]
     expect(pullRequestsForTicket('ABC-1', prs, jira, ['https://github.com/A/B/pull/4']).map((p) => p.url.slice(-1))).toEqual(['1', '2', '4'])
+  })
+})
+
+describe('ticket filters', () => {
+  const t = (key: string, title: string, status: string, assignee?: string): Ticket => ({ key, provider: 'jira', title, status, category: 'todo', assignee })
+  const list = [t('ABC-1', 'Fix the login form', 'To Do', 'Dana'), t('ABC-2', 'Export reports', 'In Progress'), t('WEB-7', 'Login page copy', 'To Do', 'Lee'), t('acme/app#3', 'Docs', 'open')]
+
+  it('names the project of Jira, Linear and GitHub keys', () => {
+    expect(ticketProject('ABC-12')).toBe('ABC')
+    expect(ticketProject('MY_PROJ-1')).toBe('MY_PROJ')
+    expect(ticketProject('acme/app#3')).toBe('acme/app')
+  })
+
+  it('keeps every ticket with an empty filter', () => {
+    expect(filterTickets(list, {})).toEqual(list)
+  })
+
+  it('narrows by words in the key or title, project, assignee, nobody and status', () => {
+    const keys = (f: Parameters<typeof filterTickets>[1]) => filterTickets(list, f).map((x) => x.key)
+    expect(keys({ text: ' login  ' })).toEqual(['ABC-1', 'WEB-7'])
+    expect(keys({ text: 'login web' })).toEqual(['WEB-7'])
+    expect(keys({ project: 'ABC' })).toEqual(['ABC-1', 'ABC-2'])
+    expect(keys({ assignee: 'Lee' })).toEqual(['WEB-7'])
+    expect(keys({ assignee: UNASSIGNED })).toEqual(['ABC-2', 'acme/app#3'])
+    expect(keys({ status: 'To Do', project: 'ABC' })).toEqual(['ABC-1'])
+  })
+
+  it('lists the values to filter by, sorted, with their counts', () => {
+    expect(ticketFacets(list)).toEqual({
+      projects: [{ value: 'ABC', count: 2 }, { value: 'acme/app', count: 1 }, { value: 'WEB', count: 1 }],
+      assignees: [{ value: 'Dana', count: 1 }, { value: 'Lee', count: 1 }],
+      statuses: [{ value: 'In Progress', count: 1 }, { value: 'open', count: 1 }, { value: 'To Do', count: 2 }],
+      unassigned: 2
+    })
+    expect(ticketFacets([]).unassigned).toBe(0)
   })
 })

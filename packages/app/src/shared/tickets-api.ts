@@ -16,6 +16,11 @@ export interface TicketsStatus {
   connectionName?: string
   /** Project keys of the connection (`ABC` for `ABC-123`); empty when none are set. */
   projectKeys: string[]
+  /**
+   * The Backlog view (the team's open tickets, whoever has them): `ready`, or `unconfigured` until
+   * the connection has a backlog query or project keys. Unset when the tracker has no such view.
+   */
+  backlog?: 'ready' | 'unconfigured'
 }
 
 export type TicketsResult<T> = { ok: true; value: T } | { ok: false; error: string }
@@ -23,6 +28,8 @@ export type TicketsResult<T> = { ok: true; value: T } | { ok: false; error: stri
 export interface TicketsApi {
   status(profileId: string | null): Promise<TicketsStatus>
   list(profileId: string): Promise<TicketsResult<Ticket[]>>
+  /** The open tickets of the team's backlog, whoever has them. */
+  backlog(profileId: string): Promise<TicketsResult<Ticket[]>>
   get(profileId: string, key: string): Promise<TicketsResult<TicketDetail | null>>
   transitions(profileId: string, key: string): Promise<TicketsResult<TicketTransition[]>>
   transition(profileId: string, key: string, transitionId: string): Promise<TicketsResult<null>>

@@ -12,7 +12,7 @@ import { isDirty, type SaveOutcome } from '../lib/unsavedChanges'
 import { DeleteButton, useUnsavedForm } from '../components/organisms/UnsavedChanges'
 import type { Run } from './settings/run'
 
-const { email: EMAIL, projectKeys: PROJECT_KEYS, ignored: IGNORED } = TRACKER_SETTINGS
+const { email: EMAIL, projectKeys: PROJECT_KEYS, ignored: IGNORED, backlogQuery: BACKLOG_QUERY } = TRACKER_SETTINGS
 
 const PROVIDERS = [
   { value: 'jira', label: 'Jira' },
@@ -28,11 +28,12 @@ interface Form {
   email: string
   projectKeys: string
   ignored: string
+  backlogQuery: string
   secret: string
   useInProfile: boolean
 }
 
-const emptyForm = (): Form => ({ id: null, provider: 'jira', name: '', site: '', email: '', projectKeys: '', ignored: '', secret: '', useInProfile: true })
+const emptyForm = (): Form => ({ id: null, provider: 'jira', name: '', site: '', email: '', projectKeys: '', ignored: '', backlogQuery: '', secret: '', useInProfile: true })
 
 function toForm(c: Connection, activeTracker: string | undefined): Form {
   return {
@@ -43,6 +44,7 @@ function toForm(c: Connection, activeTracker: string | undefined): Form {
     email: c.settings[EMAIL] ?? '',
     projectKeys: c.settings[PROJECT_KEYS] ?? '',
     ignored: c.settings[IGNORED] ?? '',
+    backlogQuery: c.settings[BACKLOG_QUERY] ?? '',
     secret: '',
     useInProfile: activeTracker === c.id
   }
@@ -94,6 +96,7 @@ export function TrackerSettings({ snap, run, initialId, profileId }: { snap: Con
     put(EMAIL, isJira ? form.email : '')
     put(PROJECT_KEYS, form.projectKeys)
     put(IGNORED, form.ignored)
+    put(BACKLOG_QUERY, form.backlogQuery)
     const id = form.id ?? uniqueConnectionId(form.name || form.provider, snap.config.connections.map((c) => c.id))
     return {
       id,
@@ -212,6 +215,11 @@ export function TrackerSettings({ snap, run, initialId, profileId }: { snap: Con
               <Field label={t('trackers.ignoredStatuses')} hint={t('trackers.ignoredStatusesHint')}>
                 <Input value={form.ignored} onChange={(e) => set({ ignored: e.target.value })} placeholder="Blocked, On hold" />
               </Field>
+              {isJira && (
+                <Field label={t('trackers.backlogQuery')} hint={t('trackers.backlogQueryHint')} className="col-span-2">
+                  <Input value={form.backlogQuery} onChange={(e) => set({ backlogQuery: e.target.value })} placeholder="project in (ABC, WEB) AND statusCategory != Done" spellCheck={false} />
+                </Field>
+              )}
             </div>
             {activeProfile && (
               <SwitchRow label={t('trackers.useInProfile')} hint={activeProfile.name}>

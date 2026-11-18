@@ -213,6 +213,7 @@ export const SETTINGS_INDEX: readonly SettingsIndexEntry[] = [
       ["trackers.email"],
       ["trackers.projectKeys", "trackers.projectKeysHint"],
       ["trackers.ignoredStatuses", "trackers.ignoredStatusesHint"],
+      ["trackers.backlogQuery", "trackers.backlogQueryHint"],
       ["trackers.useInProfile"],
     ],
     "tickets",

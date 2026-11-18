@@ -15,6 +15,7 @@ import {
   type ConnectionTest,
   type SecretChange,
   type SecretStore,
+  type Ticket,
   type TicketTracker
 } from '@workhub/core'
 import type { TicketsResult, TicketsStatus } from '../shared/tickets-api'
@@ -28,7 +29,7 @@ const NOT_READY: Record<TicketsStatus['state'], string> = {
 }
 
 /** Settings keys a tracker connection uses (Settings → Trackers writes them). */
-export const TRACKER_SETTINGS = { email: 'email', ignoredStatuses: 'ignoredStatuses', projectKeys: 'projectKeys', repositories: 'repositories' } as const
+export const TRACKER_SETTINGS = { email: 'email', ignoredStatuses: 'ignoredStatuses', projectKeys: 'projectKeys', repositories: 'repositories', backlogQuery: 'backlogQuery' } as const
 
 const exec = promisify(execFile)
 
@@ -42,6 +43,8 @@ interface Resolved {
   status: TicketsStatus
   tracker?: TicketTracker
   ignoredStatuses: string[]
+  /** The connection's backlog query (Jira: JQL); empty when not set. */
+  backlogQuery: string
 }
 
 /** What GitHub Issues needs beyond the connection: the `gh` runner and the profile's folders (their remotes are the default scope). */
@@ -127,17 +130,21 @@ export class TicketService {
     const connection = config.connections.find((c) => c.id === profile?.connections.tracker)
     const projectKeys = connection ? list(connection.settings[TRACKER_SETTINGS.projectKeys]) : []
     const ignoredStatuses = connection ? list(connection.settings[TRACKER_SETTINGS.ignoredStatuses]) : []
+    const backlogQuery = connection?.settings[TRACKER_SETTINGS.backlogQuery]?.trim() ?? ''
     const base = { provider: connection?.provider, connectionName: connection ? connection.name || connection.id : undefined, projectKeys }
+    // The Backlog view: offered when the tracker lists backlogs, ready once a query or project keys say which.
+    const backlog = (tracker: TicketTracker, demo = false): TicketsStatus['backlog'] =>
+      tracker.capabilities.backlog && tracker.listBacklog ? (demo || backlogQuery || projectKeys.length > 0 ? 'ready' : 'unconfigured') : undefined
     if (this.demo && profileId) {
       const tracker = this.demos.get(profileId) ?? new DemoTracker(connection?.provider ?? 'jira', { scenario: this.demoScenario })
       this.demos.set(profileId, tracker)
-      return { status: { ...base, state: 'demo' }, tracker, ignoredStatuses }
+      return { status: { ...base, state: 'demo', backlog: backlog(tracker, true) }, tracker, ignoredStatuses, backlogQuery }
     }
-    if (!connection) return { status: { state: 'noConnection', projectKeys }, ignoredStatuses }
+    if (!connection) return { status: { state: 'noConnection', projectKeys }, ignoredStatuses, backlogQuery }
     const secret = connection.secretRef ? await this.secrets.get(connection.secretRef) : null
     const built = buildTracker(connection, secret, this.http, { run: this.run, folders: profile?.folders })
-    if ('missing' in built) return { status: { ...base, state: built.missing }, ignoredStatuses }
-    return { status: { ...base, state: 'ready' }, tracker: built.tracker, ignoredStatuses }
+    if ('missing' in built) return { status: { ...base, state: built.missing }, ignoredStatuses, backlogQuery }
+    return { status: { ...base, state: 'ready', backlog: backlog(built.tracker) }, tracker: built.tracker, ignoredStatuses, backlogQuery }
   }
 
   async status(profileId: string | null): Promise<TicketsStatus> {
@@ -176,6 +183,18 @@ export class TicketService {
       return 'missing' in built ? { error: NOT_READY[built.missing] } : { tracker: built.tracker }
     } catch (error) {
       return { error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  /** The open tickets of the profile's backlog, whoever has them (the connection's query or project keys). */
+  async backlog(profileId: string): Promise<TicketsResult<Ticket[]>> {
+    try {
+      const { tracker, ignoredStatuses, backlogQuery, status } = await this.resolve(profileId)
+      if (!tracker) return { ok: false, error: NOT_READY[status.state] }
+      if (!tracker.capabilities.backlog || !tracker.listBacklog) return { ok: false, error: 'This ticket tracker has no backlog view' }
+      return { ok: true, value: await tracker.listBacklog({ query: backlogQuery, projectKeys: status.projectKeys, ignoredStatuses }) }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
     }
   }
 

@@ -14,11 +14,13 @@ export interface TicketRowProps {
   onOpenExternal?: () => void
   /** Starts a session about the ticket with a drafted prompt. */
   onStartSession?: () => void
+  /** Shows who has the ticket (the team backlog), or "Unassigned". */
+  showAssignee?: boolean
   className?: string
 }
 
 /** One ticket in a list: key, title, links to PRs and sessions, status. Clicking opens the ticket window. */
-export function TicketRow({ ticket, sessionCount = 0, onOpen, onOpenExternal, onStartSession, className }: TicketRowProps) {
+export function TicketRow({ ticket, sessionCount = 0, onOpen, onOpenExternal, onStartSession, showAssignee, className }: TicketRowProps) {
   const { t, tn } = useI18n()
   const prs = ticket.pullRequestUrls?.length ?? 0
   return (
@@ -40,6 +42,12 @@ export function TicketRow({ ticket, sessionCount = 0, onOpen, onOpenExternal, on
       <Badge tone={CATEGORY_TONE[ticket.category]} className="max-w-36 truncate">
         {ticket.status}
       </Badge>
+      {/* After the status, so the column lines up whatever badges a row has. */}
+      {showAssignee && (
+        <span title={ticket.assignee ?? t('ticket.unassigned')} className={cn('w-28 shrink-0 truncate text-sm', ticket.assignee ? 'text-muted' : 'text-muted/70 italic')}>
+          {ticket.assignee ?? t('ticket.unassigned')}
+        </span>
+      )}
       {onStartSession && <IconButton size="sm" label={t('links.ticket.startShort', { key: ticket.key })} icon={<Sparkles className="size-3.5" />} onClick={onStartSession} />}
       {onOpenExternal && ticket.url ? (
         <IconButton size="sm" label={t('tickets.openInBrowser')} icon={<ExternalLink className="size-3.5" />} onClick={onOpenExternal} />

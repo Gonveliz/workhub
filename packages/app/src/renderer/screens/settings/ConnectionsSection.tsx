@@ -375,6 +375,11 @@ export function ConnectionEditor({
                 <Field label={t('trackers.ignoredStatuses')} hint={t('trackers.ignoredStatusesHint')}>
                   <Input aria-label={t('trackers.ignoredStatuses')} value={draft.settings[TRACKER_SETTINGS.ignored] ?? ''} onChange={(e) => setSetting(TRACKER_SETTINGS.ignored, e.target.value)} placeholder="Blocked, On hold" />
                 </Field>
+                {jira && (
+                  <Field label={t('trackers.backlogQuery')} hint={t('trackers.backlogQueryHint')} className="col-span-2">
+                    <Input aria-label={t('trackers.backlogQuery')} value={draft.settings[TRACKER_SETTINGS.backlogQuery] ?? ''} onChange={(e) => setSetting(TRACKER_SETTINGS.backlogQuery, e.target.value)} placeholder="project in (ABC, WEB) AND statusCategory != Done" spellCheck={false} />
+                  </Field>
+                )}
               </>
             )}
             {refreshField('tracker')}

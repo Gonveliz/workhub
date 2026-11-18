@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { groupBySprint, listedPullRequests, type TicketDetail } from '@workhub/core'
-import { JiraTracker, adfToText, normalizeJiraSite, textToAdf } from '../src/tracker-jira'
+import { JiraTracker, adfToText, backlogJql, normalizeJiraSite, textToAdf } from '../src/tracker-jira'
 import type { HttpClient, HttpRequest } from '../src/shared/http'
 
 type Handler = (req: HttpRequest, url: URL) => { status?: number; body?: unknown }
@@ -100,6 +100,22 @@ describe('JiraTracker.listAssigned', () => {
     expect(tickets[1]?.pullRequestUrls).toBeUndefined()
     expect(tickets[0]).toMatchObject({ provider: 'jira', url: 'https://acme.example.com/browse/ABC-1', assignee: 'Dana Test', type: 'Task', priority: 'High' })
     expect(groupBySprint(tickets).map((g) => g.title)).toEqual(['Sprint 7', 'Sprint 8', 'Backlog'])
+  })
+
+  it('lists the backlog of the project keys by rank, whoever has the tickets', async () => {
+    const { tracker, calls } = make({ 'GET /rest/api/3/field': () => ({ body: FIELDS }), 'GET /rest/api/3/search/jql': search })
+    const tickets = await tracker.listBacklog({ projectKeys: ['ABC', ' WEB '], ignoredStatuses: ['Blocked'] })
+    const q = calls.find((c) => c.url.pathname.endsWith('/search/jql'))!.url.searchParams
+    expect(q.get('jql')).toBe('project IN ("ABC", "WEB") AND statusCategory != Done AND status NOT IN ("Blocked") ORDER BY Rank ASC')
+    expect(tickets.length).toBeGreaterThan(0)
+    expect(tracker.capabilities.backlog).toBe(true)
+  })
+
+  it('prefers the backlog query, keeping its own order', async () => {
+    const { tracker, calls } = make({ 'GET /rest/api/3/field': () => ({ body: FIELDS }), 'GET /rest/api/3/search/jql': search })
+    await tracker.listBacklog({ query: 'project = PAY or labels = team order by priority DESC', projectKeys: ['ABC'], ignoredStatuses: ['Blocked'] })
+    const q = calls.find((c) => c.url.pathname.endsWith('/search/jql'))!.url.searchParams
+    expect(q.get('jql')).toBe('(project = PAY or labels = team) AND status NOT IN ("Blocked") ORDER BY priority DESC')
   })
 
   it('asks for my open tickets, quotes the ignored statuses and the sprint field', async () => {
@@ -322,5 +338,18 @@ describe('JiraTracker search and create', () => {
     const bad = make({ 'POST /rest/api/3/issue': () => ({ status: 400, body: { errors: { project: 'valid project is required' } } }) })
     await expect(bad.tracker.createIssue({ project: 'NOPE', title: 'x', description: '' })).rejects.toThrow('valid project is required')
     await expect(ok.tracker.createIssue({ project: ' ', title: 'x', description: '' })).rejects.toThrow(/project/)
+  })
+})
+
+describe('backlogJql', () => {
+  it('orders a query without ORDER BY by rank', () => {
+    expect(backlogJql({ query: ' project = PAY ' })).toEqual({ where: '(project = PAY)', orderBy: 'Rank ASC' })
+  })
+  it('refuses a backlog with neither a query nor project keys, or a query with only an order', () => {
+    expect(() => backlogJql({ projectKeys: [' '] })).toThrow(/backlog query or project keys/)
+    expect(() => backlogJql({ query: 'ORDER BY rank' })).toThrow(/no condition/)
+  })
+  it('quotes project keys', () => {
+    expect(backlogJql({ projectKeys: ['A"B'] }).where).toBe('project IN ("A\\"B") AND statusCategory != Done')
   })
 })

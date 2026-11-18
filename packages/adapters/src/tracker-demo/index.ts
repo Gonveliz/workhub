@@ -9,6 +9,7 @@ import {
   type ConnectionTest,
   type CreateIssueInput,
   type CreatedIssue,
+  type BacklogOptions,
   type SearchOptions,
   type TicketSummary,
   type ListTicketsOptions,
@@ -46,6 +47,8 @@ interface Seed {
   description: string
   labels: string[]
   comments: { author: string; body: string; minutesAgo: number }[]
+  /** Someone else's ticket (the backlog view); null when nobody has it. Unset: assigned to the demo user. */
+  assignee?: string | null
 }
 
 /** The team-lead scenario's tickets (`WORKHUB_DEMO_SCENARIO=team-lead`): NOTE, WEB and OPS keys. */
@@ -132,6 +135,16 @@ const SEEDS: Seed[] = [
   }
 ]
 
+/** Team tickets assigned to someone else or to nobody: only the backlog view lists them. */
+const TEAM_SEEDS: Seed[] = [
+  { key: 'DEMO-112', title: 'Add retry to the export job', state: 'progress', sprint: SPRINT, type: 'Story', priority: 'High', description: 'Retry failed exports three times before alerting.', labels: ['backend'], comments: [], assignee: 'Alex Kim' },
+  { key: 'DEMO-115', title: 'Empty state for the reports page', state: 'todo', sprint: SPRINT, type: 'Task', priority: 'Medium', description: 'Show a hint when there are no reports yet.', labels: ['frontend'], comments: [], assignee: 'Jordan Lee' },
+  { key: 'DEMO-118', title: 'Rate limit the public search API', state: 'todo', sprint: NEXT, type: 'Story', priority: 'High', description: 'Limit anonymous callers to 60 requests a minute.', labels: ['backend'], comments: [], assignee: null },
+  { key: 'OPS-71', title: 'Rotate the staging database password', state: 'review', sprint: SPRINT, type: 'Task', priority: 'Medium', description: 'Rotate it and update the secret store.', labels: ['ops'], comments: [], assignee: 'Alex Kim' },
+  { key: 'OPS-74', title: 'Alert when the queue backs up', state: 'todo', type: 'Task', priority: 'Low', description: 'Page on-call when the queue is over 10k messages for 10 minutes.', labels: ['ops'], comments: [], assignee: null },
+  { key: 'DEMO-121', title: 'Dark mode for the settings page', state: 'todo', type: 'Story', priority: 'Low', description: 'Follow the system theme.', labels: ['frontend'], comments: [], assignee: 'Jordan Lee' }
+]
+
 /** A small stable number from a string, so the same demo query always finds the same tickets. */
 function hashOf(text: string): number {
   let h = 0
@@ -159,7 +172,7 @@ function minutesAgo(m: number): number {
 
 export class DemoTracker implements TicketTracker {
   readonly provider: string
-  readonly capabilities: TrackerCapabilities = { sprints: true, transitions: true, comments: true, assign: true, search: true, create: true }
+  readonly capabilities: TrackerCapabilities = { sprints: true, transitions: true, comments: true, assign: true, search: true, create: true, backlog: true }
   private readonly seeds: Seed[]
   private readonly product: boolean
   private readonly state: Map<string, keyof typeof STATES>
@@ -171,7 +184,9 @@ export class DemoTracker implements TicketTracker {
   constructor(provider = 'jira', options: { scenario?: string } = {}) {
     this.provider = provider
     this.product = options.scenario === 'team-lead'
-    this.seeds = this.product ? PRODUCT_SEEDS : SEEDS
+    const mine = this.product ? PRODUCT_SEEDS : SEEDS
+    // The team's tickets never shadow one of mine.
+    this.seeds = [...mine, ...TEAM_SEEDS.filter((t) => !mine.some((s) => s.key === t.key))]
     this.state = new Map(this.seeds.map((s) => [s.key, s.state]))
   }
 
@@ -184,6 +199,15 @@ export class DemoTracker implements TicketTracker {
   }
 
   async listAssigned(options: ListTicketsOptions = {}): Promise<Ticket[]> {
+    const hidden = new Set((options.ignoredStatuses ?? []).map((s) => s.toLowerCase()))
+    return this.seeds
+      .filter((s) => s.assignee === undefined)
+      .map((s) => this.ticket(s))
+      .filter((t) => t.category !== 'done' && !hidden.has(t.status.toLowerCase()))
+  }
+
+  /** Every open seed, mine and the team's. The demo needs no query or project keys. */
+  async listBacklog(options: BacklogOptions = {}): Promise<Ticket[]> {
     const hidden = new Set((options.ignoredStatuses ?? []).map((s) => s.toLowerCase()))
     return this.seeds.map((s) => this.ticket(s)).filter((t) => t.category !== 'done' && !hidden.has(t.status.toLowerCase()))
   }
@@ -276,7 +300,7 @@ export class DemoTracker implements TicketTracker {
       status: s.name,
       category: s.category,
       sprint: seed.sprint,
-      assignee: 'Demo User',
+      assignee: seed.assignee === undefined ? 'Demo User' : (seed.assignee ?? undefined),
       type: seed.type,
       priority: seed.priority,
       url: `https://demo.example.com/browse/${seed.key}`

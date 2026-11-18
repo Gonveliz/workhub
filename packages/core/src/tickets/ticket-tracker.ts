@@ -1,4 +1,5 @@
 import type {
+  BacklogOptions,
   ConnectionTest,
   CreateIssueInput,
   CreatedIssue,
@@ -22,6 +23,11 @@ export interface TicketTracker {
   testConnection(): Promise<ConnectionTest>
   /** Open tickets assigned to the signed-in user, most recently updated first. */
   listAssigned(options?: ListTicketsOptions): Promise<Ticket[]>
+  /**
+   * Open tickets of the team's backlog, whoever has them (`capabilities.backlog`): the connection's
+   * query, else its project keys. Throws a TrackerError when neither is set.
+   */
+  listBacklog?(options: BacklogOptions): Promise<Ticket[]>
   /** Everything the ticket window shows; null when the tracker does not know the key. */
   getTicket(key: string): Promise<TicketDetail | null>
   /** The status changes allowed right now. Empty when `capabilities.transitions` is off. */

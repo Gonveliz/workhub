@@ -112,3 +112,67 @@ export function useTickets(profileId: string | undefined): ProfileTickets & { re
   }, [profileId, configKey])
   return { ...current, refresh: () => (profileId ? loadTickets(profileId) : Promise.resolve()) }
 }
+
+/** The team's backlog of a profile: loaded only while the Backlog view is open, not polled in the background. */
+export interface ProfileBacklog {
+  tickets: Ticket[]
+  loading: boolean
+  error?: string
+  fetchedAt?: number
+}
+
+const EMPTY_BACKLOG: ProfileBacklog = { tickets: [], loading: false }
+let backlogState: Record<string, ProfileBacklog> = {}
+const backlogInFlight = new Map<string, Promise<void>>()
+
+function setBacklog(profileId: string, patch: Partial<ProfileBacklog>): void {
+  backlogState = { ...backlogState, [profileId]: { ...(backlogState[profileId] ?? EMPTY_BACKLOG), ...patch } }
+  for (const l of listeners) l()
+}
+
+/** Loads a profile's backlog; concurrent calls share one load. */
+export function loadBacklog(profileId: string): Promise<void> {
+  const running = backlogInFlight.get(profileId)
+  if (running) return running
+  const run = (async () => {
+    setBacklog(profileId, { loading: true })
+    try {
+      const result = await window.hub.tickets.backlog(profileId)
+      if (result.ok) setBacklog(profileId, { tickets: result.value, loading: false, error: undefined, fetchedAt: Date.now() })
+      else setBacklog(profileId, { loading: false, error: result.error })
+    } catch (error) {
+      setBacklog(profileId, { loading: false, error: errorText(error) })
+    }
+  })().finally(() => backlogInFlight.delete(profileId))
+  backlogInFlight.set(profileId, run)
+  return run
+}
+
+/**
+ * The backlog of a profile while `enabled` (the Backlog view is open): loaded on open, when the
+ * tracker settings change, when a ticket changes, and at the tracker connection's interval.
+ */
+export function useBacklog(profileId: string | undefined, enabled: boolean): ProfileBacklog & { refresh: () => Promise<void> } {
+  const snap = useConfig()
+  const configKey = ticketsConfigKey(snap, profileId)
+  const current = useSyncExternalStore(
+    (l) => {
+      listeners.add(l)
+      return () => listeners.delete(l)
+    },
+    () => (profileId ? (backlogState[profileId] ?? EMPTY_BACKLOG) : EMPTY_BACKLOG)
+  )
+  useEffect(() => {
+    if (!profileId || !enabled) return
+    void loadBacklog(profileId)
+    const off = window.hub.tickets.onChanged(() => void loadBacklog(profileId))
+    const timer = setInterval(() => {
+      if (!document.hidden) void loadBacklog(profileId)
+    }, ticketsIntervalMs(profileId))
+    return () => {
+      off()
+      clearInterval(timer)
+    }
+  }, [profileId, enabled, configKey])
+  return { ...current, refresh: () => (profileId ? loadBacklog(profileId) : Promise.resolve()) }
+}
