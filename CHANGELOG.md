@@ -4,6 +4,26 @@ All notable changes to Workhub 2 are listed here. Entries from 2.0.0-alpha.2 on 
 [release-please](https://github.com/googleapis/release-please) from the Conventional Commits on
 `main`; see the release process in [CONTRIBUTING.md](CONTRIBUTING.md#releases).
 
+## [2.0.0-alpha.41](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.40...v2.0.0-alpha.41) (2026-11-19)
+
+
+### Features
+
+* **app:** redesign flow maps, health, plan, session bar and filters ([#147](https://github.com/SoldierIced/workhub/issues/147)) ([cd06f1d](https://github.com/SoldierIced/workhub/commit/cd06f1d25fb9758f35b63d466dc7ae11f8d6529b))
+* **app:** revert changes from the local review diff ([#145](https://github.com/SoldierIced/workhub/issues/145)) ([03e895e](https://github.com/SoldierIced/workhub/commit/03e895e9db569f523c065e47bda7f2d5696e992e))
+* **app:** run terminal-only Claude commands from the App view ([#146](https://github.com/SoldierIced/workhub/issues/146)) ([26115e0](https://github.com/SoldierIced/workhub/commit/26115e04ac37eadcfde78d4b1591045a9966bd98)), closes [#136](https://github.com/SoldierIced/workhub/issues/136)
+* **skills:** add workhub-review skill ([#140](https://github.com/SoldierIced/workhub/issues/140)) ([e90d8f2](https://github.com/SoldierIced/workhub/commit/e90d8f282f9b6a9915ca6181be11610d85e686b1))
+* **tickets:** team backlog view and persistent ticket filters ([b6d0501](https://github.com/SoldierIced/workhub/commit/b6d0501eb45852fa208d7c9b17e8b71d06bb01a7))
+* **tickets:** team backlog view and persistent ticket filters ([aa9abff](https://github.com/SoldierIced/workhub/commit/aa9abff01ff75dad8dc6c1d8ed411969b078c19d)), closes [#133](https://github.com/SoldierIced/workhub/issues/133)
+
+
+### Bug Fixes
+
+* **adapters:** match ORDER BY without overlapping quantifiers ([e512334](https://github.com/SoldierIced/workhub/commit/e5123343edae6e224662a6bfd1bc545648e8d992))
+* **adapters:** say which step an ACP agent hung on while starting ([#144](https://github.com/SoldierIced/workhub/issues/144)) ([a85aaba](https://github.com/SoldierIced/workhub/commit/a85aaba2d3cad568dac102d9f8649cd8505d805d))
+* **adapters:** send pinned Elasticsearch requests on the checked socket ([#142](https://github.com/SoldierIced/workhub/issues/142)) ([36c56c0](https://github.com/SoldierIced/workhub/commit/36c56c0b14db66340f5372acaf64edeee04bb0e0)), closes [#138](https://github.com/SoldierIced/workhub/issues/138)
+* **app:** keep the folder and agent picked in the new session dialog ([#143](https://github.com/SoldierIced/workhub/issues/143)) ([593cc4a](https://github.com/SoldierIced/workhub/commit/593cc4a06a877a83d2ad24b2f1cd6447c5862575)), closes [#137](https://github.com/SoldierIced/workhub/issues/137)
+
 ## [2.0.0-alpha.40](https://github.com/SoldierIced/workhub/compare/v2.0.0-alpha.39...v2.0.0-alpha.40) (2026-11-17)
 
 
