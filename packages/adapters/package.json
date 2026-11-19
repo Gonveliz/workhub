@@ -5,6 +5,7 @@
   "description": "Adapters that implement the Workhub core ports on Node and Electron.",
   "type": "module",
   "exports": {
+    "./host": "./src/host/index.ts",
     "./config-json": "./src/config-json/index.ts",
     "./secrets-electron": "./src/secrets-electron/index.ts",
     "./agent-acp": "./src/agent-acp/index.ts",
