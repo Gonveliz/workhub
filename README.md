@@ -189,7 +189,7 @@ bundle without quitting).
 
 Sessions reach Workhub's local control endpoint through Workhub's MCP server, which every session
 gets (Settings → Agents → Workhub tools), and through the `skills/workhub-plan`,
-`skills/workhub-flow-map`, `skills/workhub-automations`, `skills/workhub-analytics` and `skills/workhub-sessions` skills, which teach when and how to use
+`skills/workhub-flow-map`, `skills/workhub-automations`, `skills/workhub-analytics`, `skills/workhub-sessions` and `skills/workhub-review` skills, which teach when and how to use
 it. **Install** in that same section copies the skills into each Claude Code folder; you can also
 copy or symlink them into `~/.claude/skills/` or a project's `.claude/skills/`. See
 [Plan](docs/user-guide/plan.md#the-workhub-plan-skill).
