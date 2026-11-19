@@ -167,4 +167,8 @@ port with a token made at each launch): replace `--unix-socket "$WORKHUB_SOCKET"
 `repos` is optional: the listed repositories are added to the ones Workhub finds in the session's
 folder, and `base` picks what to compare with: a branch, or any commit (such as the last one you pushed). An open window reloads. Every listed path must be inside the session's folder (or its worktree) or inside one of its profile's folders, compared by real path (a symlink that points outside does not count); any other path is refused with a 400 error.
 
+The `workhub-review` skill, installed with the other Workhub tools (**Settings → Agents → Workhub
+tools**), teaches agents to open this window before a commit, push or pull request and to wait for
+your comments.
+
 Next: [Pull requests](pull-requests.md).
