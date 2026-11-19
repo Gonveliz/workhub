@@ -349,6 +349,13 @@ describe('backlogJql', () => {
     expect(() => backlogJql({ projectKeys: [' '] })).toThrow(/backlog query or project keys/)
     expect(() => backlogJql({ query: 'ORDER BY rank' })).toThrow(/no condition/)
   })
+  it('splits an order written with tabs and newlines, and stays fast on long runs of whitespace', () => {
+    expect(backlogJql({ query: 'project = PAY\tORDER\n BY\tpriority DESC' })).toEqual({ where: '(project = PAY)', orderBy: 'priority DESC' })
+    const started = Date.now()
+    expect(backlogJql({ query: `project = PAY ORDER BY${'\t'.repeat(50_000)}x` }).orderBy).toBe('x')
+    expect(backlogJql({ query: `project = PAY ORDER${'\t'.repeat(50_000)}` }).orderBy).toBe('Rank ASC')
+    expect(Date.now() - started).toBeLessThan(500)
+  })
   it('quotes project keys', () => {
     expect(backlogJql({ projectKeys: ['A"B'] }).where).toBe('project IN ("A\\"B") AND statusCategory != Done')
   })

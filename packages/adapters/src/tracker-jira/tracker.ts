@@ -75,10 +75,11 @@ const quote = (s: string) => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"
 export function backlogJql(options: BacklogOptions): { where: string; orderBy: string } {
   const query = options.query?.trim() ?? ''
   if (query) {
-    const order = /\s*\bORDER\s+BY\s+([\s\S]*)$/i.exec(query)
-    const where = order ? query.slice(0, order.index).trim() : query
+    // Find the keyword alone and slice around it: no pattern spans the free text on either side.
+    const order = /\bORDER\s+BY\b/i.exec(query)
+    const where = (order ? query.slice(0, order.index) : query).trim()
     if (!where) throw new TrackerError('The backlog query has no condition')
-    return { where: `(${where})`, orderBy: order?.[1]?.trim() || 'Rank ASC' }
+    return { where: `(${where})`, orderBy: (order ? query.slice(order.index + order[0].length) : '').trim() || 'Rank ASC' }
   }
   const keys = (options.projectKeys ?? []).map((k) => k.trim()).filter(Boolean)
   if (keys.length === 0) throw new TrackerError('Set a backlog query or project keys in the tracker connection')
