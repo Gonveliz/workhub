@@ -16,7 +16,9 @@ you open one from Usage and reports).
   `PaymentGateway`).
 - With words in the box the results are one list, best match first, each with the text around the
   match highlighted and its folder; **Show more** loads the next 50. The filters below still apply.
-- Filter by **Profile**, **Account** and **Agent**.
+- Filter by **Agent**, **Profile** and **Account**; each filter shows only when there is a choice
+  to make (two or more of them), and **Hide automations** when there are automation runs. With any
+  filter showing, the search box keeps a line of its own and the filters sit under it.
 - **Reload** reads the sessions again.
 
 ### Older sessions

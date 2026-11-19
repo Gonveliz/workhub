@@ -54,6 +54,14 @@ describe('trendStats', () => {
     expect(trendStats([3, 3, 3], 3)?.streakTruncated).toBe(true)
     expect(trendStats([0, 3, 3], 3)?.streakTruncated).toBe(false)
   })
+  it('keeps the daily series it was given, oldest first, for a chart', () => {
+    const series = [3, 0, 5, 7]
+    const stats = trendStats(series, 9)
+    expect(stats?.daily).toEqual([3, 0, 5, 7])
+    // A copy: the caller's array can change without touching the stats.
+    series[0] = 99
+    expect(stats?.daily?.[0]).toBe(3)
+  })
   it('takes the upper median', () => {
     expect(median([4, 1, 3, 2])).toBe(3)
     expect(median([])).toBe(0)

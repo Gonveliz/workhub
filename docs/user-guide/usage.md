@@ -94,15 +94,19 @@ and how much time went into each project or idea". It reads what Workhub records
 
 **Filters.** **Period**: **Today**, **Last 7 days**, **Last 30 days**, **This week** (from Monday),
 **This month** or **Custom** (a **From** and a **To** day, both included, up to 540 days; when a
-date is missing or the span is longer, the bar says which days it shows). Then one menu per filter
-with something to pick in that profile and period: profile, project (that project only), **Folder
-and below** (a folder and every folder under it), agent, account, model, ticket, pull request and
-tag (the **Tag** menu stays, greyed out, while no session has a tag yet, and says where tags are
-added). The report opens on the active profile, as Session history does; pick **All profiles** to see
+date is missing or the span is longer, the bar says which days it shows). The **Filters** button at
+the end of the row opens a panel with one menu per filter with something to pick in that profile and
+period: profile, project (that project only), **Folder and below** (a folder and every folder under
+it), agent, account, model, ticket, pull request and tag (the **Tag** menu stays, greyed out, while no
+session has a tag yet, and says where tags are added). The menus in use are tinted, the panel's foot
+says how many sessions and turns the report counts, and **Done**, Escape or a click outside closes
+it. The button says how many filters are in use (**Filters · 2**) and each one shows as a chip under
+the row: its **×** removes it. The report opens on the active profile, as Session history does; pick **All profiles** to see
 every one. **Group by** picks what the charts
 and the table split by (project, agent, model, account, ticket, pull request or tag), and
 **Measure** what they show: **Tokens** (fresh tokens: input, cache writes and output, as on Home),
-**USD** (cost at list prices) or **Agent time**. **Clear filters** removes them. The choices are
+**USD** (cost at list prices) or **Agent time**. **Clear**, beside the chips or in the panel,
+removes every filter. The choices are
 remembered on this computer.
 
 **Charts.** The four tiles sum the period: fresh tokens (input, output and cache writes, which add
@@ -159,7 +163,8 @@ path), pull request links, ticket keys, and a
 line on what agent time and list prices mean.
 
 **Monthly project budgets.** A card under the filters sets an optional budget per project for
-the calendar month, in dollars, in tokens or both (type tokens as `20000000`, `20M` or `800k`). Pick
+the calendar month, in dollars, in tokens or both. While there is none it is a single line; **Set
+one** opens its form (type tokens as `20000000`, `20M` or `800k`). Pick
 the project from the list the reports know: a budget is kept under the project exactly as the
 table groups it (the project folder, or the working folder when none was resolved), so a name typed
 by hand that does not match never fills. The card counts from the 1st of the current month, over

@@ -100,6 +100,8 @@ describe('response parsing', () => {
       ['checkout', 'new', 40],
       ['batch', 'worsening', 25]
     ])
+    // The daily histogram behind the trend stays on the stats.
+    expect(parsed[0]?.stats.daily).toEqual([0, 0, 0, 40])
   })
 
   it('reads warning events with their latest occurrence', () => {

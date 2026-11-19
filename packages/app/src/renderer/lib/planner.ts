@@ -155,6 +155,7 @@ export function pieceTaskChoices(items: readonly InboxItem[], pieces: readonly M
 // Inbox
 
 export const INBOX_KIND_LABEL: Record<InboxKind, MessageKey> = { task: 'planner.inbox.kind.task', bug: 'planner.inbox.kind.bug', decision: 'planner.inbox.kind.decision' }
+export const INBOX_KIND_TONE: Record<InboxKind, Tone> = { task: 'neutral', bug: 'danger', decision: 'info' }
 export const INBOX_STATUS_LABEL: Record<InboxItem['status'], MessageKey> = {
   pending: 'planner.inbox.status.pending',
   ticket: 'planner.inbox.status.ticket',
@@ -288,4 +289,31 @@ export function plainPreview(text: string): string {
     .replace(/^[ \t]{0,3}>[ \t]?/gm, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
+}
+
+// Inbox triage (one item at a time)
+
+/** The decision each number key takes on the Inbox tab, in the order the decision bar shows them. */
+export const INBOX_DECISION_KEYS: Readonly<Record<string, InboxAction>> = { '1': 'approve', '2': 'keep', '3': 'discard' }
+
+/** The key that takes an action from the decision bar, for its key cap. */
+export const inboxDecisionKey = (action: InboxAction): string | undefined => Object.keys(INBOX_DECISION_KEYS).find((k) => INBOX_DECISION_KEYS[k] === action)
+
+/**
+ * The item the triage pane shows: the selected one while it is listed, else the one that took its
+ * place in the list (`lastIndex` is where the selected one was), so deciding on an item moves to
+ * the next one and the list never jumps under the pointer. Null with nothing listed.
+ */
+export function triageSelection(shown: readonly string[], selected: string | null, lastIndex: number): string | null {
+  if (selected !== null && shown.includes(selected)) return selected
+  if (shown.length === 0) return null
+  return shown[Math.min(Math.max(lastIndex, 0), shown.length - 1)]!
+}
+
+/** The item one step up (`-1`) or down (`1`) from the selected one, staying at the ends. */
+export function stepSelection(shown: readonly string[], selected: string | null, step: -1 | 1): string | null {
+  if (shown.length === 0) return null
+  const at = selected === null ? -1 : shown.indexOf(selected)
+  if (at < 0) return shown[step === 1 ? 0 : shown.length - 1]!
+  return shown[Math.min(Math.max(at + step, 0), shown.length - 1)]!
 }

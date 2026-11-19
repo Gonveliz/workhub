@@ -249,43 +249,82 @@ export class DemoHealthProvider implements HealthProvider {
     for (let i = 0; i < 120; i++) {
       const at = now - i * step
       const seed = (i * 7919) % 9973
-      all.push({ traceId: `demo-${at.toString(36)}`, at, durationMs: 300 + (seed % 1500) + (seed % 11 === 0 ? 4000 : 0), outcome: seed % 10 === 0 ? 'failure' : 'success' })
+      const durationMs = 300 + (seed % 1500) + (seed % 11 === 0 ? 4000 : 0)
+      const failed = seed % 10 === 0
+      all.push({ traceId: demoTraceId(at, durationMs, failed), at, durationMs, outcome: failed ? 'failure' : 'success' })
     }
     const picked = sort === 'failed' ? all.filter((t) => t.outcome === 'failure') : sort === 'slowest' ? [...all].sort((a, b) => b.durationMs - a.durationMs) : all
     return picked.slice(0, limit)
   }
 
-  /** The execution walks the map's measured parts in order, plus one call the map does not know about. */
+  /**
+   * The execution walks the map's measured parts in order, plus one call the map does not know
+   * about. It takes what its row of the list said it took, and when that row failed, its entry and
+   * the first service after it fail.
+   */
   async flowTrace(_env: HealthEnvironment, map: FlowMap, traceId: string): Promise<FlowTrace> {
-    const at = parseInt(traceId.replace(/^demo-/, ''), 36)
-    const start = Number.isFinite(at) ? at : Date.now()
+    const { start, durationMs: listed, failed } = parseDemoTraceId(traceId)
     const docs: FlowTraceDoc[] = []
     let cursor = start
     const entry = flowEntry(map)
-    if (entry) docs.push({ event: 'transaction', service: entry.service, name: entry.transaction, at: start, durationMs: 0, outcome: 'success' })
+    if (entry) docs.push({ event: 'transaction', service: entry.service, name: entry.transaction, at: start, durationMs: 0, outcome: failed ? 'failure' : 'success' })
+    let failing = failed
     for (const m of flowMeasures(map)) {
       if (m.measure.type === 'apm.transaction' && entry && m.measure.service === entry.service && m.measure.transaction === entry.transaction) continue
       const seed = [...m.key].reduce((s, c) => (s * 31 + c.charCodeAt(0)) % 9973, 7)
       const durationMs = 20 + (seed % 400)
-      docs.push(m.measure.type === 'apm.transaction' ? { event: 'transaction', service: m.measure.service, name: m.measure.transaction, at: cursor, durationMs, outcome: 'success' } : { event: 'span', service: m.measure.service, name: m.measure.destination, destination: m.measure.destination, at: cursor, durationMs })
+      if (m.measure.type === 'apm.transaction') {
+        docs.push({ event: 'transaction', service: m.measure.service, name: m.measure.transaction, at: cursor, durationMs, outcome: failing ? 'failure' : 'success' })
+        failing = false
+      } else docs.push({ event: 'span', service: m.measure.service, name: m.measure.destination, destination: m.measure.destination, at: cursor, durationMs })
       cursor += durationMs
     }
     docs.push({ event: 'span', service: entry?.service ?? 'app', name: 'SELECT demo.orders', destination: 'postgresql', at: cursor, durationMs: 35 })
-    if (docs[0]) docs[0].durationMs = cursor + 35 - start
+    const natural = cursor + 35 - start
+    if (docs[0]) docs[0].durationMs = natural
+    // Stretched or squeezed to the listed duration, every part keeping its share.
+    const scale = listed !== undefined && natural > 0 ? listed / natural : 1
+    for (const d of docs) {
+      d.at = start + Math.round((d.at - start) * scale)
+      d.durationMs = Math.max(1, Math.round(d.durationMs * scale))
+    }
     return matchFlowTrace(map, traceId, docs)
   }
 
-  /** A few synthetic lines spread over the trace's span: one APM error and the rest log lines. */
+  /**
+   * A few synthetic lines spread over the trace's span. An execution that failed (and one whose id
+   * says nothing about it) carries one APM error; one that went well only log lines.
+   */
   async flowTraceLogs(_env: HealthEnvironment, traceId: string, limit: number): Promise<FlowTraceLog[]> {
-    const parsed = parseInt(traceId.replace(/^demo-/, ''), 36)
-    const start = Number.isFinite(parsed) ? parsed : Date.now()
+    const { start, durationMs, failed } = parseDemoTraceId(traceId)
+    // The lines keep their place in the execution whatever it took (they were written for one of 1.9 s).
+    const at = (ms: number) => start + Math.round(ms * (durationMs !== undefined ? durationMs / 1900 : 1))
     const lines: FlowTraceLog[] = [
-      { at: start + 20, service: 'shop-bff', level: 'info', message: 'Checkout request received', source: 'logs' },
-      { at: start + 180, service: 'orders', level: 'info', message: 'Order created, publishing event', source: 'logs' },
-      { at: start + 420, service: 'orders', level: 'warn', message: 'Payment provider answered slowly (retry 1 of 3)', source: 'logs' },
-      { at: start + 640, service: 'orders', level: 'error', type: 'System.TimeoutException', culprit: 'Orders.Handlers.CheckoutHandler in Handle', message: 'The operation has timed out', source: 'apm.error' },
-      { at: start + 700, service: 'shop-bff', level: 'warn', message: 'Falling back to the cached quote', source: 'logs' }
+      { at: at(20), service: 'shop-bff', level: 'info', message: 'Checkout request received', source: 'logs' },
+      { at: at(180), service: 'orders', level: 'info', message: 'Order created, publishing event', source: 'logs' },
+      { at: at(420), service: 'orders', level: 'warn', message: 'Payment provider answered slowly (retry 1 of 3)', source: 'logs' },
+      ...(failed || durationMs === undefined
+        ? ([
+            { at: at(640), service: 'orders', level: 'error', type: 'System.TimeoutException', culprit: 'Orders.Handlers.CheckoutHandler in Handle', message: 'The operation has timed out', source: 'apm.error' },
+            { at: at(700), service: 'shop-bff', level: 'warn', message: 'Falling back to the cached quote', source: 'logs' }
+          ] satisfies FlowTraceLog[])
+        : ([
+            { at: at(640), service: 'payments', level: 'info', message: 'Card authorized', source: 'logs' },
+            { at: at(1700), service: 'fulfilment', level: 'info', message: 'Shipment requested', source: 'logs' }
+          ] satisfies FlowTraceLog[]))
     ]
     return lines.slice(0, limit)
   }
+}
+
+/** A demo trace id carries what the list said about the execution, so the opened one agrees with its row: `demo-<start>-<duration>[-f]`. */
+function demoTraceId(at: number, durationMs: number, failed: boolean): string {
+  return `demo-${at.toString(36)}-${durationMs}${failed ? '-f' : ''}`
+}
+
+/** What a demo trace id says; an id without a duration (an older one, or a made-up one) says only when it started. */
+function parseDemoTraceId(traceId: string): { start: number; durationMs?: number; failed: boolean } {
+  const m = /^demo-([0-9a-z]+)(?:-(\d+))?(-f)?$/.exec(traceId)
+  const at = m ? parseInt(m[1]!, 36) : NaN
+  return { start: Number.isFinite(at) ? at : Date.now(), ...(m?.[2] ? { durationMs: Number(m[2]) } : {}), failed: Boolean(m?.[3]) }
 }

@@ -24,5 +24,5 @@ export function trendStats(series: number[], recent: number): TrendStats | null 
   const typicalDay = median(series.slice(0, -1).filter((n) => n > 0))
   const streakDays = trailingStreak(series)
   const state = streakDays <= 1 ? 'new' : typicalDay > 0 && recent > typicalDay * 2 ? 'worsening' : streakDays >= 7 ? 'chronic' : 'ongoing'
-  return { recent, typicalDay, streakDays, streakTruncated: streakDays >= series.length, daysWithData: series.length, state }
+  return { recent, typicalDay, streakDays, streakTruncated: streakDays >= series.length, daysWithData: series.length, state, daily: [...series] }
 }

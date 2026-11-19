@@ -88,5 +88,22 @@ export const metricAlertsEn = {
   'metricAlerts.settings.metric': 'Metric id',
   'metricAlerts.settings.removeOverride': 'Remove the override of {metric}',
   'metricAlerts.settings.critical': 'Critical (always high)',
-  'metricAlerts.settings.muted': 'Muted'
+  'metricAlerts.settings.muted': 'Muted',
+  'metricAlerts.filtersCount': 'Filters · {count}',
+  'metricAlerts.chip.remove': 'Clear the filter {filter}',
+  'metricAlerts.pinnedCount.one': '{count} pinned',
+  'metricAlerts.pinnedCount.other': '{count} pinned',
+  'metricAlerts.onlyPinned': 'Only pinned',
+  'metricAlerts.layout': 'Layout',
+  'metricAlerts.layout.list': 'List',
+  'metricAlerts.layout.cards': 'Cards',
+  'metricAlerts.pinned': 'Pinned',
+  'metricAlerts.rest': 'The rest, by severity',
+  'metricAlerts.bySeverity': 'By severity',
+  'metricAlerts.band': 'grey band = range of its previous 7 values',
+  'metricAlerts.pin': 'Pin {name}',
+  'metricAlerts.unpin': 'Unpin {name}',
+  'metricAlerts.more': 'More actions',
+  'metricAlerts.action.toInbox': 'To the inbox',
+  'metricAlerts.noPinned': 'No pinned alert matches: pin one with its star.'
 } as const

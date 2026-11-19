@@ -1,4 +1,4 @@
-import { Check, Flag } from 'lucide-react'
+import { Check, ChevronDown, Flag } from 'lucide-react'
 import { DropdownMenu } from 'radix-ui'
 import { useState } from 'react'
 import { assignProblem, milestoneHasItem, withItem, withoutItem, type InboxItem } from '@workhub/core'
@@ -13,8 +13,10 @@ import { errorText } from '../../lib/errorText'
  * The milestones an inbox item belongs to, as chips that open them, and a menu to add it to a
  * milestone or take it out. Only milestones made of pieces take items; the others are listed
  * disabled, with the reason. `hide` leaves out the chip of the milestone the item is shown under.
+ * As a `field` (the Inbox's detail pane) an item in no milestone offers "Pick a milestone" instead
+ * of the "No milestone" warning tag of a list row.
  */
-export function ItemMilestones({ item, milestones, profileId, hide, onOpen }: { item: Pick<InboxItem, 'id' | 'ticket' | 'title'>; milestones: readonly MilestoneView[]; profileId: string; hide?: string; onOpen: (id: string) => void }) {
+export function ItemMilestones({ item, milestones, profileId, hide, onOpen, field }: { item: Pick<InboxItem, 'id' | 'ticket' | 'title'>; milestones: readonly MilestoneView[]; profileId: string; hide?: string; onOpen: (id: string) => void; field?: boolean }) {
   const { t } = useI18n()
   const toast = useToast()
   const [saving, setSaving] = useState<string | null>(null)
@@ -62,7 +64,8 @@ export function ItemMilestones({ item, milestones, profileId, hide, onOpen }: { 
           )}
         >
           {saving ? <Spinner /> : <Flag className="size-3" aria-hidden />}
-          {member.length === 0 ? t('planner.assign.none') : t('planner.assign.change')}
+          {member.length === 0 ? t(field ? 'planner.assign.pick' : 'planner.assign.none') : t('planner.assign.change')}
+          {field && member.length === 0 && <ChevronDown className="size-3" aria-hidden />}
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content align="start" sideOffset={6} className="z-50 max-w-96 min-w-64 animate-fade-in rounded-md border border-border bg-surface-raised p-1 shadow-lg">

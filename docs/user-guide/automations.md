@@ -84,8 +84,9 @@ curl --unix-socket "$WORKHUB_SOCKET" -X PATCH "http://workhub/v1/automations/<id
 - **An agent never turns an automation on.** What it adds starts off and what it edits is turned
   off, so you check it on this screen and turn it on yourself. A Plan brief rule that names an automation that is off ignores it and uses the profile's agent. Removing one stays yours too.
 - **What an agent changed waits for your review.** An automation an agent added or edited carries a
-  **Changed by an agent** badge, and the change is listed under **Changes by agents** on Home with
-  each field before and after and the session that made it. **Keep** marks it as reviewed;
+  **Changed by an agent** badge, and the change waits under **Changes by agents**: Home and the
+  sidebar say how many wait, and **See changes** (or the sidebar entry) opens a window that lists
+  each change with its fields before and after and the session that made it. **Keep** marks it as reviewed;
   **Revert** puts the fields back as they were (an automation the agent added is removed). Revert
   refuses when the automation changed again since (turning it on counts), so it never undoes your
   own edit. Agents cannot mark their changes as reviewed, and paired phones do not see the list.

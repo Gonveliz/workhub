@@ -6,6 +6,7 @@ import { Badge, Button } from '../../components/atoms'
 import { Card, CardBody, CardHeader, useToast } from '../../components/molecules'
 import { useI18n } from '../../i18n/I18nProvider'
 import { formatMs, formatRate, groupTitle, infraRequest, leadGroupText, noPodMetrics, POD_LABEL, POD_TONE, shortType, TREND_LABEL, TREND_TONE, whyText } from '../../lib/health'
+import { cn } from '../../lib/cn'
 import { relativeTime } from '../../lib/pullRequests'
 import { DetailFooter, Disclosure, InvestigateButton, KibanaLink, PickRow, useHealthDetail } from './HealthRows'
 import { FlowDetailsView } from './FlowDetailsView'
@@ -14,98 +15,59 @@ const Empty = ({ children }: { children: string }) => <p className="text-sm text
 
 // Errors -------------------------------------------------------------------------------------------
 
-export function ErrorsCard({ env, off }: { env: HealthEnvironmentView; off: boolean }) {
-  const { t } = useI18n()
-  const errors = env.snapshot.errorServices
-  const hasChronic = errors.some((e) => e.stats.state === 'chronic')
-  return (
-    <Card aria-label={t('health.errors.title')}>
-      <CardHeader title={t('health.errors.title')} meta={t('health.errors.meta', { hours: env.errorWindowHours })} />
-      <CardBody>
-        {errors.length === 0 ? (
-          <Empty>{off ? t('health.errors.off') : t('health.errors.empty')}</Empty>
-        ) : (
-          <ul className="flex flex-col divide-y divide-border">
-            {errors.map((e) => (
-              <ErrorRow key={e.service} entry={e} env={env} />
-            ))}
-          </ul>
-        )}
-        {hasChronic && <p className="mt-2 text-xs text-subtle">{t('health.trend.chronicNote')}</p>}
-      </CardBody>
-    </Card>
-  )
-}
-
-/** A service with errors. Expanding it reads its top error groups once (kept 10 minutes) and says why it is listed. */
-function ErrorRow({ entry, env }: { entry: ServiceErrorCount; env: HealthEnvironmentView }) {
+/** Why a service's errors are listed and its top error groups, read once when shown (kept 10 minutes). */
+export function ErrorDetail({ entry, env, className }: { entry: ServiceErrorCount; env: HealthEnvironmentView; className?: string }) {
   const i18n = useI18n()
   const { t, formatNumber } = i18n
-  const [open, setOpen] = useState(false)
-  const details = useHealthDetail<ServiceErrorDetails>({ kind: 'errors', service: entry.service }, open)
+  const details = useHealthDetail<ServiceErrorDetails>({ kind: 'errors', service: entry.service }, true)
   const hours = env.errorWindowHours
   const groups = details.value?.groups
   const lead = groups ? leadGroupText(groups, entry.stats.recent, i18n) : null
   return (
-    <PickRow id={itemId('errors', entry.service)} label={entry.service}>
-      <div className="flex items-center gap-2 text-sm">
-        <Disclosure open={open} onToggle={() => setOpen((o) => !o)}>
-          <span className="block truncate font-medium" title={entry.service}>
-            {entry.service}
-          </span>
-        </Disclosure>
-        <span className="text-xs text-subtle">{t('health.errors.typical', { count: formatNumber(entry.stats.typicalDay) })}</span>
-        <Badge tone={TREND_TONE[entry.stats.state]}>{t(TREND_LABEL[entry.stats.state])}</Badge>
-        <span className="w-14 text-right tabular-nums">{formatNumber(entry.stats.recent)}</span>
-        <KibanaLink url={env.errorUrls[entry.service] ?? env.serviceUrls[entry.service]} label={t('health.kibana.service', { service: entry.service })} />
-        <InvestigateButton rowKey={itemId('errors', entry.service)} row={{ kind: 'errors', entry }} compact />
-      </div>
-      {open && (
-        <div className="mt-1.5 flex flex-col gap-2 pl-5 text-sm">
-          <p>{whyText(entry.stats, hours, i18n)}</p>
-          {lead && (
-            <p className="text-xs text-muted">
-              {lead}
-              {groups?.[0]?.isNew && groups[0].firstSeen !== undefined ? ` ${t('health.errors.newSince', { time: relativeTime(groups[0].firstSeen, Date.now(), i18n.locale) })}` : ''}
-            </p>
-          )}
-          {groups &&
-            (groups.length === 0 ? (
-              <p className="text-xs text-muted">{t('health.errors.noGroups', { hours })}</p>
-            ) : (
-              <div className="flex flex-col gap-1.5">
-                <h4 className="text-xs font-semibold">{t('health.errors.groups', { hours })}</h4>
-                {groups.map((g) => (
-                  <div key={g.groupingKey} className="flex items-start gap-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate" title={g.exceptionType ?? groupTitle(g)}>
-                        <span className="font-semibold">{shortType(groupTitle(g))}</span>
-                        <span className="text-muted">
-                          {' · '}
-                          {[
-                            formatNumber(g.recent),
-                            g.endpoint,
-                            g.firstSeen !== undefined ? t('health.errors.groupFirst', { time: relativeTime(g.firstSeen, Date.now(), i18n.locale) }) : undefined,
-                            g.lastSeen !== undefined ? t('health.errors.groupLast', { time: relativeTime(g.lastSeen, Date.now(), i18n.locale) }) : undefined,
-                            !g.isNew && g.daysWithData > 1 ? t('health.errors.groupDays', { active: g.activeDays, days: g.daysWithData }) : undefined
-                          ]
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </span>
-                      </p>
-                      {g.message && <p className="line-clamp-2 text-xs text-muted select-text">{g.message}</p>}
-                      {g.culprit && g.culprit !== groupTitle(g) && <p className="truncate text-xs text-subtle">{t('health.errors.culprit', { culprit: g.culprit })}</p>}
-                    </div>
-                    {g.isNew && <Badge tone={TREND_TONE.new}>{t(TREND_LABEL.new)}</Badge>}
-                    <KibanaLink url={g.kibanaUrl} label={t('health.errors.kibanaGroup')} />
-                  </div>
-                ))}
+    <div className={cn('flex flex-col gap-2 text-sm', className)}>
+      <p>{whyText(entry.stats, hours, i18n)}</p>
+      {lead && (
+        <p className="text-xs text-muted">
+          {lead}
+          {groups?.[0]?.isNew && groups[0].firstSeen !== undefined ? ` ${t('health.errors.newSince', { time: relativeTime(groups[0].firstSeen, Date.now(), i18n.locale) })}` : ''}
+        </p>
+      )}
+      {groups &&
+        (groups.length === 0 ? (
+          <p className="text-xs text-muted">{t('health.errors.noGroups', { hours })}</p>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <h4 className="text-xs font-semibold">{t('health.errors.groups', { hours })}</h4>
+            {groups.map((g) => (
+              <div key={g.groupingKey} className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate" title={g.exceptionType ?? groupTitle(g)}>
+                    <span className="font-semibold">{shortType(groupTitle(g))}</span>
+                    <span className="text-muted">
+                      {' · '}
+                      {[
+                        formatNumber(g.recent),
+                        g.endpoint,
+                        g.firstSeen !== undefined ? t('health.errors.groupFirst', { time: relativeTime(g.firstSeen, Date.now(), i18n.locale) }) : undefined,
+                        g.lastSeen !== undefined ? t('health.errors.groupLast', { time: relativeTime(g.lastSeen, Date.now(), i18n.locale) }) : undefined,
+                        !g.isNew && g.daysWithData > 1 ? t('health.errors.groupDays', { active: g.activeDays, days: g.daysWithData }) : undefined
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  </p>
+                  {g.message && <p className="line-clamp-2 text-xs text-muted select-text">{g.message}</p>}
+                  {g.culprit && g.culprit !== groupTitle(g) && <p className="truncate text-xs text-subtle">{t('health.errors.culprit', { culprit: g.culprit })}</p>}
+                </div>
+                {g.isNew && <Badge tone={TREND_TONE.new}>{t(TREND_LABEL.new)}</Badge>}
+                <KibanaLink url={g.kibanaUrl} label={t('health.errors.kibanaGroup')} />
               </div>
             ))}
-          <DetailFooter state={details} fetchedAt={details.value?.fetchedAt} />
-        </div>
-      )}
-    </PickRow>
+          </div>
+        ))}
+      {entry.stats.state === 'chronic' && <p className="text-xs text-subtle">{t('health.trend.chronicNote')}</p>}
+      <DetailFooter state={details} fetchedAt={details.value?.fetchedAt} />
+    </div>
   )
 }
 
@@ -135,7 +97,7 @@ export function PodsCard({ env }: { env: HealthEnvironmentView }) {
 }
 
 /** A pod that needs attention. Expanding it reads its container status, last warning events and stderr once (kept 10 minutes). */
-function PodRow({ pod, env, restartsLabel }: { pod: PodIssue; env: HealthEnvironmentView; restartsLabel?: string }) {
+export function PodRow({ pod, env, restartsLabel }: { pod: PodIssue; env: HealthEnvironmentView; restartsLabel?: string }) {
   const { t, tn, locale, formatNumber } = useI18n()
   const [open, setOpen] = useState(false)
   const details = useHealthDetail<PodDetails>({ kind: 'pod', pod: pod.pod }, open)
@@ -367,7 +329,7 @@ export function ReportingCard({ env }: { env: HealthEnvironmentView }) {
   )
 }
 
-function SilentRow({ service: s, url }: { service: ServiceReporting; url: string | undefined }) {
+export function SilentRow({ service: s, url }: { service: ServiceReporting; url: string | undefined }) {
   const { t } = useI18n()
   return (
     <PickRow id={itemId('silent', s.service)} label={s.service}>
@@ -383,29 +345,8 @@ function SilentRow({ service: s, url }: { service: ServiceReporting; url: string
 
 // Slow flows ---------------------------------------------------------------------------------------
 
-export function SlowCard({ env }: { env: HealthEnvironmentView }) {
-  const { t } = useI18n()
-  const slow = env.snapshot.slow
-  return (
-    <Card aria-label={t('health.slow.title')}>
-      <CardHeader title={t('health.slow.title')} meta={t('health.slow.meta', { hours: env.slowFlowHours })} />
-      <CardBody>
-        {slow.length === 0 ? (
-          <Empty>{t('health.slow.empty')}</Empty>
-        ) : (
-          <ul className="flex flex-col divide-y divide-border">
-            {slow.map((tx) => (
-              <SlowRow key={flowKey(tx)} tx={tx} env={env} />
-            ))}
-          </ul>
-        )}
-      </CardBody>
-    </Card>
-  )
-}
-
 /** A slow endpoint. Expanding it reads where the time of its slowest executions goes, and how this window compares with the one before. */
-function SlowRow({ tx, env }: { tx: SlowTransaction; env: HealthEnvironmentView }) {
+export function SlowRow({ tx, env }: { tx: SlowTransaction; env: HealthEnvironmentView }) {
   const { t, tn, formatNumber } = useI18n()
   const [open, setOpen] = useState(false)
   const details = useHealthDetail<FlowDetails>({ kind: 'flow', service: tx.service, name: tx.name }, open)

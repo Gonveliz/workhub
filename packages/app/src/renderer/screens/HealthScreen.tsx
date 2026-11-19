@@ -1,8 +1,8 @@
-import { Activity, BellRing, ListChecks, RotateCcw, Sparkles } from 'lucide-react'
+import { Activity, BellRing, ListChecks, RotateCcw, Sparkles, Star } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { folderForEvent, folderForPod, folderName, matchFolder, moduleScreens, pruneSelection, selectableItems, toggleItem, workloadName, type HealthItemId, type Profile } from '@workhub/core'
 import type { HealthEnvironmentView, HealthState } from '@shared/health-api'
-import { Badge, Button, Spinner, StateDot } from '../components/atoms'
+import { Badge, Button, IconButton, Spinner, StateDot } from '../components/atoms'
 import { EmptyState, useToast, RefreshButton } from '../components/molecules'
 import { useHealth } from '../healthStore'
 import { useI18n } from '../i18n/I18nProvider'
@@ -17,6 +17,8 @@ import { HealthRowsProvider, type HealthRowActions } from './health/HealthRows'
 import { MetricAlertsPanel } from './health/MetricAlertsPanel'
 import { useMetricAlerts, useMetricAlertsOpen } from '../metricAlertsStore'
 import { openAlerts } from '../lib/metricAlerts'
+import { boardServices, favoriteServices, healthFavoriteKey, toggleKey } from '../lib/healthBoard'
+import { readPrefs, setPrefs, usePrefs } from '../lib/prefs'
 
 const STATUS_COPY: Partial<Record<HealthState, { title: MessageKey; hint: MessageKey }>> = {
   moduleOff: { title: 'health.status.moduleOff.title', hint: 'health.status.moduleOff.hint' },
@@ -71,6 +73,16 @@ export function HealthScreen({ profile, projectFolders, onOpenSettings, onInvest
   useEffect(() => {
     if (selected && !environments.some((e) => e.id === selected)) setSelected(null)
   }, [selected, environments])
+
+  // The board: starred services (per profile, in prefs) first, then the rest of the environment's services.
+  const prefs = usePrefs()
+  const favoriteNames = useMemo(() => favoriteServices(prefs.favoriteHealthServices, profile?.id ?? ''), [prefs.favoriteHealthServices, profile?.id])
+  const favoriteSet = useMemo(() => new Set(favoriteNames), [favoriteNames])
+  const services = useMemo(() => (current ? boardServices(current, favoriteNames, alertsView?.alerts ?? []) : []), [current, favoriteNames, alertsView])
+  const favoriteCount = services.filter((x) => favoriteSet.has(x.name)).length
+  const toggleFavorite = (service: string) => {
+    if (profile) setPrefs({ favoriteHealthServices: toggleKey(readPrefs().favoriteHealthServices, healthFavoriteKey(profile.id, service)) })
+  }
 
   // Selection mode: rows of every list can be picked and investigated together in one session.
   const [selecting, setSelecting] = useState(false)
@@ -211,8 +223,8 @@ export function HealthScreen({ profile, projectFolders, onOpenSettings, onInvest
 
       {current && (
         <>
-          <div className="flex flex-wrap items-center gap-2">
-            <div role="tablist" aria-label={t('health.environments')} className="flex flex-1 flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-center gap-2" data-testid="health-toolbar">
+            <div role="tablist" aria-label={t('health.environments')} className="inline-flex rounded-[9px] border border-border bg-surface-raised p-0.5">
               {environments.map((e) => {
                 const active = e.id === current.id
                 return (
@@ -221,19 +233,24 @@ export function HealthScreen({ profile, projectFolders, onOpenSettings, onInvest
                     type="button"
                     role="tab"
                     aria-selected={active}
+                    title={t(HEALTH_LABEL[e.snapshot.state])}
                     onClick={() => setSelected(e.id)}
                     className={cn(
-                      'inline-flex h-8 items-center gap-2 rounded-md border px-3 text-base transition-colors',
-                      active ? 'border-accent/60 bg-accent-soft text-text' : 'border-border bg-surface text-muted hover:bg-surface-hover hover:text-text'
+                      'inline-flex h-[26px] items-center gap-1.5 rounded-[7px] px-2.5 text-[12.5px] whitespace-nowrap transition-colors',
+                      active ? 'bg-accent-soft font-semibold text-text' : 'text-muted hover:text-text'
                     )}
                   >
                     <StateDot tone={HEALTH_TONE[e.snapshot.state]} />
                     {e.name}
-                    <span className="text-xs text-subtle">{t(HEALTH_LABEL[e.snapshot.state])}</span>
+                    <span className="sr-only">{t(HEALTH_LABEL[e.snapshot.state])}</span>
                   </button>
                 )
               })}
             </div>
+            <span className="ml-1.5 min-w-0 truncate text-xs text-subtle" data-testid="health-summary">
+              {[tn('health.board.services', services.length), tn('health.board.favoriteCount', favoriteCount), t('health.board.window', { hours: current.errorWindowHours })].join(' · ')}
+            </span>
+            <span className="flex-1" />
             {selecting ? (
               <div className="flex items-center gap-1.5">
                 <Button size="sm" variant="ghost" disabled={picked.size === selectable.length} onClick={() => setPicked(new Set(selectable))}>
@@ -247,13 +264,32 @@ export function HealthScreen({ profile, projectFolders, onOpenSettings, onInvest
                 </Button>
               </div>
             ) : (
-              <Button size="sm" variant="ghost" icon={<ListChecks className="size-3.5" aria-hidden />} disabled={selectable.length === 0} title={t('health.select.hint')} onClick={() => setSelecting(true)}>
-                {t('health.select')}
-              </Button>
+              <IconButton size="sm" label={t('health.select')} hint={<span className="text-subtle">{t('health.select.hint')}</span>} icon={<ListChecks className="size-3.5" aria-hidden />} disabled={selectable.length === 0} onClick={() => setSelecting(true)} />
             )}
+            <button
+              type="button"
+              aria-pressed={prefs.healthFavoritesOnly}
+              onClick={() => setPrefs({ healthFavoritesOnly: !prefs.healthFavoritesOnly })}
+              className={cn(
+                'inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-xs whitespace-nowrap text-text transition-colors',
+                prefs.healthFavoritesOnly ? 'border-accent bg-accent-soft' : 'border-border-strong hover:bg-surface-hover'
+              )}
+            >
+              <Star className="size-3 fill-current" aria-hidden />
+              {t('health.board.onlyFavorites')}
+            </button>
           </div>
           <HealthRowsProvider value={actions}>
-            <EnvironmentPanel key={current.id} env={current} onRetry={() => void refresh()} retrying={loading} />
+            <EnvironmentPanel
+              key={current.id}
+              env={current}
+              services={services}
+              favorites={favoriteSet}
+              onFavorite={toggleFavorite}
+              onlyFavorites={prefs.healthFavoritesOnly}
+              onRetry={() => void refresh()}
+              retrying={loading}
+            />
           </HealthRowsProvider>
           {picked.size > 0 && (
             <div role="region" aria-label={t('health.investigateTogether')} className="sticky bottom-3 z-10 mx-auto flex w-full max-w-xl items-center gap-3 rounded-xl border border-border bg-surface-raised px-4 py-2.5 shadow-lg">

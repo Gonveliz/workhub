@@ -4,9 +4,6 @@ export const plannerEs: Record<keyof typeof plannerEn, string> = {
   'planner.tab.inbox': 'Bandeja',
   'planner.tab.tasks': 'Tareas',
   'planner.inbox.noMatch': 'Ningún elemento coincide con los filtros.',
-  'planner.inbox.workingHint.one': '{count} tarea en curso está en la pestaña Tareas.',
-  'planner.inbox.workingHint.other': '{count} tareas en curso están en la pestaña Tareas.',
-  'planner.inbox.openTasks': 'Abrir Tareas',
   'planner.tasks.intro': 'El trabajo que tomaste, agrupado por el hito que hace avanzar. Marcar una tarea como hecha mueve su hito. Lo que todavía espera revisión está en la Bandeja.',
   'planner.tasks.empty': 'No hay tareas en curso',
   'planner.tasks.emptyHint': 'Guarda un elemento de la Bandeja como tarea local, o crea su ticket, y aparece aquí.',
@@ -76,7 +73,6 @@ export const plannerEs: Record<keyof typeof plannerEn, string> = {
   'planner.milestone.problem.link': 'El enlace debe empezar con https:// o http://.',
   'planner.milestone.problem.notes': 'Las notas son demasiado largas.',
 
-  'planner.inbox.intro': 'Lo que llegó: tuyo, de alertas de métricas, de agentes y de reuniones. Decide qué es cada cosa (un ticket, una tarea local o nada) y para qué hito cuenta.',
   'planner.inbox.add': 'Agregar elemento',
   'planner.inbox.addTitle': 'Nuevo elemento',
   'planner.inbox.addSave': 'Agregar a la bandeja',
@@ -309,5 +305,13 @@ export const plannerEs: Record<keyof typeof plannerEn, string> = {
   'planner.detail.linkSave': 'Vincular',
   'planner.detail.unlinkTicket': 'Desvincular',
   'planner.detail.unlinkTicketHint': 'Deja la tarea en Workhub sin el ticket.',
-  'planner.detail.updatedByTracker': 'Marcado como hecho desde el gestor {time}'
+  'planner.detail.updatedByTracker': 'Marcado como hecho desde el gestor {time}',
+  'planner.assign.pick': 'Elegir hito',
+  'planner.triage.hint': 'decide qué es cada cosa',
+  'planner.triage.what': '¿Qué es?',
+  'planner.triage.next': 'siguiente',
+  'planner.triage.window': 'Abrir en su propia ventana',
+  'planner.triage.milestone': 'Hito',
+  'planner.triage.working.one': '{count} tarea en curso está en Tareas',
+  'planner.triage.working.other': '{count} tareas en curso están en Tareas'
 }

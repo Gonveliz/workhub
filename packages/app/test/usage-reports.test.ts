@@ -40,7 +40,8 @@ import {
 import type { ProjectBudgets } from '@workhub/core'
 import { ProjectBudgetsCard } from '../src/renderer/screens/usage/ProjectBudgetsCard'
 import { UsageReportsView, withProfile, type ReportData } from '../src/renderer/screens/UsageReportsScreen'
-import { ReportSessions, ReportTable, WeeklySummaryView } from '../src/renderer/screens/usage/ReportParts'
+import { ReportFilterPanel, ReportSessions, ReportTable, WeeklySummaryView } from '../src/renderer/screens/usage/ReportParts'
+import { Popover } from 'radix-ui'
 import type { ReportSession, ReportSessionPage } from '../src/shared/analytics-api'
 
 const render = (el: ReactElement) => renderToStaticMarkup(createElement(TooltipProvider, null, el))
@@ -303,6 +304,18 @@ const DATA: ReportData = {
   nextCursor: null
 }
 
+const VALUES = { profiles: ['p1', 'p2'], projects: ['/w/acme/notes-api', '/w/acme/notes-web'], agents: ['claude'], accounts: [], models: ['claude-sonnet-4-5', 'gpt-5'], tickets: ['ABC-123'], prs: [], tags: ['spike', 'perf'] }
+
+/** The Filters popover's content, as it renders once opened. */
+const panel = (over: Partial<Parameters<typeof ReportFilterPanel>[0]> = {}) =>
+  render(
+    createElement(
+      Popover.Root,
+      { open: true },
+      createElement(ReportFilterPanel, { state: { ...DEFAULT_REPORT_STATE, period: '7d' }, values: VALUES, names: {}, onChange: () => undefined, overall: DATA.overall, ...over })
+    )
+  )
+
 const view = (over: Partial<Parameters<typeof UsageReportsView>[0]> = {}) =>
   render(
     createElement(UsageReportsView, {
@@ -310,7 +323,7 @@ const view = (over: Partial<Parameters<typeof UsageReportsView>[0]> = {}) =>
       onChange: () => undefined,
       range: periodRange({ period: '7d', from: '', to: '' }, NOW),
       data: DATA,
-      values: { profiles: ['p1', 'p2'], projects: ['/w/acme/notes-api', '/w/acme/notes-web'], agents: ['claude'], accounts: [], models: ['claude-sonnet-4-5', 'gpt-5'], tickets: ['ABC-123'], prs: [], tags: ['spike', 'perf'] },
+      values: VALUES,
       loading: false,
       names: {},
       onRefresh: async () => undefined,
@@ -329,15 +342,26 @@ describe('Usage and reports screen', () => {
   })
 
   it('keeps a greyed-out Tag menu while no session has a tag, saying where tags are added', () => {
-    const html = view({ values: { profiles: ['p1'], projects: ['/w/acme/notes-api'], agents: ['claude'], accounts: [], models: ['gpt-5'], tickets: [], prs: [], tags: [] } })
+    const html = panel({ values: { profiles: ['p1'], projects: ['/w/acme/notes-api'], agents: ['claude'], accounts: [], models: ['gpt-5'], tickets: [], prs: [], tags: [] } })
     expect(html).toContain('aria-label="Tag"')
     expect(html).toContain('No tags yet: add them from History or the session monitor')
     expect(html).not.toContain('aria-label="Pull request"')
   })
 
-  it('shows the filters that have something to pick, the tiles, both charts, the table and the sessions', () => {
+  it('keeps period, group by and measure in the row and folds the filter menus into a Filters button', () => {
     const html = view()
     expect(html).toContain('data-testid="report-filters"')
+    expect(html).toContain('aria-label="Period"')
+    expect(html).toContain('aria-label="Group by"')
+    expect(html).toContain('data-testid="report-filters-button"')
+    expect(html).not.toContain('aria-label="Profile"')
+    // No filter in use: the button has no count and no chips show.
+    expect(html).toMatch(/data-testid="report-filters-button"[^>]*><span>Filters<\/span>/)
+    expect(html).not.toContain('data-testid="report-active-filters"')
+  })
+
+  it('puts the menus with something to pick in the Filters panel, with the sessions and turns the report counts', () => {
+    const html = panel()
     expect(html).toContain('aria-label="Profile"')
     expect(html).toContain('aria-label="Project"')
     expect(html).toContain('aria-label="Model"')
@@ -346,6 +370,21 @@ describe('Usage and reports screen', () => {
     expect(html).toContain('aria-label="Agent"')
     expect(html).toContain('aria-label="Ticket"')
     expect(html).not.toContain('aria-label="Account"')
+    expect(html).toContain('data-testid="report-filter-count"')
+    expect(html).toMatch(/\d+ sessions? · \d+ turns?/)
+    expect(html).toContain('>Done<')
+    // Nothing to clear yet.
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*data-testid="report-clear-filters"/)
+  })
+
+  it('tints the menus in use and counts them in the panel', () => {
+    const html = panel({ state: { ...DEFAULT_REPORT_STATE, filters: { project: '/w/acme/notes-api', agent: 'claude' } } })
+    expect(html).toContain('2 active')
+    expect(html.match(/border-accent! bg-accent-soft!/g)).toHaveLength(2)
+  })
+
+  it('shows the tiles, both charts, the table and the sessions', () => {
+    const html = view()
     expect(html).toContain('aria-pressed="true"')
     expect(html).toContain('data-testid="report-tiles"')
     expect(html).toContain('$3.25')
@@ -403,13 +442,19 @@ describe('Usage and reports screen', () => {
   })
 
   it('offers an exact project menu and a folder-and-below one', () => {
-    const html = view()
+    const html = panel()
     expect(html).toContain('aria-label="Folder and below"')
   })
 
-  it('shows Clear filters once a filter is set, and the custom dates for a custom period', () => {
-    const html = view({ state: { ...DEFAULT_REPORT_STATE, period: 'custom', from: '2026-11-01', to: '2026-11-18', filters: { tag: 'spike' } } })
-    expect(html).toContain('data-testid="report-clear-filters"')
+  it('shows the filters in use as removable chips with Clear, the count on the button, and the custom dates for a custom period', () => {
+    const html = view({ state: { ...DEFAULT_REPORT_STATE, period: 'custom', from: '2026-11-01', to: '2026-11-18', filters: { tag: 'spike', project: '/w/acme/notes-api' } } })
+    expect(html).toContain('data-testid="report-active-filters"')
+    expect(html).toContain('<span>Filters · 2</span>')
+    // A folder goes by its name on the chip, its path in the tooltip.
+    expect(html).toContain('Project: notes-api')
+    expect(html).toContain('Tag: spike')
+    expect(html).toContain('aria-label="Remove Tag: spike"')
+    expect(html).toContain('data-testid="active-filters-clear"')
     expect(html).toContain('data-testid="report-from"')
     expect(html).toContain('value="2026-11-01"')
   })
@@ -816,8 +861,16 @@ describe('monthly project budgets card', () => {
     expect(html).toContain('Over budget')
   })
 
-  it('says the dollars are a lower bound when tokens had no price, and invites a first budget when empty', () => {
+  it('says the dollars are a lower bound when tokens had no price', () => {
     expect(card({ '/w/acme/a': { usd: 10 } }, [{ ...total('/w/acme/a', 1, 0), unpricedTokens: 5000 }])).toContain('project-budget-unpriced')
-    expect(card({}, [])).toContain('project-budgets-empty')
+  })
+
+  it('folds to one line with a link to set one while there is no budget', () => {
+    const html = card({}, [])
+    expect(html).toContain('data-folded="true"')
+    expect(html).toContain('No budgets')
+    expect(html).toContain('data-testid="project-budgets-define"')
+    expect(html).not.toContain('project-budget-project')
+    expect(card({ '/w/acme/a': { usd: 10 } }, [])).not.toContain('data-folded')
   })
 })

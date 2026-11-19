@@ -43,4 +43,6 @@ export interface AgentChangesApi {
   /** Puts the "before" values back through the service the UI uses, then marks the change as reviewed. */
   revert(id: string): Promise<AgentChangeAnswer>
   onChanged(cb: (changes: AgentChange[]) => void): () => void
+  /** Opens the window that lists the changes, or brings the open one to the front. */
+  openWindow(): void
 }

@@ -55,10 +55,9 @@ export function metricName(alert: Pick<MetricAlert, 'metric' | 'label'>, t: (key
  * The polyline points of a sparkline in a `width`×`height` box with `pad` inside: oldest left,
  * the top is the highest value; a flat or single-value series is drawn mid-height.
  */
-export function sparklinePoints(values: readonly number[], width: number, height: number, pad = 1.5): string {
+export function sparklinePoints(values: readonly number[], width: number, height: number, pad = 1.5, domain?: readonly [number, number]): string {
   if (values.length === 0) return ''
-  const max = Math.max(...values)
-  const min = Math.min(...values)
+  const [min, max] = domain ?? [Math.min(...values), Math.max(...values)]
   const span = max - min
   const step = values.length > 1 ? (width - 2 * pad) / (values.length - 1) : 0
   return values
@@ -68,6 +67,39 @@ export function sparklinePoints(values: readonly number[], width: number, height
       return `${Math.round(x * 10) / 10},${Math.round(y * 10) / 10}`
     })
     .join(' ')
+}
+
+/** The y of `value` in the same box `sparklinePoints` draws in, for a band or a mark drawn with the line. */
+export function sparklineY(value: number, height: number, domain: readonly [number, number], pad = 1.5): number {
+  const [min, max] = domain
+  const span = max - min
+  return Math.round((span === 0 ? height / 2 : pad + (1 - (value - min) / span) * (height - 2 * pad)) * 10) / 10
+}
+
+/**
+ * The band an alert's last value is read against: the lowest and highest of the (up to) 7 values
+ * before it in its stored history. Null with fewer than 2 earlier values, where a band says nothing.
+ */
+export function historyBand(history: readonly { value: number }[]): [number, number] | null {
+  const before = history.slice(0, -1).slice(-7).map((h) => h.value)
+  if (before.length < 2) return null
+  return [Math.min(...before), Math.max(...before)]
+}
+
+/** An alert pinned on Health → Alerts: per profile, by the alert's series key. */
+export const pinnedAlertKey = (profileId: string, key: string): string => `${profileId}\u0000${key}`
+
+const SEVERITY_ORDER: Record<AlertSeverity, number> = { high: 0, medium: 1, low: 2 }
+
+/** The pinned alerts and the rest, each highest severity first (the order they came in otherwise). */
+export function splitPinned(alerts: readonly MetricAlert[], isPinned: (a: MetricAlert) => boolean): { pinned: MetricAlert[]; rest: MetricAlert[] } {
+  const bySeverity = (list: MetricAlert[]) => list.map((a, i) => ({ a, i })).sort((x, y) => SEVERITY_ORDER[x.a.severity] - SEVERITY_ORDER[y.a.severity] || x.i - y.i).map((x) => x.a)
+  return { pinned: bySeverity(alerts.filter(isPinned)), rest: bySeverity(alerts.filter((a) => !isPinned(a))) }
+}
+
+/** The filters set to something other than "any", in the order the Filters menu lists them. */
+export function activeFilters(f: AlertFilters): (keyof AlertFilters)[] {
+  return (['status', 'severity', 'kind'] as const).filter((k) => f[k] !== 'all')
 }
 
 /** One row of Settings → Health → Alert rules → per-metric overrides; blank numbers keep the default. */

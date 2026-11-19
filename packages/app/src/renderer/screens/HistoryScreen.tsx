@@ -78,6 +78,67 @@ export function historyAgents(entries: HistoryItem[]): { id: string; name: strin
 
 const ALL = '*'
 
+export interface HistoryToolbarProps {
+  query: string
+  onQuery: (query: string) => void
+  agent: string
+  onAgent: (agent: string) => void
+  agents: readonly { id: string; name: string }[]
+  profile: string
+  onProfile: (profile: string) => void
+  profiles: readonly { id: string; name: string }[]
+  account: string
+  onAccount: (account: string) => void
+  accounts: readonly { id: string; name: string }[]
+  /** Whether the "hide automations" toggle shows (there are automation runs, or it is on). */
+  automations: boolean
+  hideAutomations: boolean
+  onHideAutomations: (hide: boolean) => void
+  loading: boolean
+  onRefresh: () => void
+}
+
+/**
+ * The search box and the filters of History. A filter only shows when there is a choice to make
+ * (two or more agents, profiles or accounts; automation runs). With any of them showing, the
+ * search box takes a line of its own and the filters the next one: on one line they left it too
+ * narrow to see what was typed. With none, the search box shares its line with Refresh.
+ */
+export function HistoryToolbar({ query, onQuery, agent, onAgent, agents, profile, onProfile, profiles, account, onAccount, accounts, automations, hideAutomations, onHideAutomations, loading, onRefresh }: HistoryToolbarProps) {
+  const { t } = useI18n()
+  const filtered = agents.length > 1 || profiles.length > 1 || accounts.length > 1 || automations
+  return (
+    <div className="flex flex-wrap items-center gap-2" data-testid="history-toolbar">
+      <div className={filtered ? 'relative basis-full' : 'relative min-w-0 flex-1'} data-testid="history-search-box">
+        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-subtle" aria-hidden />
+        <Input aria-label={t('history.search')} placeholder={t('history.search')} value={query} onChange={(e) => onQuery(e.target.value)} className="pl-8!" spellCheck={false} />
+      </div>
+      {agents.length > 1 && (
+        <div className="w-44 shrink-0">
+          <Select aria-label={t('history.agent')} value={agent} onChange={onAgent} options={[{ value: ALL, label: t('history.allAgents') }, ...agents.map((a) => ({ value: a.id, label: a.name }))]} />
+        </div>
+      )}
+      {profiles.length > 1 && (
+        <div className="w-44 shrink-0">
+          <Select aria-label={t('history.profile')} value={profile} onChange={onProfile} options={[{ value: ALL, label: t('history.allProfiles') }, ...profiles.map((p) => ({ value: p.id, label: p.name }))]} />
+        </div>
+      )}
+      {accounts.length > 1 && (
+        <div className="w-48 shrink-0">
+          <Select aria-label={t('history.account')} value={account} onChange={onAccount} options={[{ value: ALL, label: t('history.allAccounts') }, ...accounts.map((a) => ({ value: a.id, label: a.name || t('usage.defaultAccount') }))]} />
+        </div>
+      )}
+      {automations && (
+        <Button size="md" variant={hideAutomations ? 'primary' : 'secondary'} aria-pressed={hideAutomations} onClick={() => onHideAutomations(!hideAutomations)} data-testid="history-hide-automations">
+          {t('history.hideAutomations')}
+        </Button>
+      )}
+      {filtered && <span className="flex-1" />}
+      <RefreshButton size="md" iconClassName="size-4" label={t('history.refresh')} loading={loading} onRefresh={onRefresh} />
+    </div>
+  )
+}
+
 /** Every session of every agent that keeps a history, searchable, filterable by agent, grouped by folder. */
 export function HistoryScreen({ profileId, profiles = [], onOpened, visible = true, focus }: HistoryScreenProps) {
   const { t, tn, formatDate } = useI18n()
@@ -340,48 +401,24 @@ export function HistoryScreen({ profileId, profiles = [], onOpened, visible = tr
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4 px-8 py-6">
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-subtle" aria-hidden />
-          <Input aria-label={t('history.search')} placeholder={t('history.search')} value={query} onChange={(e) => setQuery(e.target.value)} className="pl-8!" spellCheck={false} />
-        </div>
-        {agents.length > 1 && (
-          <div className="w-44 shrink-0">
-            <Select
-              aria-label={t('history.agent')}
-              value={agent}
-              onChange={setAgent}
-              options={[{ value: ALL, label: t('history.allAgents') }, ...agents.map((a) => ({ value: a.id, label: a.name }))]}
-            />
-          </div>
-        )}
-        {profiles.length > 1 && (
-          <div className="w-44 shrink-0">
-            <Select
-              aria-label={t('history.profile')}
-              value={profileFilter}
-              onChange={setProfileFilter}
-              options={[{ value: ALL, label: t('history.allProfiles') }, ...profiles.map((p) => ({ value: p.id, label: p.name }))]}
-            />
-          </div>
-        )}
-        {accounts.length > 1 && (
-          <div className="w-48 shrink-0">
-            <Select
-              aria-label={t('history.account')}
-              value={account}
-              onChange={setAccount}
-              options={[{ value: ALL, label: t('history.allAccounts') }, ...accounts.map((a) => ({ value: a.id, label: a.name || t('usage.defaultAccount') }))]}
-            />
-          </div>
-        )}
-        {(byAutomation.groups.length > 0 || hideAutomations) && (
-          <Button size="md" variant={hideAutomations ? 'primary' : 'secondary'} aria-pressed={hideAutomations} onClick={() => setHideAutomations(!hideAutomations)} data-testid="history-hide-automations">
-            {t('history.hideAutomations')}
-          </Button>
-        )}
-        <RefreshButton size="md" iconClassName="size-4" label={t('history.refresh')} loading={loading} onRefresh={load} />
-      </div>
+      <HistoryToolbar
+        query={query}
+        onQuery={setQuery}
+        agent={agent}
+        onAgent={setAgent}
+        agents={agents}
+        profile={profileFilter}
+        onProfile={setProfileFilter}
+        profiles={profiles}
+        account={account}
+        onAccount={setAccount}
+        accounts={accounts}
+        automations={byAutomation.groups.length > 0 || hideAutomations}
+        hideAutomations={hideAutomations}
+        onHideAutomations={setHideAutomations}
+        loading={loading}
+        onRefresh={load}
+      />
       <HistoryIndexingNote progress={progress} className="-mt-2" />
       {error && (
         <p role="alert" className="flex items-center gap-2 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">

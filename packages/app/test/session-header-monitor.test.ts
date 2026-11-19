@@ -37,10 +37,10 @@ describe('session header', () => {
     expect(activityElapsed('idle', 0, 120_000)).toBe('2 min')
   })
 
-  it('starts from the header width: labels when wide, icons in between, the menu when narrow', () => {
+  it('starts from the header width: labels from a usable width, the menu below it', () => {
     expect(headerDensity(1400)).toBe('full')
-    expect(headerDensity(1024)).toBe('icons')
-    expect(headerDensity(700)).toBe('icons')
+    expect(headerDensity(1024)).toBe('full')
+    expect(headerDensity(700)).toBe('full')
     expect(headerDensity(640)).toBe('narrow')
   })
 

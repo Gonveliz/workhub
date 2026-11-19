@@ -78,6 +78,19 @@ describe('layout', () => {
     expect(l.height).toBe(l.lanes[2]!.y + l.lanes[2]!.h + 10)
   })
 
+  it('can put the stage chips in a row under the last lane, which makes the picture narrower and taller', () => {
+    const beside = layoutFlowMap(map)
+    const row = layoutFlowMap(map, { stages: 'row' })
+    const last = row.lanes[row.lanes.length - 1]!
+    expect(row.stages!.box.y).toBeGreaterThan(last.y + last.h)
+    expect(row.stages!.box.x).toBeLessThan(row.nodes.orders!.x)
+    expect(row.width).toBeLessThan(beside.width)
+    expect(row.height).toBeGreaterThan(beside.height)
+    expect(row.height).toBe(row.stages!.box.y + row.stages!.box.h + 10)
+    // Every node keeps its column: only the chips moved, and the lanes closed up around them.
+    for (const [id, box] of Object.entries(row.nodes)) expect(box.x).toBe(beside.nodes[id]!.x)
+  })
+
   it('stacks two nodes of one lane and column as rows and grows the lane', () => {
     const two = { ...map, nodes: [...map.nodes, { id: 'risk', lane: 'core', label: 'risk', kind: 'service' as const }], edges: [...map.edges, { from: 'orders', to: 'risk', kind: 'sync' as const, emphasis: false, entry: 'side' as const }] }
     const l = layoutFlowMap(two)

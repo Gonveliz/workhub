@@ -1,18 +1,21 @@
 /**
  * The changes agents make to Workhub's own objects through the control endpoint (automations, flow
  * maps and their alert limits, milestones applied without asking, inbox items), kept in a small
- * journal (the `agent-changes` key of `kv_state`) until the user keeps or reverts each one on Home.
+ * journal (the `agent-changes` key of `kv_state`) until the user keeps or reverts each one in the "Changes by agents" window.
  *
  * Every entry holds the changed fields before and after, capped; a value that is too long or looks
  * like a secret is kept shortened and is never restored. A revert puts the "before" values back
  * through the service the UI uses, and only when the object still has the values the agent left.
  * A flow map's new alert limits are held: the map is saved with its old limits, and the new ones
  * take effect when the user keeps the change. Marking a change as reviewed is not offered to agents
- * nor to paired devices: there is no endpoint for it.
+ * nor to paired devices: there is no endpoint for it. Home shows how many wait; the list, with
+ * Keep and Revert, is in a window of its own (`#agent-changes`), one at a time.
  */
 import { createHash, randomUUID } from 'node:crypto'
+import type { BrowserWindow } from 'electron'
 import { parseFlowMap, type AutomationDefinition, type InboxItem, type Milestone, type Result, type StateStore, type WorkhubConfig } from '@workhub/core'
 import type { AgentChange, AgentChangeAnswer, AgentChangeKind } from '../shared/agent-changes-api'
+import { AGENT_CHANGES_WINDOW_HASH } from '../shared/agent-changes-window'
 import type { ControlCaller } from './control-auth'
 import type { ControlDeps, ControlReply } from './control-server'
 import { deleteFlowMap, saveFlowMap, setFlowMapAlerts, type FlowMapRows, type SaveFlowMapResult } from './flow-maps'
@@ -356,7 +359,7 @@ export function saveAgentFlowMap(rows: FlowMapRows, input: unknown, journal: Age
   }
   rows.put(id, text)
   journal.record({ kind: 'flowMap', object: { id, name: typeof after['name'] === 'string' ? after['name'] : id }, before, after, stored, held, ...who })
-  return held.length ? { ...asked, note: 'The new alert limits wait for the user: they take effect once the user keeps this change on Home.' } : asked
+  return held.length ? { ...asked, note: 'The new alert limits wait for the user: they take effect once the user keeps this change in Changes by agents.' } : asked
 }
 
 /** The session of a request and its name, agent and profile; the session is the caller's (bound by its token). */
@@ -444,9 +447,27 @@ export function journalControl(deps: ControlDeps, { journal, targets: t }: { jou
   return out
 }
 
-/** The desktop's bridge: list, keep, revert. Not on any paired device's allowlist. */
-export function registerAgentChangesIpc(ipc: IpcRegistrar, { journal, targets: t }: { journal: AgentChangeJournal; targets: AgentChangeTargets }): void {
+/** Opens the "Changes by agents" window, or brings the one already open to the front: there is only one. */
+export function agentChangesWindow(createWindow: (hash: string, title: string) => BrowserWindow): () => void {
+  let open: BrowserWindow | null = null
+  return () => {
+    if (open && !open.isDestroyed()) {
+      if (open.isMinimized()) open.restore()
+      open.focus()
+      return
+    }
+    const win = createWindow(AGENT_CHANGES_WINDOW_HASH, 'Changes by agents')
+    open = win
+    win.on('closed', () => {
+      if (open === win) open = null
+    })
+  }
+}
+
+/** The desktop's bridge: list, keep, revert, and the window that lists them. Not on any paired device's allowlist. */
+export function registerAgentChangesIpc(ipc: IpcRegistrar, { journal, targets: t }: { journal: AgentChangeJournal; targets: AgentChangeTargets }, openWindow?: () => void): void {
   ipc.handle('agentChanges:list', () => journal.unreviewed())
+  ipc.on('agentChanges:openWindow', () => openWindow?.())
   ipc.handle('agentChanges:keep', (_e, id: unknown): Promise<AgentChangeAnswer> | AgentChangeAnswer => (typeof id === 'string' ? keepAgentChange(journal, t, id) : { ok: false, error: 'gone' }))
   ipc.handle('agentChanges:revert', (_e, id: unknown): Promise<AgentChangeAnswer> | AgentChangeAnswer => (typeof id === 'string' ? revertAgentChange(journal, t, id) : { ok: false, error: 'gone' }))
 }

@@ -1,18 +1,22 @@
-import { AppWindow, ChevronLeft, ChevronRight, Copy, ListOrdered, Maximize2, MoreHorizontal, Pause, Play, RotateCcw, Sparkles, Waypoints, X, ZoomIn, ZoomOut } from 'lucide-react'
-import { DropdownMenu } from 'radix-ui'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { breaches, flowAlertsOf, flowCoverage, flowMeasures, flowPartLabel, flowParts, flowThresholds, formatMs, hasFlowAlerts, layoutFlowMap, rankFlowDeviations, rankFlowParts, slowShareOf, type FlowBaseline, type FlowLimits, type FlowCoverage, type FlowMap, type FlowMapReading, type FlowNodeKind, type FlowPartDeviation, type FlowPartRef, type FlowTiming, type FlowTrace, type FlowTraceSort } from '@workhub/core'
+import { AppWindow, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Copy, ListOrdered, Maximize2, MoreHorizontal, Pause, Play, RotateCcw, Sparkles, Star, Waypoints, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { DropdownMenu, Popover } from 'radix-ui'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { breaches, flowAlertsOf, flowCoverage, flowMeasures, flowPartLabel, flowParts, flowThresholds, formatMs, hasFlowAlerts, layoutFlowMap, rankFlowParts, slowShareOf, type FlowBaseline, type FlowLimits, type FlowCoverage, type FlowMap, type FlowMapReading, type FlowNodeKind, type FlowPartDeviation, type FlowPartRef, type FlowTiming, type FlowTrace, type FlowTraceSort } from '@workhub/core'
 import type { FlowMapResult, FlowTraceLogsResult, FlowTraceResult, HealthEnvironmentView } from '@shared/health-api'
 import { Badge, Button, IconButton, Spinner } from '../../components/atoms'
 import { Tabs, useToast } from '../../components/molecules'
 import { useI18n } from '../../i18n/I18nProvider'
 import { cn } from '../../lib/cn'
 import { errorText } from '../../lib/errorText'
+import { flowEntryTiming, flowMapStanding, flowPartTones, notableDeviations, type FlowTone } from '../../lib/flowMapCards'
 import { readPrefs, setPrefs } from '../../lib/prefs'
+import { useRowAnchor } from '../../lib/rowAnchor'
 import { pressable } from '../../lib/pressable'
 import { FlowMapSvg, flowMapToPng, KIND_COLOR, WAIT } from './FlowMapSvg'
 import { FlowSequenceSvg, sequenceFitWidth, sequenceLayout } from './FlowSequenceSvg'
 import { flowMapPrompt } from './flowMapPrompt'
+import { FlowSummaryTiles, PartDetail, StandingBadge, StandingLegend } from './FlowSplitParts'
 import { HourlyChart } from './HourlyChart'
 import { Segmented } from './Segmented'
 import { TracesPanel } from './TracesPanel'
@@ -23,6 +27,8 @@ const ZOOM_STEPS = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 2]
 const DRAWER_ROOM = 1200
 /** The diagram box: never shorter than this, never taller than this share of the window. */
 const DIAGRAM_MIN_HEIGHT = 420
+/** Split: the diagram is wider than tall there, so its box asks for less. */
+const SPLIT_DIAGRAM_MIN_HEIGHT = 300
 const DIAGRAM_MAX_VH = 0.75
 type Tab = 'parts' | 'executions' | 'coverage' | 'alerts' | 'legend'
 type Ranks = ReturnType<typeof rankFlowParts>
@@ -40,6 +46,27 @@ export interface FlowMapViewProps {
   onOpenSettings?: (tab?: string) => void
   /** Whether "Open in a window" shows (not inside the window itself). */
   canOpenWindow?: boolean
+  /**
+   * `classic` (the map's own window): the header carries every control, verdict tiles, the part
+   * detail in a drawer beside the diagram. `split` (the screen, whose column of cards takes the
+   * side): the flow's own numbers as tiles, a larger diagram coloured by how each part stands, and
+   * the part detail in a band under it.
+   */
+  layout?: 'classic' | 'split'
+  /** Split: where the window, refresh and menu go (the screen's header row); inline without it. */
+  toolbar?: HTMLElement | null
+  /** Split: more entries for the menu (the screen's Reload and Settings). */
+  menuExtra?: FlowMenuItem[]
+  /** Split: whether the map is starred, and the star's action; no star without it. */
+  favorite?: boolean
+  onFavorite?: () => void
+}
+
+export interface FlowMenuItem {
+  key: string
+  label: string
+  icon: ReactNode
+  onSelect: () => void
 }
 
 /**
@@ -48,7 +75,8 @@ export interface FlowMapViewProps {
  * part's detail in a drawer beside it, and the tabs under them: the parts, the real executions,
  * the coverage, the alerts and the legend.
  */
-export function FlowMapView({ env, profileId, mapId, file, onAsk, onOpenSettings, canOpenWindow = true }: FlowMapViewProps) {
+export function FlowMapView({ env, profileId, mapId, file, onAsk, onOpenSettings, canOpenWindow = true, layout: arrangement = 'classic', toolbar, menuExtra = [], favorite = false, onFavorite }: FlowMapViewProps) {
+  const split = arrangement === 'split'
   const { t, locale } = useI18n()
   const toast = useToast()
   const [hours, setHours] = useState(24)
@@ -67,6 +95,7 @@ export function FlowMapView({ env, profileId, mapId, file, onAsk, onOpenSettings
   const [loadingLogs, setLoadingLogs] = useState(false)
   const [collapsed, setCollapsed] = useState(() => readPrefs().flowMapDrawerCollapsed)
   const root = useRef<HTMLDivElement>(null)
+  const tabsRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const envId = env?.id ?? ''
@@ -74,8 +103,8 @@ export function FlowMapView({ env, profileId, mapId, file, onAsk, onOpenSettings
   // A narrow view starts with the drawer folded; the remembered choice applies when there is room.
   useLayoutEffect(() => {
     const width = root.current?.clientWidth ?? Infinity
-    if (width > 0 && width < DRAWER_ROOM) setCollapsed(true)
-  }, [])
+    if (!split && width > 0 && width < DRAWER_ROOM) setCollapsed(true)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const toggleDrawer = () => {
     setCollapsed((c) => {
       setPrefs({ flowMapDrawerCollapsed: !c })
@@ -144,7 +173,9 @@ export function FlowMapView({ env, profileId, mapId, file, onAsk, onOpenSettings
 
   const map = result?.ok ? result.map : null
   const reading = result?.ok ? result.reading : undefined
-  const layout = useMemo(() => (map ? layoutFlowMap(map) : null), [map])
+  const layout = useMemo(() => (map ? layoutFlowMap(map, split ? { stages: 'row' } : {}) : null), [map, split])
+  const tones = useMemo(() => (map ? flowPartTones(map, reading) : new Map<string, FlowTone>()), [map, reading])
+  const standing = useMemo(() => (map ? flowMapStanding(map, reading) : null), [map, reading])
   const ranks = useMemo(() => (map && reading ? rankFlowParts(map, reading) : []), [map, reading])
   const coverage = useMemo(() => (map ? flowCoverage(map, reading) : null), [map, reading])
   const selectedTrace: FlowTrace | null = trace?.ok ? trace.trace : null
@@ -222,92 +253,207 @@ export function FlowMapView({ env, profileId, mapId, file, onAsk, onOpenSettings
       { key: 'copy', label: t('flowMaps.copyImage'), icon: <Copy className="size-3.5" aria-hidden />, onSelect: () => void copyImage() },
       ...(canOpenWindow && env ? [{ key: 'window', label: t('flowMaps.openWindow'), icon: <AppWindow className="size-3.5" aria-hidden />, onSelect: () => window.hub.flowMaps.openWindow(profileId, envId, mapId) }] : [])
     ]
+    const splitMenu: FlowMenuItem[] = [
+      { key: 'ask', label: t('flowMaps.ask'), icon: <Sparkles className="size-3.5" aria-hidden />, onSelect: () => ask() },
+      { key: 'animate', label: flow ? t('flowMaps.animate.pause') : t('flowMaps.animate.play'), icon: flow ? <Pause className="size-3.5" aria-hidden /> : <Play className="size-3.5" aria-hidden />, onSelect: () => setFlow(!flow) },
+      { key: 'fit', label: t('flowMaps.zoomFit'), icon: <Maximize2 className="size-3.5" aria-hidden />, onSelect: () => setZoom('fit') },
+      ...menu,
+      ...menuExtra
+    ]
+    const viewSwitch = (
+      <Segmented
+        label={t('flowMaps.view')}
+        value={view}
+        onChange={(v) => {
+          setView(v)
+          setZoom('fit')
+        }}
+        options={[
+          { value: 'map', label: t('flowMaps.view.map'), icon: <Waypoints className="size-3.5" aria-hidden /> },
+          { value: 'sequence', label: t('flowMaps.view.sequence'), icon: <ListOrdered className="size-3.5" aria-hidden /> }
+        ]}
+      />
+    )
+    // Split: the window, the refresh and one menu with every other action, in the screen's header row.
+    const controls = (
+      <>
+        {env && <Segmented label={t('flowMaps.window')} value={hours} onChange={setHours} options={WINDOWS.map((h) => ({ value: h, label: h < 24 ? `${h} h` : `${h / 24} d` }))} />}
+        {env && <IconButton size="sm" label={t('flowMaps.refresh')} icon={loading ? <Spinner /> : <RotateCcw className="size-3.5" aria-hidden />} disabled={loading} onClick={() => load(true)} />}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <IconButton size="sm" label={t('flowMaps.more')} icon={<MoreHorizontal className="size-3.5" aria-hidden />} data-testid="flow-map-more" />
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content align="end" sideOffset={6} className="z-50 min-w-52 animate-fade-in rounded-md border border-border bg-surface-raised p-1 shadow-lg">
+              {splitMenu.map((m) => (
+                <DropdownMenu.Item key={m.key} onSelect={m.onSelect} className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-base outline-none data-[highlighted]:bg-accent-soft">
+                  {m.icon}
+                  {m.label}
+                </DropdownMenu.Item>
+              ))}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      </>
+    )
     body = (
       <>
-        <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="flow-map-header">
-          <span className="shrink-0 font-semibold">{map.name}</span>
-          <span className="min-w-0 flex-1 basis-0 truncate text-muted" title={map.description}>{map.description}</span>
-          {env && <Segmented label={t('flowMaps.window')} value={hours} onChange={setHours} options={WINDOWS.map((h) => ({ value: h, label: h < 24 ? `${h} h` : `${h / 24} d` }))} />}
-          <Segmented
-            label={t('flowMaps.view')}
-            value={view}
-            onChange={(v) => {
-              setView(v)
-              setZoom('fit')
-            }}
-            options={[
-              { value: 'map', label: t('flowMaps.view.map'), icon: <Waypoints className="size-3.5" aria-hidden /> },
-              { value: 'sequence', label: t('flowMaps.view.sequence'), icon: <ListOrdered className="size-3.5" aria-hidden /> }
-            ]}
-          />
-          <div className="flex shrink-0 items-center">
-            <IconButton size="sm" label={flow ? t('flowMaps.animate.pause') : t('flowMaps.animate.play')} aria-pressed={flow} icon={flow ? <Pause className="size-3.5" aria-hidden /> : <Play className="size-3.5" aria-hidden />} onClick={() => setFlow(!flow)} />
-            <IconButton size="sm" label={t('flowMaps.zoomFit')} aria-pressed={zoom === 'fit'} icon={<Maximize2 className="size-3.5" aria-hidden />} onClick={() => setZoom('fit')} />
-            <DropdownMenu.Root>
-              <DropdownMenu.Trigger asChild>
-                <IconButton size="sm" label={t('flowMaps.more')} icon={<MoreHorizontal className="size-3.5" aria-hidden />} data-testid="flow-map-more" />
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Portal>
-                <DropdownMenu.Content align="end" sideOffset={6} className="z-50 min-w-48 animate-fade-in rounded-md border border-border bg-surface-raised p-1 shadow-lg">
-                  {menu.map((m) => (
-                    <DropdownMenu.Item key={m.key} onSelect={m.onSelect} className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-base outline-none data-[highlighted]:bg-accent-soft">
-                      {m.icon}
-                      {m.label}
-                    </DropdownMenu.Item>
-                  ))}
-                </DropdownMenu.Content>
-              </DropdownMenu.Portal>
-            </DropdownMenu.Root>
+        {split ? (
+          <div className="flex items-center gap-2 text-sm" data-testid="flow-map-header">
+            {onFavorite && (
+              <button
+                type="button"
+                aria-pressed={favorite}
+                aria-label={t(favorite ? 'flowMaps.card.unstar' : 'flowMaps.card.star', { name: map.name })}
+                title={t(favorite ? 'flowMaps.card.unstar' : 'flowMaps.card.star', { name: map.name })}
+                onClick={onFavorite}
+                className={cn('inline-flex size-6 shrink-0 items-center justify-center rounded-sm hover:bg-surface-hover', favorite ? 'text-warning' : 'text-subtle')}
+              >
+                <Star className={cn('size-4', favorite && 'fill-current')} aria-hidden />
+              </button>
+            )}
+            <span className="shrink-0 text-base font-semibold">{map.name}</span>
+            <span className="min-w-0 flex-1 basis-0 truncate text-muted" title={map.description}>{map.description}</span>
+            {standing && <StandingBadge standing={standing} />}
+            {viewSwitch}
+            {toolbar ? createPortal(controls, toolbar) : controls}
           </div>
-          <Button size="sm" variant="ghost" icon={<Sparkles className="size-3.5" aria-hidden />} title={t('flowMaps.askHint')} onClick={() => ask()}>
-            {t('flowMaps.ask')}
-          </Button>
-          {env && <IconButton size="sm" label={t('flowMaps.refresh')} icon={loading ? <Spinner /> : <RotateCcw className="size-3.5" aria-hidden />} disabled={loading} onClick={() => load(true)} />}
-        </div>
-
-        <VerdictStrip map={map} reading={reading} coverage={coverage} ranks={ranks} breached={breached} onTab={setTab} onPick={setPicked} onTurnOnHealth={turnOnHealth} healthOff={!env} />
-
-        {selectedTrace && (
-          <div className="flex items-center gap-2 rounded-md border border-accent/40 bg-accent-soft px-3 py-1.5 text-xs" data-testid="flow-trace-banner">
-            <span className="font-medium">{t('flowMaps.traces.selected', { when: new Date(selectedTrace.at).toLocaleString(locale), duration: formatMs(selectedTrace.durationMs) })}</span>
-            <span className="flex-1" />
-            <Button size="sm" variant="ghost" icon={<X className="size-3.5" aria-hidden />} onClick={() => setTraceId(null)}>
-              {t('flowMaps.traces.clear')}
+        ) : (
+          <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="flow-map-header">
+            <span className="shrink-0 font-semibold">{map.name}</span>
+            <span className="min-w-0 flex-1 basis-0 truncate text-muted" title={map.description}>{map.description}</span>
+            {env && <Segmented label={t('flowMaps.window')} value={hours} onChange={setHours} options={WINDOWS.map((h) => ({ value: h, label: h < 24 ? `${h} h` : `${h / 24} d` }))} />}
+            <Segmented
+              label={t('flowMaps.view')}
+              value={view}
+              onChange={(v) => {
+                setView(v)
+                setZoom('fit')
+              }}
+              options={[
+                { value: 'map', label: t('flowMaps.view.map'), icon: <Waypoints className="size-3.5" aria-hidden /> },
+                { value: 'sequence', label: t('flowMaps.view.sequence'), icon: <ListOrdered className="size-3.5" aria-hidden /> }
+              ]}
+            />
+            <div className="flex shrink-0 items-center">
+              <IconButton size="sm" label={flow ? t('flowMaps.animate.pause') : t('flowMaps.animate.play')} aria-pressed={flow} icon={flow ? <Pause className="size-3.5" aria-hidden /> : <Play className="size-3.5" aria-hidden />} onClick={() => setFlow(!flow)} />
+              <IconButton size="sm" label={t('flowMaps.zoomFit')} aria-pressed={zoom === 'fit'} icon={<Maximize2 className="size-3.5" aria-hidden />} onClick={() => setZoom('fit')} />
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <IconButton size="sm" label={t('flowMaps.more')} icon={<MoreHorizontal className="size-3.5" aria-hidden />} data-testid="flow-map-more" />
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content align="end" sideOffset={6} className="z-50 min-w-48 animate-fade-in rounded-md border border-border bg-surface-raised p-1 shadow-lg">
+                    {menu.map((m) => (
+                      <DropdownMenu.Item key={m.key} onSelect={m.onSelect} className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-base outline-none data-[highlighted]:bg-accent-soft">
+                        {m.icon}
+                        {m.label}
+                      </DropdownMenu.Item>
+                    ))}
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            </div>
+            <Button size="sm" variant="ghost" icon={<Sparkles className="size-3.5" aria-hidden />} title={t('flowMaps.askHint')} onClick={() => ask()}>
+              {t('flowMaps.ask')}
             </Button>
+            {env && <IconButton size="sm" label={t('flowMaps.refresh')} icon={loading ? <Spinner /> : <RotateCcw className="size-3.5" aria-hidden />} disabled={loading} onClick={() => load(true)} />}
           </div>
+
         )}
 
-        <div className="flex items-start gap-3">
-          <div ref={scroller} className="flex min-w-0 flex-1 overflow-auto rounded-md border border-border bg-bg" style={{ minHeight: DIAGRAM_MIN_HEIGHT, maxHeight: `${DIAGRAM_MAX_VH * 100}vh`, scrollbarGutter: 'stable' }} data-testid="flow-map-diagram">
+        {split && reading ? (
+          <FlowSummaryTiles map={map} reading={reading} ranks={ranks} standing={standing} onPick={setPicked} />
+        ) : (
+          <VerdictStrip map={map} reading={reading} coverage={coverage} ranks={ranks} breached={breached} onTab={setTab} onPick={setPicked} onTurnOnHealth={turnOnHealth} healthOff={!env} />
+        )}
+
+        <div className={cn('flex gap-3', split ? 'flex-col' : 'items-start')}>
+          {/* Over the diagram, not above it: choosing an execution must not push the page down. */}
+          <div className={cn('relative min-w-0', !split && 'flex-1')}>
+          {split && (
+            <Popover.Root>
+              <Popover.Trigger asChild>
+                <button type="button" className="absolute right-3 top-2 z-10 inline-flex h-7 items-center gap-1.5 rounded-md border border-border-strong bg-surface-raised px-2.5 text-xs font-medium text-muted hover:text-text data-[state=open]:border-accent data-[state=open]:text-text" data-testid="flow-legend-button">
+                  <CircleHelp className="size-3.5" aria-hidden />
+                  {t('flowMaps.legend.open')}
+                </button>
+              </Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Content align="end" sideOffset={6} collisionPadding={12} className="z-50 w-[340px] animate-fade-in rounded-lg border border-border-strong bg-surface-raised p-4 shadow-lg focus-visible:outline-none">
+                  <StandingLegend compact />
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
+          )}
+          {selectedTrace && (
+            <div className="absolute bottom-2 right-3 z-10 flex max-w-[calc(100%-1.5rem)] items-center gap-1 rounded-md border border-accent/40 bg-surface-raised py-0.5 pl-2.5 pr-0.5 text-xs shadow-sm" data-testid="flow-trace-banner">
+              <span className="truncate font-medium">{t('flowMaps.traces.selected', { when: new Date(selectedTrace.at).toLocaleString(locale), duration: formatMs(selectedTrace.durationMs) })}</span>
+              <IconButton size="sm" label={t('flowMaps.traces.clear')} icon={<X className="size-3.5" aria-hidden />} onClick={() => setTraceId(null)} />
+            </div>
+          )}
+          <div ref={scroller} className="flex min-w-0 overflow-auto rounded-md border border-border bg-bg" style={{ minHeight: split ? SPLIT_DIAGRAM_MIN_HEIGHT : DIAGRAM_MIN_HEIGHT, maxHeight: `${DIAGRAM_MAX_VH * 100}vh`, scrollbarGutter: 'stable' }} data-testid="flow-map-diagram">
             <div className="m-auto w-max">
               {view === 'map' ? (
-                <FlowMapSvg svgRef={svgRef} map={map} reading={reading} trace={selectedTrace} flow={flow} picked={picked} onPick={setPicked} ranks={ranks} coverage={coverage} scale={scale} />
+                <FlowMapSvg svgRef={svgRef} map={map} reading={reading} trace={selectedTrace} flow={flow} picked={picked} onPick={setPicked} ranks={ranks} coverage={coverage} scale={scale} stagesRow={split} tones={split && reading ? tones : undefined} />
               ) : (
                 <FlowSequenceSvg svgRef={svgRef} map={map} reading={reading} trace={selectedTrace} flow={flow} picked={picked} onPick={setPicked} ranks={ranks} coverage={coverage} scale={scale} />
               )}
             </div>
           </div>
-          <PartDrawer
-            map={map}
-            reading={reading}
-            ranks={ranks}
-            coverage={coverage}
-            trace={selectedTrace}
-            picked={picked}
-            collapsed={collapsed}
-            onToggle={toggleDrawer}
-            onAdjust={onOpenSettings ? () => onOpenSettings('flowMaps') : undefined}
-            onTurnOnHealth={turnOnHealth}
-            onInvestigate={(p) => ask(p)}
-          />
+          </div>
+          {!split && (
+            <PartDrawer
+              map={map}
+              reading={reading}
+              ranks={ranks}
+              coverage={coverage}
+              trace={selectedTrace}
+              picked={picked}
+              collapsed={collapsed}
+              onToggle={toggleDrawer}
+              onAdjust={onOpenSettings ? () => onOpenSettings('flowMaps') : undefined}
+              onTurnOnHealth={turnOnHealth}
+              onInvestigate={(p) => ask(p)}
+            />
+          )}
         </div>
 
+        <div ref={tabsRef} className="scroll-mt-3" />
         <Tabs
           label={map.name}
           value={tab}
           onChange={(v) => setTab(v as Tab)}
           items={[
-            { value: 'parts', label: t('flowMaps.tab.parts'), content: <PartsTab map={map} reading={reading} ranks={ranks} coverage={coverage} picked={picked} onPick={setPicked} /> },
+            { value: 'parts', label: t('flowMaps.tab.parts'), content: (
+                <PartsTab
+                  map={map}
+                  reading={reading}
+                  ranks={ranks}
+                  coverage={coverage}
+                  picked={picked}
+                  onPick={setPicked}
+                  tones={tones}
+                  onAdjust={onOpenSettings ? () => onOpenSettings('flowMaps') : undefined}
+                  detail={
+                    split
+                      ? (part) => (
+                          <PartDetail
+                            map={map}
+                            reading={reading}
+                            trace={selectedTrace}
+                            part={part}
+                            onAdjust={onOpenSettings ? () => onOpenSettings('flowMaps') : undefined}
+                            onTurnOnHealth={turnOnHealth}
+                            onInvestigate={(p) => ask(p)}
+                            onExecutions={env ? () => setTab('executions') : undefined}
+                          />
+                        )
+                      : undefined
+                  }
+                />
+              )
+            },
             ...(env
               ? [
                   {
@@ -326,14 +472,22 @@ export function FlowMapView({ env, profileId, mapId, file, onAsk, onOpenSettings
                         onSelect={setTraceId}
                         picked={picked}
                         onPick={setPicked}
+                        usualMs={flowEntryTiming(map, reading)?.p95Ms}
+                        onAsk={() => ask()}
+                        onShowOnMap={() => scroller.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })}
                       />
                     )
                   }
                 ]
               : []),
-            { value: 'coverage', label: gaps > 0 ? t('flowMaps.tab.coverageCount', { count: gaps }) : t('flowMaps.tab.coverage'), content: <CoverageTab coverage={coverage} onPick={setPicked} /> },
-            { value: 'alerts', label: breached > 0 ? t('flowMaps.tab.alertsCount', { count: breached }) : t('flowMaps.tab.alerts'), content: <AlertsTab map={map} reading={reading} onPick={setPicked} onAdjust={onOpenSettings ? () => onOpenSettings('flowMaps') : undefined} /> },
-            { value: 'legend', label: t('flowMaps.tab.legend'), content: <Legend /> }
+            // Split: coverage and limits are filters and a column of the parts table, and the key opens from the diagram.
+            ...(split
+              ? []
+              : [
+                  { value: 'coverage', label: gaps > 0 ? t('flowMaps.tab.coverageCount', { count: gaps }) : t('flowMaps.tab.coverage'), content: <CoverageTab coverage={coverage} onPick={setPicked} /> },
+                  { value: 'alerts', label: breached > 0 ? t('flowMaps.tab.alertsCount', { count: breached }) : t('flowMaps.tab.alerts'), content: <AlertsTab map={map} reading={reading} onPick={setPicked} onAdjust={onOpenSettings ? () => onOpenSettings('flowMaps') : undefined} /> },
+                  { value: 'legend', label: t('flowMaps.tab.legend'), content: <Legend /> }
+                ])
           ]}
           contentClassName="pt-3"
         />
@@ -348,10 +502,7 @@ export function FlowMapView({ env, profileId, mapId, file, onAsk, onOpenSettings
   )
 }
 
-/** The deviations worth naming: slower than 1.2 times the 7-day usual, or failing two points more. */
-export function notableDeviations(map: FlowMap, reading: FlowMapReading): FlowPartDeviation[] {
-  return rankFlowDeviations(map, reading, 'weekly').filter((d) => d.ratio > 1.2 || d.errorDelta > 0.02)
-}
+export { notableDeviations }
 const severe = (d: FlowPartDeviation) => d.ratio > 1.5 || d.errorDelta > 0.05
 
 type TileTone = 'neutral' | 'warning' | 'danger'
@@ -632,34 +783,125 @@ export function PartDrawer({ map, reading, ranks, coverage, trace, picked, colla
   )
 }
 
-/** Every part, slowest first, with its rank, share and numbers; picking a row picks the part in the diagram and the drawer. */
-export function PartsTab({ map, reading, ranks, coverage, picked, onPick }: { map: FlowMap; reading?: FlowMapReading; ranks: Ranks; coverage: FlowCoverage; picked: FlowPartRef | null; onPick: (p: FlowPartRef | null) => void }) {
-  const { t, formatNumber } = useI18n()
+const OPEN_TONE: Record<FlowTone, string> = { ok: 'var(--color-success)', warn: 'var(--color-warning)', bad: 'var(--color-danger)' }
+/** What the parts table shows: every part, the ones off their usual or over a limit, only those over a limit, the ones nobody measures, the measured ones without data. */
+type PartFilter = 'all' | 'problems' | 'over' | 'unmeasured' | 'noData'
+
+/** A part's limits in a few words ("≤ 1.5 s · ≤ 5 %"): p95, slow calls, failures. Empty without limits. */
+function limitsText(t: ReturnType<typeof useI18n>['t'], limits: FlowLimits): string {
+  return [limits.p95Ms !== undefined ? `≤ ${formatMs(limits.p95Ms)}` : '', limits.slowMs !== undefined ? t('flowMaps.band.limitSlow', { value: formatMs(limits.slowMs) }) : '', limits.errorRate !== undefined ? `≤ ${Math.round(limits.errorRate * 1000) / 10} %` : ''].filter(Boolean).join(' · ')
+}
+
+type PartSort = 'rank' | 'calls' | 'p50' | 'p95' | 'p99' | 'perMinute' | 'errors' | 'prev' | 'week'
+const PART_TONE_DOT: Record<FlowTone, string> = { ok: 'bg-success', warn: 'bg-warning', bad: 'bg-danger' }
+
+/**
+ * Every part with numbers, slowest first (or by the column picked), with its rank, its share of the
+ * flow's time as a bar and its numbers; the parts without a measure fold into one row. Picking a
+ * row picks the part in the diagram; with `detail`, the picked row also opens and shows it under
+ * itself, so the table is the one place a part is read.
+ */
+export function PartsTab({ map, reading, ranks, coverage, picked, onPick, tones, detail, onAdjust }: { map: FlowMap; reading?: FlowMapReading; ranks: Ranks; coverage: FlowCoverage; picked: FlowPartRef | null; onPick: (p: FlowPartRef | null) => void; tones?: ReadonlyMap<string, FlowTone>; /** What the picked row opens under itself; without it rows do not open. With it the table also carries the filters and the limits. */ detail?: (part: FlowPartRef) => ReactNode; /** Opens Settings → Flow maps, where the map's limits are looked after. */ onAdjust?: () => void }) {
+  const { t, tn, formatNumber } = useI18n()
+  const openRef = useRef<HTMLTableRowElement>(null)
+  // The row pressed stays where it was on screen; a part picked elsewhere (the diagram, a tile) brings what its row opened into view.
+  const anchor = useRowAnchor(picked ? `${picked.of}:${picked.key}` : '', { enabled: Boolean(detail), reveal: openRef })
+  const [sort, setSort] = useState<{ by: PartSort; desc: boolean }>({ by: 'rank', desc: false })
+  const [showUnmeasured, setShowUnmeasured] = useState(false)
+  // With rows that open, coverage and limits are read here too: as filters over the rows and a column of limits.
+  const [filter, setFilter] = useState<PartFilter>('all')
   const rankOf = new Map(ranks.map((r, i) => [`${r.of}:${r.key}`, { rank: i + 1, share: r.share }]))
-  const measuredRows = ranks.map((r) => ({ of: r.of, key: r.key, label: r.label, timing: r.timing as Ranks[number]['timing'] | undefined, error: undefined as string | undefined }))
-  const rest = flowParts(map)
+  const value = (timing: FlowTiming, by: PartSort): number =>
+    by === 'calls' ? timing.count : by === 'p50' ? timing.p50Ms : by === 'p95' ? timing.p95Ms : by === 'p99' ? (timing.p99Ms ?? -1) : by === 'perMinute' ? (timing.perMinute ?? -1) : by === 'errors' ? (timing.errorRate ?? -1) : by === 'prev' ? (ratioOf(timing, timing.previous) ?? -1) : (ratioOf(timing, timing.weekly) ?? -1)
+  const measuredRows = (sort.by === 'rank' ? (sort.desc ? [...ranks].reverse() : ranks) : [...ranks].sort((x, y) => (value(y.timing, sort.by) - value(x.timing, sort.by)) * (sort.desc ? 1 : -1))).map((r) => ({ of: r.of, key: r.key, label: r.label, timing: r.timing as Ranks[number]['timing'] | undefined, error: undefined as string | undefined }))
+  const unmeasured = new Set(coverage.unmeasured.map((p) => `${p.of}:${p.key}`))
+  const others = flowParts(map)
     .filter((p) => !rankOf.has(`${p.of}:${p.key}`))
     .map((p) => ({ of: p.of, key: p.key, label: p.label, timing: reading?.[p.of][p.key], error: reading?.errors[p.key] }))
-  const rows = [...measuredRows, ...rest]
+  // A part with a measure that has nothing to show stays in sight; the ones nobody measures fold away (unless one is picked).
+  const quiet = others.filter((r) => unmeasured.has(`${r.of}:${r.key}`) && !r.error)
+  const loud = others.filter((r) => !quiet.includes(r))
+  const quietOpen = showUnmeasured || quiet.some((r) => picked?.of === r.of && picked.key === r.key)
   const noData = new Set(coverage.noData.map((p) => `${p.of}:${p.key}`))
-  const unmeasured = new Set(coverage.unmeasured.map((p) => `${p.of}:${p.key}`))
-  if (rows.length === 0) return <p className="text-sm text-muted">{t('flowMaps.noMeasures')}</p>
+  const toneOf = (r: { of: FlowPartRef['of']; key: string }) => tones?.get(`${r.of}:${r.key}`)
+  const troubled = [...measuredRows.filter((r) => toneOf(r) === 'warn' || toneOf(r) === 'bad'), ...loud.filter((r) => r.error)]
+  const over = measuredRows.filter((r) => toneOf(r) === 'bad')
+  const empty = loud.filter((r) => !r.error)
+  const filters: { value: PartFilter; count: number; danger?: boolean }[] = [
+    { value: 'all', count: measuredRows.length + others.length },
+    { value: 'problems', count: troubled.length },
+    { value: 'over', count: over.length, danger: over.length > 0 },
+    { value: 'unmeasured', count: quiet.length },
+    { value: 'noData', count: empty.length }
+  ]
+  const rows = !detail || filter === 'all' ? [...measuredRows, ...loud, ...(quietOpen ? quiet : [])] : filter === 'problems' ? troubled : filter === 'over' ? over : filter === 'unmeasured' ? quiet : empty
+  if (measuredRows.length + others.length === 0) return <p className="text-sm text-muted">{t('flowMaps.noMeasures')}</p>
+  // With rows that open, the table keeps the columns to compare by; p99, calls per minute and the previous window are in the opened row.
+  const compact = Boolean(detail)
+  const span = compact ? 7 : 9
+  const mapLimits = [map.alerts?.p95Ms !== undefined ? `p95 ≤ ${formatMs(map.alerts.p95Ms)}` : '', map.alerts?.errorRate !== undefined ? t('flowMaps.parts.limitFailures', { value: `${Math.round(map.alerts.errorRate * 1000) / 10} %` }) : ''].filter(Boolean).join(' · ')
+  const head = (by: PartSort, label: string, className?: string, title?: string) => {
+    const on = sort.by === by
+    const Arrow = on && !sort.desc && by !== 'rank' ? ArrowDown : on && sort.desc && by !== 'rank' ? ArrowUp : on && sort.desc ? ArrowUp : null
+    return (
+      <th className={cn('whitespace-nowrap py-1.5 pl-2 text-right font-medium', className)} title={title} aria-sort={on ? (sort.desc === (by !== 'rank') ? 'ascending' : 'descending') : undefined}>
+        <button type="button" className={cn('inline-flex items-center gap-0.5 hover:text-text focus-visible:text-text focus-visible:outline-none', on && by !== 'rank' && 'text-text')} onClick={() => setSort(on ? { by, desc: !sort.desc } : { by, desc: false })}>
+          {label}
+          {Arrow && <Arrow className="size-3" aria-hidden />}
+        </button>
+      </th>
+    )
+  }
   return (
+    <div className="flex min-w-0 flex-col gap-2.5">
+    {detail && (
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2" data-testid="flow-parts-filters">
+        <div role="group" aria-label={t('flowMaps.parts.filters')} className="flex flex-wrap items-center gap-1.5">
+          {filters.map((f) => (
+            <button
+              key={f.value}
+              type="button"
+              aria-pressed={filter === f.value}
+              onClick={() => setFilter(f.value)}
+              className={cn(
+                'inline-flex h-6.5 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors',
+                filter === f.value ? 'border-accent bg-accent-soft text-text' : f.danger ? 'border-danger/60 text-danger hover:bg-danger-soft' : 'border-border-strong text-muted hover:text-text',
+                f.count === 0 && filter !== f.value && 'opacity-60'
+              )}
+            >
+              {t(`flowMaps.parts.filter.${f.value}`)}
+              <span className="font-semibold tabular-nums">{f.count}</span>
+            </button>
+          ))}
+        </div>
+        <span className="flex-1" />
+        <span className="text-xs text-muted" title={t('flowMaps.alerts.notify')} data-testid="flow-map-limits">
+          {mapLimits ? t('flowMaps.parts.mapLimits', { limits: mapLimits }) : t('flowMaps.parts.noMapLimits')}
+        </span>
+        {onAdjust && <button type="button" className="text-xs text-accent underline-offset-2 hover:underline" onClick={onAdjust}>{mapLimits ? t('flowMaps.drawer.adjust') : t('flowMaps.parts.defineLimits')}</button>}
+      </div>
+    )}
     <div className="min-w-0 overflow-x-auto">
       <table className="w-full text-xs" data-testid="flow-parts">
         <thead className="text-left text-muted">
           <tr>
-            <th className="w-10 py-1 pr-2 font-medium">{t('flowMaps.rank')}</th>
-            <th className="py-1 font-medium">{t('flowMaps.part')}</th>
-            <th className="whitespace-nowrap py-1 pl-2 text-right font-medium">{t('flowMaps.calls')}</th>
-            <th className="whitespace-nowrap py-1 pl-2 text-right font-medium">p50</th>
-            <th className="whitespace-nowrap py-1 pl-2 text-right font-medium">p95</th>
-            <th className={cn(WIDE, 'whitespace-nowrap py-1 pl-2 text-right font-medium')}>p99</th>
-            <th className={cn(WIDE, 'whitespace-nowrap py-1 pl-2 text-right font-medium')}>{t('flowMaps.perMinute')}</th>
-            <th className="whitespace-nowrap py-1 pl-2 text-right font-medium">{t('flowMaps.errors')}</th>
-            <th className="whitespace-nowrap py-1 pl-2 text-right font-medium" title={t('flowMaps.vsPrevHint')}>{t('flowMaps.vsPrev')}</th>
-            <th className="whitespace-nowrap py-1 pl-2 text-right font-medium" title={t('flowMaps.vsWeekHint')}>{t('flowMaps.vsWeek')}</th>
-            <th className={cn(WIDE, 'whitespace-nowrap py-1 pl-2 text-right font-medium')}>{t('flowMaps.share')}</th>
+            <th className="w-10 py-1.5 pr-2 font-medium" aria-sort={sort.by === 'rank' ? (sort.desc ? 'ascending' : 'descending') : undefined}>
+              <button type="button" className="inline-flex items-center gap-0.5 hover:text-text focus-visible:text-text focus-visible:outline-none" onClick={() => setSort(sort.by === 'rank' ? { by: 'rank', desc: !sort.desc } : { by: 'rank', desc: false })}>
+                {t('flowMaps.rank')}
+              </button>
+            </th>
+            <th className="py-1.5 font-medium">{t('flowMaps.part')}</th>
+            {head('calls', t('flowMaps.calls'))}
+            {head('p50', 'p50')}
+            {head('p95', 'p95')}
+            {!compact && head('p99', 'p99', WIDE)}
+            {!compact && head('perMinute', t('flowMaps.perMinute'), WIDE)}
+            {head('errors', t('flowMaps.errors'))}
+            {!compact && head('prev', t('flowMaps.vsPrev'), undefined, t('flowMaps.vsPrevHint'))}
+            {head('week', t('flowMaps.vsWeek'), undefined, t('flowMaps.vsWeekHint'))}
+            {compact && <th className="whitespace-nowrap py-1.5 pl-4 text-left font-medium" title={t('flowMaps.alerts.notify')}>{t('flowMaps.parts.limits')}</th>}
+            <th className={cn(WIDE, 'w-32 whitespace-nowrap py-1.5 pl-3 text-left font-medium')}>{t('flowMaps.share')}</th>
+            {detail && <th className="w-6" />}
           </tr>
         </thead>
         <tbody>
@@ -667,36 +909,97 @@ export function PartsTab({ map, reading, ranks, coverage, picked, onPick }: { ma
             const key = `${r.of}:${r.key}`
             const active = picked?.of === r.of && picked.key === r.key
             const rk = rankOf.get(key)
+            const tone = tones?.get(key)
+            const broken = r.timing ? breaches(r.timing, flowThresholds(map, r)) : []
+            const overErrors = broken.some((b) => b.kind === 'flowErrors')
+            const overSlow = broken.some((b) => b.kind !== 'flowErrors')
+            const overAny = broken.length > 0
+            const moreErrors = r.timing?.errorRate !== undefined && r.timing.weekly?.errorRate !== undefined && r.timing.errorRate - r.timing.weekly.errorRate > 0.02
+            const press = () => {
+              anchor.mark(key)
+              onPick(active ? null : { of: r.of, key: r.key })
+            }
             return (
-              <tr key={key} className={cn('cursor-pointer border-t border-border hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none', active && 'bg-accent-soft')} {...pressable(() => onPick(active ? null : { of: r.of, key: r.key }), { pressed: active })}>
-                <td className="py-1 pr-2 tabular-nums text-muted">{rk ? (rk.rank <= 3 ? <span className="inline-flex size-4 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ background: '#f97316' }}>{rk.rank}</span> : rk.rank) : ''}</td>
-                <td className={cn('py-1 pr-2', unmeasured.has(key) && 'text-muted')}>{r.label}</td>
+              <Fragment key={key}>
+              <tr
+                ref={anchor.ref(key)}
+                className={cn('cursor-pointer border-t border-border hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none', active && 'bg-accent-soft')}
+                aria-expanded={detail ? active : undefined}
+                {...pressable(press, { pressed: active })}
+              >
+                <td className="py-1.5 pr-2 tabular-nums text-muted">{rk ? (rk.rank <= 3 ? <span className="inline-flex size-4 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ background: '#f97316' }}>{rk.rank}</span> : rk.rank) : ''}</td>
+                <td className={cn('py-1.5 pr-2', unmeasured.has(key) && 'text-muted')}>
+                  <span className="inline-flex items-center gap-1.5">
+                    {tone && <span className={cn('inline-block size-1.5 shrink-0 rounded-full', PART_TONE_DOT[tone])} aria-hidden />}
+                    {r.label}
+                  </span>
+                </td>
                 {r.error ? (
-                  <td colSpan={9} className="py-1 text-right text-danger" title={r.error}>{t('flowMaps.failedShort')}</td>
+                  <td colSpan={span} className="py-1.5 text-right text-danger" title={r.error}>{t('flowMaps.failedShort')}</td>
                 ) : unmeasured.has(key) ? (
-                  <td colSpan={9} className="py-1 text-right text-subtle">{t('flowMaps.noMeasureShort')}</td>
+                  <td colSpan={span} className="py-1.5 text-right text-subtle">{t('flowMaps.noMeasureShort')}</td>
                 ) : !reading ? (
-                  <td colSpan={9} className="py-1 text-right text-subtle">{t('flowMaps.tile.noNumbers')}</td>
+                  <td colSpan={span} className="py-1.5 text-right text-subtle">{t('flowMaps.tile.noNumbers')}</td>
                 ) : noData.has(key) || !r.timing ? (
-                  <td colSpan={9} className="py-1 text-right text-warning">{t('flowMaps.noData')}</td>
+                  <td colSpan={span} className="py-1.5 text-right text-warning">{t('flowMaps.noData')}</td>
                 ) : (
                   <>
-                    <td className="whitespace-nowrap py-1 pl-2 text-right tabular-nums">{formatNumber(r.timing.count)}</td>
-                    <td className="whitespace-nowrap py-1 pl-2 text-right tabular-nums">{formatMs(r.timing.p50Ms)}</td>
-                    <td className="whitespace-nowrap py-1 pl-2 text-right tabular-nums">{formatMs(r.timing.p95Ms)}</td>
-                    <td className={cn(WIDE, 'whitespace-nowrap py-1 pl-2 text-right tabular-nums')}>{r.timing.p99Ms !== undefined ? formatMs(r.timing.p99Ms) : '–'}</td>
-                    <td className={cn(WIDE, 'whitespace-nowrap py-1 pl-2 text-right tabular-nums')}>{r.timing.perMinute !== undefined ? formatPerMinute(r.timing.perMinute) : '–'}</td>
-                    <td className={cn('whitespace-nowrap py-1 pl-2 text-right tabular-nums', (r.timing.failed ?? 0) > 0 && 'text-danger')}>{errorsText(r.timing)}</td>
-                    <Ratio timing={r.timing} baseline={r.timing.previous} />
+                    <td className="whitespace-nowrap py-1.5 pl-2 text-right tabular-nums">{formatNumber(r.timing.count)}</td>
+                    <td className="whitespace-nowrap py-1.5 pl-2 text-right tabular-nums">{formatMs(r.timing.p50Ms)}</td>
+                    <td className={cn('whitespace-nowrap py-1.5 pl-2 text-right font-medium tabular-nums', overSlow ? 'text-danger' : (ratioOf(r.timing, r.timing.weekly) ?? 0) > 1.2 ? 'text-warning' : '')}>{formatMs(r.timing.p95Ms)}</td>
+                    {!compact && <td className={cn(WIDE, 'whitespace-nowrap py-1.5 pl-2 text-right tabular-nums text-muted')}>{r.timing.p99Ms !== undefined ? formatMs(r.timing.p99Ms) : '–'}</td>}
+                    {!compact && <td className={cn(WIDE, 'whitespace-nowrap py-1.5 pl-2 text-right tabular-nums text-muted')}>{r.timing.perMinute !== undefined ? formatPerMinute(r.timing.perMinute) : '–'}</td>}
+                    <td className={cn('whitespace-nowrap py-1.5 pl-2 text-right tabular-nums', overErrors ? 'font-medium text-danger' : moreErrors ? 'text-warning' : (r.timing.failed ?? 0) > 0 ? '' : 'text-muted')} data-over={overErrors ? '' : undefined}>{errorsText(r.timing)}</td>
+                    {!compact && <Ratio timing={r.timing} baseline={r.timing.previous} />}
                     <Ratio timing={r.timing} baseline={r.timing.weekly} />
-                    <td className={cn(WIDE, 'whitespace-nowrap py-1 pl-2 text-right tabular-nums')}>{rk ? `${Math.round(rk.share * 100)} %` : '—'}</td>
+                    {compact && <td className={cn('whitespace-nowrap py-1.5 pl-4 text-left', overAny ? 'text-danger' : 'text-muted')} data-testid="flow-part-limit">{limitsText(t, flowThresholds(map, r)) || '—'}{overAny ? ` · ${t('flowMaps.parts.limitOver')}` : ''}</td>}
+                    <td className={cn(WIDE, 'py-1.5 pl-3')}>
+                      {rk ? (
+                        <span className="flex items-center gap-2" title={t('flowMaps.flow.shareOfTime', { share: `${Math.round(rk.share * 100)} %` })}>
+                          <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-border" aria-hidden>
+                            <span className={cn('block h-full rounded-full', tone === 'bad' ? 'bg-danger' : tone === 'warn' ? 'bg-warning' : 'bg-accent')} style={{ width: `${Math.max(2, Math.round(rk.share * 100))}%` }} />
+                          </span>
+                          <span className="w-8 shrink-0 text-right tabular-nums">{`${Math.round(rk.share * 100)} %`}</span>
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
                   </>
                 )}
+                {detail && <td className="py-1.5 pl-1 text-subtle">{active ? <ChevronDown className="size-3.5" aria-hidden /> : <ChevronRight className="size-3.5" aria-hidden />}</td>}
               </tr>
+              {detail && active && (
+                <tr ref={openRef} data-testid="flow-part-open">
+                  <td colSpan={12} className="border-b border-border-strong p-0">
+                    <div className="bg-surface-raised py-3 pl-10 pr-4" style={{ boxShadow: `inset 2px 0 0 ${tone ? OPEN_TONE[tone] : 'var(--color-border-strong)'}` }}>
+                      {detail({ of: r.of, key: r.key })}
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             )
           })}
+          {rows.length === 0 && (
+            <tr className="border-t border-border">
+              <td />
+              <td colSpan={11} className="py-3 text-muted">{t('flowMaps.parts.noneInFilter')}</td>
+            </tr>
+          )}
+          {quiet.length > 0 && (!detail || filter === 'all') && (
+            <tr className="border-t border-border">
+              <td />
+              <td colSpan={11} className="py-1.5">
+                <button type="button" className="text-muted underline-offset-2 hover:text-text hover:underline focus-visible:text-text focus-visible:outline-none" aria-expanded={quietOpen} onClick={() => setShowUnmeasured(!quietOpen)} data-testid="flow-parts-unmeasured">
+                  {quietOpen ? t('flowMaps.parts.hideUnmeasured') : tn('flowMaps.parts.unmeasured', quiet.length)}
+                </button>
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
+    </div>
     </div>
   )
 }

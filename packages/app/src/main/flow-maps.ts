@@ -135,16 +135,84 @@ export function deleteFlowMap(rows: FlowMapRows, id: string): boolean {
   }
 }
 
-/** Reads each file as a map and stores the valid ones; a file that does not parse is reported, the rest still import. */
+/** The `format` of a file with several maps (Settings → Flow maps → Export). */
+export const FLOW_MAP_BUNDLE = 'workhub.flow-maps'
+const MAX_BUNDLE_MAPS = 500
+
+/** The maps of an export file, or null when the value is a single map (or anything else). */
+function bundleMaps(input: unknown): unknown[] | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const v = input as Record<string, unknown>
+  return v['format'] === FLOW_MAP_BUNDLE && Array.isArray(v['maps']) ? v['maps'] : null
+}
+
+const nameOf = (map: unknown): string | undefined => {
+  if (!map || typeof map !== 'object') return undefined
+  const v = map as Record<string, unknown>
+  return typeof v['name'] === 'string' ? v['name'] : typeof v['id'] === 'string' ? v['id'] : undefined
+}
+
+function importOne(rows: FlowMapRows, file: string, input: unknown, name?: string): FlowMapImportResult {
+  const id = input && typeof input === 'object' ? (input as Record<string, unknown>)['id'] : undefined
+  const existed = typeof id === 'string' && SAFE_ID.test(id) && !id.includes('..') && rows.get(id) !== null
+  const r = saveFlowMap(rows, input)
+  const label = name !== undefined ? { name } : {}
+  return r.ok ? { file, ...label, ok: true, id: r.id, ...(existed ? { replaced: true } : {}) } : { file, ...label, ok: false, errors: r.errors }
+}
+
+/**
+ * Reads each file and stores the valid maps under their id (a map with that id is replaced). A file
+ * is one map, or an export of several (`FLOW_MAP_BUNDLE`), which gives one result per map. A file
+ * or map that does not parse is reported; the rest still import.
+ */
 export function importFlowMapFiles(rows: FlowMapRows, files: readonly string[]): FlowMapImportResult[] {
-  return files.map((file): FlowMapImportResult => {
+  return files.flatMap((file): FlowMapImportResult[] => {
+    let text: string
+    try {
+      text = readFileSync(file, 'utf8')
+    } catch (e) {
+      return [{ file, ok: false, errors: [e instanceof Error ? e.message : String(e)] }]
+    }
+    return importFlowMapTexts(rows, [{ file, text }])
+  })
+}
+
+/** Files dropped on Settings → Flow maps: at most this many per drop, each at most this big. */
+export const DROP_LIMITS = { files: 200, bytes: 5_000_000 }
+
+/** Like `importFlowMapFiles`, for files already read (dropped in the window): `file` is the name shown. */
+export function importFlowMapTexts(rows: FlowMapRows, items: readonly { file: string; text: string }[]): FlowMapImportResult[] {
+  return items.flatMap(({ file, text }): FlowMapImportResult[] => {
     let input: unknown
     try {
-      input = JSON.parse(readFileSync(file, 'utf8'))
+      input = JSON.parse(text)
     } catch (e) {
-      return { file, ok: false, errors: [e instanceof Error ? e.message : String(e)] }
+      return [{ file, ok: false, errors: [e instanceof Error ? e.message : String(e)] }]
     }
-    const r = saveFlowMap(rows, input)
-    return r.ok ? { file, ok: true, id: r.id } : { file, ok: false, errors: r.errors }
+    const maps = bundleMaps(input)
+    if (!maps) return [importOne(rows, file, input)]
+    if (maps.length === 0) return [{ file, ok: false, errors: ['The file has no maps'] }]
+    if (maps.length > MAX_BUNDLE_MAPS) return [{ file, ok: false, errors: [`The file has more than ${MAX_BUNDLE_MAPS} maps`] }]
+    return maps.map((m) => importOne(rows, file, m, nameOf(m)))
   })
+}
+
+/**
+ * The text of an export. One id: that map's JSON as stored (alerts included), the format import and
+ * the control endpoint take. Several, or none (every map): one file with all of them. Maps that do
+ * not parse are left out; null when nothing is left.
+ */
+export function exportFlowMaps(rows: FlowMapRows, ids?: readonly string[]): { text: string; count: number; name: string } | null {
+  const all = rows.list().flatMap(({ id, json }) => {
+    try {
+      const raw = JSON.parse(json) as unknown
+      return parseFlowMap(raw).ok ? [{ id, raw }] : []
+    } catch {
+      return []
+    }
+  })
+  const wanted = ids?.length ? all.filter((m) => ids.includes(m.id)) : all
+  if (wanted.length === 0) return null
+  if (ids?.length === 1 && wanted.length === 1) return { text: JSON.stringify(wanted[0]!.raw, null, 2) + '\n', count: 1, name: `${wanted[0]!.id}.json` }
+  return { text: JSON.stringify({ format: FLOW_MAP_BUNDLE, version: 1, maps: wanted.map((m) => m.raw) }, null, 2) + '\n', count: wanted.length, name: 'flow-maps.json' }
 }

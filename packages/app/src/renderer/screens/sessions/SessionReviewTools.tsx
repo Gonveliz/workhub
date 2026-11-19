@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import type { LocalReviewDelivery, SessionFile } from '@workhub/core'
 import { Badge, Button } from '../../components/atoms'
 import { useI18n } from '../../i18n/I18nProvider'
+import { cn } from '../../lib/cn'
+import { HeaderButton } from './HeaderButton'
 import { fileName, folderLabel, sessionFiles } from '../../lib/localReview'
 import type { SessionData } from '../../store'
 
@@ -24,8 +26,12 @@ function useDelivery(sessionId: string): LocalReviewDelivery | null {
   return delivery
 }
 
-/** "Review changes": the session's local diff in its own window, with the state of the last review message. */
-export function LocalReviewButton({ sessionId, compact }: { sessionId: string; compact?: boolean }) {
+/**
+ * "Changes": the session's local diff in its own window, with the state of the last review message.
+ * `counts` adds the lines added and removed (green, red) when the app knows them; `compact` keeps
+ * the icon and the counts only.
+ */
+export function LocalReviewButton({ sessionId, compact, counts, className }: { sessionId: string; compact?: boolean; counts?: { additions: number; deletions: number }; className?: string }) {
   const { t, formatDate } = useI18n()
   const delivery = useDelivery(sessionId)
   const status =
@@ -38,18 +44,21 @@ export function LocalReviewButton({ sessionId, compact }: { sessionId: string; c
           : null
   return (
     <span className="inline-flex items-center gap-1">
-      <Button
-        size="sm"
-        variant="ghost"
+      <HeaderButton
         icon={<GitCompareArrows className="size-3.5" aria-hidden />}
         title={status ? `${t('localReview.buttonHint')}\n${status}` : t('localReview.buttonHint')}
         onClick={() => void window.hub.localReview.openWindow(sessionId)}
         data-testid="local-review-button"
-        aria-label={compact ? t('localReview.button') : undefined}
-        className={compact ? 'px-1.5' : undefined}
+        aria-label={compact ? t('header.changes') : undefined}
+        className={cn(compact && 'px-1.5', className)}
       >
-        {!compact && t('localReview.button')}
-      </Button>
+        {!compact && t('header.changes')}
+        {counts && (
+          <span className="tabular-nums" data-testid="local-review-counts">
+            <span className="text-success">+{counts.additions}</span> <span className="text-danger">−{counts.deletions}</span>
+          </span>
+        )}
+      </HeaderButton>
       {delivery && delivery.state !== 'delivered' && (
         <Badge tone={delivery.state === 'queued' ? 'info' : 'warning'} title={status ?? undefined} data-testid="local-review-delivery">
           {delivery.state === 'queued' ? '…' : '!'}
@@ -113,16 +122,5 @@ export function SessionFilesMenu({ data, compact }: { data: SessionData; compact
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
-  )
-}
-
-/** The session header's review entry points: the local review and the Files list (`compact`: icons only, the name on hover). */
-export function SessionReviewTools({ data, compact }: { data: SessionData; compact?: boolean }) {
-  if (data.view.readOnly) return null
-  return (
-    <>
-      <SessionFilesMenu data={data} compact={compact} />
-      <LocalReviewButton sessionId={data.view.id} compact={compact} />
-    </>
   )
 }

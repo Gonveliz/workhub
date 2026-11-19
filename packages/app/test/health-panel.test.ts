@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_HEALTH_THRESHOLDS, emptySignals, makeSnapshot, unreachableSnapshot, type HealthEnvironment, type HealthSnapshot } from '@workhub/core'
 import type { HealthEnvironmentView } from '../src/shared/health-api'
 import { connectionFailure } from '../src/renderer/lib/health'
+import { boardServices } from '../src/renderer/lib/healthBoard'
 import { EnvironmentPanel } from '../src/renderer/screens/health/EnvironmentPanel'
 import { HealthRowsProvider, type HealthRowActions } from '../src/renderer/screens/health/HealthRows'
 
@@ -44,8 +45,10 @@ const actions: HealthRowActions = {
   folderHelp: () => ''
 }
 
-const render = (snapshot: HealthSnapshot, onRetry?: () => void) =>
-  renderToStaticMarkup(createElement(HealthRowsProvider, { value: actions }, createElement(EnvironmentPanel, { env: view(snapshot), onRetry })))
+const render = (snapshot: HealthSnapshot, onRetry?: () => void) => {
+  const v = view(snapshot)
+  return renderToStaticMarkup(createElement(HealthRowsProvider, { value: actions }, createElement(EnvironmentPanel, { env: v, services: boardServices(v, [], []), favorites: new Set<string>(), onFavorite: () => {}, onlyFavorites: false, onRetry })))
+}
 
 const message = 'Elasticsearch refused the credentials (HTTP 401)'
 const read = () => makeSnapshot(env, { ...emptySignals(), podVisibility: 'visible', fastFetchedAt: 1_000, trendFetchedAt: 1_000, slowFetchedAt: 1_000 })
@@ -69,7 +72,7 @@ describe('EnvironmentPanel', () => {
     expect(html).toContain('Try again')
     // The empty cards would read as "nothing wrong" and claim the Kubernetes suffix is missing.
     expect(html).not.toContain('No errors in this window.')
-    expect(html).not.toContain('Errors by service')
+    expect(html).not.toContain('Slow endpoints')
     // The message is shown once, in the alert, not again as a blind spot.
     expect(html.split(message)).toHaveLength(2)
   })
@@ -77,13 +80,16 @@ describe('EnvironmentPanel', () => {
   it('keeps the last figures under the error when a later read fails', () => {
     const html = render(unreachableSnapshot(env.id, read(), message), () => {})
     expect(html).toContain('role="alert"')
-    expect(html).toContain('Errors by service')
+    expect(html).toContain('Slow endpoints')
   })
 
   it('shows no failure for an environment that was read', () => {
     const html = render(read(), () => {})
     expect(html).not.toContain('role="alert"')
     expect(html).not.toContain('Try again')
-    expect(html).toContain('Errors by service')
+    expect(html).toContain('Slow endpoints')
+    // Quiet blocks are one muted line, not empty cards.
+    expect(html).toContain('Pods: none needs attention · Kubernetes: no warnings')
+    expect(html).not.toContain('No pod needs attention')
   })
 })

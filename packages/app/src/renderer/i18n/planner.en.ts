@@ -3,9 +3,6 @@ export const plannerEn = {
   'planner.tab.inbox': 'Inbox',
   'planner.tab.tasks': 'Tasks',
   'planner.inbox.noMatch': 'No item matches the filters.',
-  'planner.inbox.workingHint.one': '{count} task in progress is on the Tasks tab.',
-  'planner.inbox.workingHint.other': '{count} tasks in progress are on the Tasks tab.',
-  'planner.inbox.openTasks': 'Open Tasks',
   'planner.tasks.intro': 'The work you took on, by the milestone it moves forward. Marking a task done moves its milestone. What still waits for review is in the Inbox.',
   'planner.tasks.empty': 'No tasks in progress',
   'planner.tasks.emptyHint': 'Keep an Inbox item as a local task, or create its ticket, and it shows here.',
@@ -75,7 +72,6 @@ export const plannerEn = {
   'planner.milestone.problem.link': 'The link must start with https:// or http://.',
   'planner.milestone.problem.notes': 'The notes are too long.',
 
-  'planner.inbox.intro': 'What came in, from you, metric alerts, agents and meetings. Decide what each one is (a ticket, a local task, or nothing) and which milestone it counts toward.',
   'planner.inbox.add': 'Add item',
   'planner.inbox.addTitle': 'New inbox item',
   'planner.inbox.addSave': 'Add to inbox',
@@ -308,5 +304,13 @@ export const plannerEn = {
   'planner.detail.linkSave': 'Link',
   'planner.detail.unlinkTicket': 'Unlink',
   'planner.detail.unlinkTicketHint': 'Keeps the task in Workhub without the ticket.',
-  'planner.detail.updatedByTracker': 'Marked done from the tracker {time}'
+  'planner.detail.updatedByTracker': 'Marked done from the tracker {time}',
+  'planner.assign.pick': 'Pick a milestone',
+  'planner.triage.hint': 'decide what each one is',
+  'planner.triage.what': 'What is it?',
+  'planner.triage.next': 'next',
+  'planner.triage.window': 'Open in its own window',
+  'planner.triage.milestone': 'Milestone',
+  'planner.triage.working.one': '{count} task in progress is on Tasks',
+  'planner.triage.working.other': '{count} tasks in progress are on Tasks'
 }

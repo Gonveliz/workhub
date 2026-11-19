@@ -185,6 +185,8 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
     },
     flowMaps: {
       importFiles: () => invoke('flowMaps:import'),
+      importTexts: (items) => invoke('flowMaps:importTexts', items),
+      exportMaps: (ids) => invoke('flowMaps:export', ids),
       remove: (id) => invoke('flowMaps:remove', id),
       get: (mapId) => invoke('flowMaps:get', mapId),
       setAlerts: (profileId, mapId, alerts) => invoke('flowMaps:setAlerts', profileId, mapId, alerts),
@@ -305,7 +307,8 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       list: () => invoke('agentChanges:list'),
       keep: (id) => invoke('agentChanges:keep', id),
       revert: (id) => invoke('agentChanges:revert', id),
-      onChanged: (cb) => subscribe<[AgentChange[]]>('agentChanges:changed', cb)
+      onChanged: (cb) => subscribe<[AgentChange[]]>('agentChanges:changed', cb),
+      openWindow: () => send('agentChanges:openWindow')
     },
     setup: {
       run: () => invoke('setup:run'),
@@ -363,7 +366,8 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       openWindow: (sessionId) => invoke('localReview:openWindow', sessionId),
       openFile: (sessionId, repoRoot, path) => invoke('localReview:openFile', sessionId, repoRoot, path),
       revert: (sessionId, request) => invoke('localReview:revert', sessionId, request),
-      filePath: (sessionId, repoRoot, path) => invoke('localReview:filePath', sessionId, repoRoot, path)
+      filePath: (sessionId, repoRoot, path) => invoke('localReview:filePath', sessionId, repoRoot, path),
+      includeElsewhere: (sessionId) => invoke('localReview:includeElsewhere', sessionId)
     },
     files: {
       openWindow: (path, cwd) => invoke('files:openWindow', path, cwd),

@@ -107,10 +107,19 @@ describe('ticket filters', () => {
     const keys = (f: Parameters<typeof filterTickets>[1]) => filterTickets(list, f).map((x) => x.key)
     expect(keys({ text: ' login  ' })).toEqual(['ABC-1', 'WEB-7'])
     expect(keys({ text: 'login web' })).toEqual(['WEB-7'])
-    expect(keys({ project: 'ABC' })).toEqual(['ABC-1', 'ABC-2'])
-    expect(keys({ assignee: 'Lee' })).toEqual(['WEB-7'])
-    expect(keys({ assignee: UNASSIGNED })).toEqual(['ABC-2', 'acme/app#3'])
-    expect(keys({ status: 'To Do', project: 'ABC' })).toEqual(['ABC-1'])
+    expect(keys({ project: ['ABC'] })).toEqual(['ABC-1', 'ABC-2'])
+    expect(keys({ assignee: ['Lee'] })).toEqual(['WEB-7'])
+    expect(keys({ assignee: [UNASSIGNED] })).toEqual(['ABC-2', 'acme/app#3'])
+    expect(keys({ status: ['To Do'], project: ['ABC'] })).toEqual(['ABC-1'])
+  })
+
+  it("keeps a ticket with any of a field's values, and needs every field to match", () => {
+    const keys = (f: Parameters<typeof filterTickets>[1]) => filterTickets(list, f).map((x) => x.key)
+    expect(keys({ project: ['ABC', 'WEB'] })).toEqual(['ABC-1', 'ABC-2', 'WEB-7'])
+    expect(keys({ assignee: ['Lee', UNASSIGNED] })).toEqual(['ABC-2', 'WEB-7', 'acme/app#3'])
+    expect(keys({ status: ['To Do', 'open'] })).toEqual(['ABC-1', 'WEB-7', 'acme/app#3'])
+    expect(keys({ project: ['ABC', 'WEB'], status: ['To Do'], assignee: ['Lee'] })).toEqual(['WEB-7'])
+    expect(keys({ project: [] })).toEqual(list.map((x) => x.key))
   })
 
   it('lists the values to filter by, sorted, with their counts', () => {

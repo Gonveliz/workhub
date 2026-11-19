@@ -22,6 +22,8 @@ import { PlanItemWindow } from './screens/plan/PlanItemWindow'
 import { parsePlanItemHash } from '@shared/plan-item-window'
 import { parseReviewLoopHash } from '@shared/review-loop-window'
 import { ReviewLoopWindow } from './screens/sessions/ReviewLoopWindow'
+import { isAgentChangesHash } from '@shared/agent-changes-window'
+import { AgentChangesWindow } from './screens/AgentChangesWindow'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { startPerfReports } from './lib/perfReport'
 import './styles.css'
@@ -36,7 +38,8 @@ startPerfReports()
 // a ticket, `#session?id=…` a session in its own window and `#subagent?session=…&id=…` a sub-agent's conversation.
 // `#review?session=…` a session's local review, `#file?path=…` the file viewer, `#flow-map?…` a flow map and
 // `#plan-item?profile=…&kind=inbox|milestone&id=…` a Plan inbox item or milestone, `#review-loop?id=…` a review loop and
-// `#signin?id=…` a sign-in to a tool, `#settings?section=…` Settings (`section=general%23updates` also points at a group).
+// `#signin?id=…` a sign-in to a tool, `#settings?section=…` Settings (`section=general%23updates` also points at a group),
+// `#agent-changes` the changes agents made, for Keep or Revert.
 function root(hash: string): ReactElement {
   if (hash === TRAY_POPOVER_HASH) return <TrayPopover />
   const session = parseSessionWindowHash(hash)
@@ -63,6 +66,7 @@ function root(hash: string): ReactElement {
   if (reviewLoop) return <ReviewLoopWindow loopId={reviewLoop.loopId} />
   const settings = parseSettingsHash(hash)
   if (settings) return <SettingsWindowRoot {...settings} />
+  if (isAgentChangesHash(hash)) return <AgentChangesWindow />
   return <App />
 }
 

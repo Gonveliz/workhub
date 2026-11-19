@@ -38,11 +38,39 @@ Each environment has one of four states:
 | **Blind** | Part of the picture is missing (for example no Kubernetes metrics), so it cannot be called healthy. **Blind spots** says what is missing. |
 | **Unreachable** | Elasticsearch could not be reached. |
 
-Below, per environment: **Errors by service** (each marked **New**, **Worsening**, **Ongoing** or
-**Chronic**; chronic signals are listed but never alert), **Pods**, **Kubernetes warnings**, **APM
-agents** (services that went silent), **Slow endpoints** (slowest p95 first, with a span breakdown
-and a comparison with the previous window), and **Container stderr** as a rough proxy when pod
-metrics are missing. **Show details** expands a row.
+Under the tabs, one row holds the environments (a dot shows each one's state), a summary (how
+many services, how many favorites, the error window), **Select** and **Only favorites**. Each
+environment is a board, worst services first:
+
+- **Favorites**: the services you starred, as large cards: state (**Healthy**, **Degraded**,
+  **Erroring**, **Pods failing**, or **No data** when errors could not be read), the errors in the
+  window with the typical day under them, and a chart of errors per day: one bar per day of the
+  trend window, the last one the rolling window in the card's color, a dashed line at the typical
+  day (hover a bar for its day and count). When the color comes from something other than errors
+  (a pod not ready or crash-looping, a silent agent) the card says so under the number. A line of
+  facts follows: the trend (**New**, **Worsening**, **Ongoing** or **Chronic**; chronic signals are
+  listed but never alert), the p95 of the service's slowest endpoint, its pods that need attention
+  and its open metric alerts. **Investigate with Claude** is the icon at the top right.
+- **All services**: every other service a signal names (errors, silent APM agents, slow endpoints),
+  as small cards with the same chart. The star on any card adds or removes the favorite; favorites
+  are kept per profile and show in every environment.
+- A click on a card opens its details in a sheet at the right, over the board, so the cards stay
+  where they are and another card can be picked without closing it. The sheet shows a sentence
+  that sums the service up, its errors per day, its error groups with their share, its slow
+  endpoints (a click on one shows the span breakdown and a comparison with the previous window),
+  and its pods and agent, with the Kibana link and Investigate at the top. Drag the sheet's left
+  edge to resize it (a double click goes back to the usual width) or use the widen button; the
+  width is remembered. **Esc** or the cross closes it.
+- **Slow endpoints**: the four slowest, one per row on a shared scale: a bar from p50 to p95 and a
+  tick at p99, with calls and the failure share. **See all** opens the whole list under them, each
+  row with its details.
+- **Environment**: the verdict with its reasons and blind spots and **Open in Kibana**. Blocks with
+  nothing to report (no pods needing attention, no Kubernetes warnings, every APM agent reporting)
+  are one muted line under it; **Pods**, **Kubernetes warnings**, **APM agents** and **Container
+  stderr** (a rough proxy when pod metrics are missing) get a card when they have something to
+  show. **Show details** expands a row.
+
+The header's **Refresh** reads the environments again.
 
 ## Investigate with an agent
 
@@ -87,8 +115,16 @@ days, or until the trend changes (another rule fires or the severity rises); **R
 and **Reopen** brings it back. While an alert is open its values, sparkline (last 14 days) and
 severity update; severity only goes up. After 3 business days without a detection the row offers
 **Looks back to normal. Resolve?**. Resolved alerts disappear after 7 days; the same problem on a
-later day opens a fresh alert. The list is ordered by severity, then date, and filters by rule,
-severity and status. Home shows an **Alerts** card with the open count and the top high-severity
+later day opens a fresh alert.
+
+**Cards and list.** Alerts show as cards by default: the change in the severity's color with the
+day's value against the baseline, the last 14 days as a line over a grey band (the range of the 7
+values before the last), the status and **Resolve** (**Reopen** once resolved). The star pins an
+alert: pinned alerts come first as large cards, with **To the inbox** next to Resolve; the rest
+follow by severity. The other actions (open the source, Track, Send to inbox, Snooze, Reopen) are in
+the card's **⋯** menu. **List** shows the compact rows instead. **Filters** holds the status,
+severity and rule filters; each one set shows as a chip that clears it. **Only pinned** hides the
+rest, and the refresh icon checks now. Pins, the layout and Only pinned are remembered. Home shows an **Alerts** card with the open count and the top high-severity
 ones.
 
 **Send to inbox.** When the profile has the [Plan](plan.md) module on, an open alert also offers

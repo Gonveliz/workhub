@@ -222,12 +222,16 @@ export const FLOW_GEOMETRY = {
   chipH: 30
 }
 
+const ROW_LANE_GAP = 58
+
 /**
  * Lays the map out on a grid: lanes are rows, columns come from `flowColumns`. Nodes of one lane in
  * the same column stack as rows. Vertical edge segments run in the gutters between columns, so a
- * route never crosses a node of another column.
+ * route never crosses a node of another column. The stage chips sit beside their lane's nodes, or
+ * (`stages: 'row'`) in a row of their own under the last lane, where no edge runs: that adds
+ * height instead of width.
  */
-export function layoutFlowMap(map: FlowMap): FlowLayout {
+export function layoutFlowMap(map: FlowMap, options: { stages?: 'beside' | 'row' } = {}): FlowLayout {
   const G = FLOW_GEOMETRY
   const columns = flowColumns(map)
   const maxCol = Math.max(0, ...Object.values(columns))
@@ -236,6 +240,9 @@ export function layoutFlowMap(map: FlowMap): FlowLayout {
   const nodes: Record<string, FlowBox> = {}
   const lanes: FlowLayout['lanes'] = []
   let y = G.top
+  // A row layout is drawn larger, and its lanes are shorter without the chips: the corridor between
+  // lanes is wider there, so the labels of the hops that cross it have room.
+  const laneGap = options.stages === 'row' ? ROW_LANE_GAP : G.laneGap
   let stages: FlowLayout['stages']
   const stagesLane = map.stagesLane ?? map.lanes[0]!.id
   for (const lane of map.lanes) {
@@ -250,7 +257,7 @@ export function layoutFlowMap(map: FlowMap): FlowLayout {
       nodes[n.id] = { x: columnX[c]!, y: y + G.lanePad + r * (G.nodeH + G.rowGap), w: G.nodeW, h: G.nodeH }
     }
     let h = G.lanePad + laneRows * G.nodeH + (laneRows - 1) * G.rowGap + 16
-    if (map.stages.length && lane.id === stagesLane) {
+    if (map.stages.length && lane.id === stagesLane && options.stages !== 'row') {
       // The stage chips sit in a group to the right of the lane's nodes, or across the lane when it has none.
       const used = own.length ? Math.max(...own.map((n) => nodes[n.id]!.x + G.nodeW)) + 40 : columnX[0]!
       const chips: Record<string, FlowBox> = {}
@@ -260,12 +267,18 @@ export function layoutFlowMap(map: FlowMap): FlowLayout {
       h = Math.max(h, G.lanePad + box.h + 12)
     }
     lanes.push({ id: lane.id, label: lane.label, kind: lane.kind, y, h })
-    y += h + G.laneGap
+    y += h + laneGap
+  }
+  if (map.stages.length && options.stages === 'row') {
+    const chips: Record<string, FlowBox> = {}
+    map.stages.forEach((s, i) => (chips[s.id] = { x: G.left + 14 + i * (G.chipW + 8), y: y + 14, w: G.chipW, h: G.chipH }))
+    stages = { box: { x: G.left, y, w: 14 + map.stages.length * (G.chipW + 8) + 6, h: G.chipH + 28 }, chips }
+    y += G.chipH + 28 + laneGap
   }
   const stagesRight = stages ? stages.box.x + stages.box.w + 40 : 0
   const totalWidth = Math.max(width, stagesRight)
   const phases = map.phases.map((p) => ({ label: p.label, x1: columnX[Math.min(p.fromColumn, maxCol)]! - 4, x2: columnX[Math.min(p.toColumn, maxCol)]! + G.nodeW + 4 }))
-  return { width: totalWidth, height: y - G.laneGap + 10, lanes, nodes, columnX, phases, ...(stages ? { stages } : {}) }
+  return { width: totalWidth, height: y - laneGap + 10, lanes, nodes, columnX, phases, ...(stages ? { stages } : {}) }
 }
 
 /**

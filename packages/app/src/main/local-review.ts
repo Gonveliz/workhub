@@ -8,9 +8,9 @@
 import { realpath, stat } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { LocalChanges, LocalReverter } from '@workhub/adapters/git-review'
-import { onlySessionFiles, validRevertTarget, type HistoryMessage, type LocalRevertAnswer, type LocalRevertRequest, type LocalReviewDelivery, type LocalReviewFiles, type LocalReviewScope, type PullRequestItem, type ReviewComment } from '@workhub/core'
+import { onlySessionFiles, validRevertTarget, type HistoryMessage, type LocalRevertAnswer, type LocalRevertRequest, type LocalReviewDelivery, type LocalReviewFiles, type LocalReviewScope, type PullRequestItem, type RepoChanges, type ReviewComment } from '@workhub/core'
 import type { SessionView } from '../shared/api'
-import type { LocalReviewLoad, LocalReviewSession } from '../shared/local-review-api'
+import type { LocalReviewElsewhere, LocalReviewLoad, LocalReviewSession } from '../shared/local-review-api'
 import type { IpcRegistrar } from './ipc-guard'
 
 export const PENDING_TTL_MS = 12 * 3600_000
@@ -31,6 +31,8 @@ export interface LocalReviewDeps {
   emit(sessionId: string, delivery: LocalReviewDelivery): void
   /** The session's conversation, for the files its agent edited; without it every change shows. */
   history?(sessionId: string): Promise<HistoryMessage[]>
+  /** Every repo the session changed something in (the session bar's count), wherever it is. */
+  touchedRepos?(sessionId: string): Promise<RepoChanges[]>
   now?: () => number
 }
 
@@ -106,6 +108,8 @@ export class LocalReviewService {
   private readonly roots = new Map<string, Set<string>>()
   /** Repos a tool in the session asked to review (control endpoint), added to the ones found in its folder. */
   private readonly asked = new Map<string, { path: string; base?: string }[]>()
+  /** The repos the last load of each session listed as changed elsewhere. */
+  private readonly elsewhere = new Map<string, LocalReviewElsewhere[]>()
   private timer: ReturnType<typeof setInterval> | null = null
   private readonly now: () => number
   /** The last revert per repo root: reverts in one repo run one after the other. */
@@ -151,17 +155,51 @@ export class LocalReviewService {
         }
       })
       this.roots.set(sessionId, new Set([...(this.roots.get(sessionId) ?? []), ...review.repos.map((r) => r.root)]))
+      const elsewhere = await this.changedElsewhere(sessionId, review.repos.map((r) => r.root))
+      this.elsewhere.set(sessionId, elsewhere)
+      const extra = elsewhere.length ? { elsewhere } : {}
       const files: LocalReviewFiles = !chosen && this.asked.get(sessionId)?.length ? 'repo' : asked
       if (files === 'session' && this.deps.history) {
         const edited = editedPaths(v.cwd, await this.deps.history(sessionId))
         const real = new Set([...edited, ...(await Promise.all([...edited].map(realPath)))])
         const only = onlySessionFiles(review, real)
-        return { ok: true, session: this.sessionInfo(v), review: only.review, files, hiddenFiles: only.hidden }
+        return { ok: true, session: this.sessionInfo(v), review: only.review, files, hiddenFiles: only.hidden, ...extra }
       }
-      return { ok: true, session: this.sessionInfo(v), review, files }
+      return { ok: true, session: this.sessionInfo(v), review, files, ...extra }
     } catch (err) {
       return { ok: false, reason: 'failed', detail: err instanceof Error ? err.message : String(err) }
     }
+  }
+
+  /**
+   * The repos with changes the session touched that this review did not load: the session bar counts
+   * them, so the window says they are there instead of silently showing less. Paths are compared
+   * resolved (`/tmp` is `/private/tmp` on macOS).
+   */
+  private async changedElsewhere(sessionId: string, loaded: readonly string[]): Promise<LocalReviewElsewhere[]> {
+    const touched = ((await this.deps.touchedRepos?.(sessionId).catch(() => [])) ?? []).filter((r) => r.files > 0)
+    if (touched.length === 0) return []
+    const seen = new Set([...loaded, ...(await Promise.all(loaded.map(realPath)))])
+    const out: LocalReviewElsewhere[] = []
+    for (const r of touched) {
+      if (seen.has(r.root) || seen.has(await realPath(r.root))) continue
+      out.push({ name: r.name, root: r.root, files: r.files, additions: r.additions, deletions: r.deletions })
+    }
+    return out
+  }
+
+  /**
+   * Reviews the repos the last load listed as changed elsewhere too. Asked repos replace the folder
+   * scan, so the session's own folder is asked for as well; a base a tool chose is kept.
+   */
+  includeElsewhere(sessionId: string): void {
+    const v = this.view(sessionId)
+    const extra = this.elsewhere.get(sessionId) ?? []
+    if (!v || extra.length === 0) return
+    const current = this.asked.get(sessionId) ?? []
+    const paths = new Set(current.map((r) => r.path))
+    const next = [...current, ...[v.cwd, ...extra.map((r) => r.root)].filter((p) => !paths.has(p)).map((path) => ({ path }))]
+    this.asked.set(sessionId, next)
   }
 
   /** The absolute path of a file in a repo this session's review loaded; null otherwise. */
@@ -323,6 +361,7 @@ export function registerLocalReviewIpc(ipc: IpcRegistrar, service: LocalReviewSe
   ipc.handle('localReview:delivery', (_e, sessionId: string) => service.delivery(String(sessionId)))
   ipc.handle('localReview:openWindow', (_e, sessionId: string) => deps.openWindow(String(sessionId)))
   ipc.handle('localReview:revert', (_e, sessionId: string, request: unknown) => service.revert(String(sessionId), request))
+  ipc.handle('localReview:includeElsewhere', (_e, sessionId: string) => service.includeElsewhere(String(sessionId)))
   ipc.handle('localReview:filePath', (_e, sessionId: string, repoRoot: string, path: string) => service.filePath(String(sessionId), String(repoRoot), String(path)))
   ipc.handle('localReview:openFile', async (_e, sessionId: string, repoRoot: string, path: string) => {
     const full = service.filePath(String(sessionId), String(repoRoot), String(path))

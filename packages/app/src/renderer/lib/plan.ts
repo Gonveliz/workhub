@@ -183,3 +183,27 @@ export function eventTimes(event: Pick<CalendarEvent, 'start' | 'end' | 'allDay'
 
 /** Whether the event is happening at `now`. */
 export const isOngoing = (event: Pick<CalendarEvent, 'start' | 'end' | 'allDay'>, now: number) => !event.allDay && event.start <= now && now < event.end
+
+const DAY_MS = 86_400_000
+
+/** Midnight (local) of the day `ms` falls on. */
+const dayStart = (ms: number) => {
+  const d = new Date(ms)
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+}
+
+/** Whether a meeting is today or tomorrow (local days), else null: the day is then written out. */
+export function meetingDay(start: number, now: number): 'today' | 'tomorrow' | null {
+  const days = Math.round((dayStart(start) - dayStart(now)) / DAY_MS)
+  return days === 0 ? 'today' : days === 1 ? 'tomorrow' : null
+}
+
+/** Minutes until a meeting that starts within the next hour; null when it started already or is further off. */
+export function minutesUntil(event: Pick<CalendarEvent, 'start' | 'allDay'>, now: number): number | null {
+  if (event.allDay || event.start <= now) return null
+  const minutes = Math.ceil((event.start - now) / 60_000)
+  return minutes <= 60 ? minutes : null
+}
+
+/** The meetings among `events` that start within the next seven days (or are on now). */
+export const withinWeek = <T extends Pick<CalendarEvent, 'start'>>(events: readonly T[], now: number): T[] => events.filter((e) => e.start < now + 7 * DAY_MS)

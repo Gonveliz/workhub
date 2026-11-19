@@ -59,18 +59,16 @@ export function activityElapsed(a: Activity, since: number, now: number): string
 
 /**
  * How the session header fits its controls; each level is tighter than the one before, and what
- * does not fit goes to the "More" menu. `full`: everything with its label. `icons`: the model and
- * mode pickers, the review tools, the AI review and "Continue" show their icon only (the name on
- * hover). `compact`: the status chips (permission mode, agent mode) move to the menu. `tight`: the
- * review tools, the AI review and "Continue" move too. `narrow`: the pickers move as well.
+ * does not fit goes to the "More" menu. `full`: everything with its label. `icons`: the view switch
+ * shows its icons only (the name on hover). `compact`: "Create PR" moves to the menu. `tight`:
+ * "Changes" and "Stop" keep their icon (and the line counts) only. `narrow`: the branch moves to
+ * the menu too.
  */
 export type HeaderDensity = 'full' | 'icons' | 'compact' | 'tight' | 'narrow'
 
 /** The density a header width starts from; `foldDensity` tightens it while the row still overflows. */
 export function headerDensity(width: number): HeaderDensity {
-  if (width >= 1240) return 'full'
-  if (width >= 700) return 'icons'
-  return 'narrow'
+  return width >= 700 ? 'full' : 'narrow'
 }
 
 const DENSITIES: readonly HeaderDensity[] = ['full', 'icons', 'compact', 'tight', 'narrow']
@@ -78,10 +76,26 @@ const DENSITIES: readonly HeaderDensity[] = ['full', 'icons', 'compact', 'tight'
 /**
  * The density `steps` levels tighter than `base` (never past `narrow`). The header starts from
  * its width's density and folds one more level each time its row still overflows (long labels,
- * an account name, many controls), so nothing is ever drawn over something else.
+ * many controls), so nothing is ever drawn over something else.
  */
 export function foldDensity(base: HeaderDensity, steps: number): HeaderDensity {
   return DENSITIES[Math.min(DENSITIES.length - 1, DENSITIES.indexOf(base) + Math.max(0, Math.floor(steps)))]!
+}
+
+/**
+ * The branch the header names: the one repository's branch, or, in a folder of repositories, the
+ * only repository the session touched. Otherwise (several, none, unread) the branch Workhub's own
+ * worktree was made for, else nothing: a branch is never guessed.
+ */
+export function sessionBranch(changes: { nested: boolean; repos: readonly { branch?: string | null }[] } | null, worktreeBranch: string | undefined): string | undefined {
+  const branches = changes ? changes.repos.map((r) => r.branch).filter((b): b is string => Boolean(b)) : []
+  if (changes && (!changes.nested || changes.repos.length === 1) && branches.length === 1) return branches[0]
+  return worktreeBranch || undefined
+}
+
+/** The added and removed line counts of the changes read, or undefined while nothing changed or nothing is read. */
+export function changeCounts(total: { files: number; additions: number; deletions: number } | null): { additions: number; deletions: number } | undefined {
+  return total && total.files > 0 ? { additions: total.additions, deletions: total.deletions } : undefined
 }
 
 /** Labels the adapters write in English for modes Workhub names itself, by mode id. */

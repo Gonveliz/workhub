@@ -56,7 +56,7 @@ hop of an existing flow, or asks to fix a map that Workhub lists as invalid.
    - When you redraw a map that already exists, leave `alerts` out unless the user asked to change
      them: posting a map without `alerts` keeps the limits the stored map has. Send `alerts` to
      replace them. New limits you send wait for the user: the map is saved with the limits it had,
-     and yours take effect once the user keeps the change in **Changes by agents** on Home (the
+     and yours take effect once the user keeps the change in the **Changes by agents** window, opened from Home or the sidebar (the
      answer then carries a `note` saying so; tell the user).
 
 3. **Install it.** Inside a Workhub session, post it to the control endpoint; the answer names the
