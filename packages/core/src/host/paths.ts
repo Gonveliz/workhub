@@ -1,5 +1,8 @@
 // Path helpers for a given flavor, without `node:path`: the app on Windows handles the POSIX paths
 // of a host inside WSL, and translates them to and from `\\wsl.localhost\<distro>\...`.
+//
+// These are not `node:path`. `dirname` and `basename` normalize first, `normalize` drops a trailing
+// separator, and a UNC share (`\\server\share`) is a root with no basename.
 
 export type PathFlavor = 'posix' | 'win32'
 
@@ -52,6 +55,8 @@ export function dirnameFlavorPath(flavor: PathFlavor, p: string): string {
 }
 
 export function basenameFlavorPath(flavor: PathFlavor, p: string): string {
+  // An empty path normalizes to `.`, which is not a name it has.
+  if (p === '') return ''
   const { rest } = splitRoot(flavor, normalizeFlavorPath(flavor, p))
   return segments(flavor, rest).pop() ?? ''
 }

@@ -44,6 +44,13 @@ describe('posix paths', () => {
     expect(basenameFlavorPath('posix', '/')).toBe('')
   })
 
+  it('gives an empty path no basename, in either flavor', () => {
+    expect(basenameFlavorPath('posix', '')).toBe('')
+    expect(basenameFlavorPath('win32', '')).toBe('')
+    expect(dirnameFlavorPath('posix', '')).toBe('.')
+    expect(dirnameFlavorPath('win32', '')).toBe('.')
+  })
+
   const normalizePath = (p: string) => normalizeFlavorPath('posix', p)
 })
 
