@@ -1,6 +1,6 @@
 # Tickets
 
-The **Tickets** screen (⌘/Ctrl+3) shows the tickets assigned to you, grouped by sprint (**Active
+The **Tickets** screen (⌘/Ctrl+3) shows the tickets assigned to you (and, with Jira, the team's backlog), grouped by sprint (**Active
 sprint**, then **Backlog · no sprint**). Jira Cloud, Linear and GitHub Issues are supported.
 
 ## Set up
@@ -14,7 +14,8 @@ sprint**, then **Backlog · no sprint**). Jira Cloud, Linear and GitHub Issues a
      login`. Fill **Repositories** (comma separated, like `acme/app, acme/api`); left empty, the
      GitHub repositories behind the profile's folders are used.
 3. Optional: **Project keys** (comma separated, like `ABC, WEB`) so ticket links in titles and
-   branches are matched exactly, and **Statuses to hide**.
+   branches are matched exactly, and **Statuses to hide**. Jira also takes a **Backlog query
+   (JQL)** for **Team backlog** (below).
 4. **Test connection** shows who you are connected as. **Save tracker**.
 5. Turn on **Use in the active profile**. Each profile uses one tracker.
 
@@ -29,6 +30,29 @@ not planned** and, on a closed issue, **Reopen**; open issues count as to do and
 done. Plan milestones can count issues with a GitHub search such as `milestone:"v1.0"` (limited to
 the repositories in scope unless it has its own `repo:`, `org:` or `user:`), and approved inbox
 items are created as issues in an `owner/repo`. Descriptions and comments show as Markdown.
+
+## Team backlog (Jira)
+
+With Jira, the screen switches between **Assigned to me** and **Team backlog**: the open tickets
+of the team, whoever has them or nobody, grouped by sprint like your own. Each row then shows who
+has the ticket, or **Unassigned**.
+
+What the backlog lists comes from the tracker connection: the **Backlog query (JQL)** when there is
+one (for example `project in (ABC, WEB) AND labels = mobile`; its own `ORDER BY` is kept, else Jira
+rank), otherwise the open tickets of the **Project keys**. With neither, the view asks you to set
+one. **Statuses to hide** apply here too, and up to 500 tickets are read. The backlog is read while
+the view is open, at the connection's **Refresh every**.
+
+## Filters
+
+Next to **Assigned to me** and **Team backlog** (each with its count) is a search by words in the
+key or title. Under them, **Project**, **Status** and, in **Team backlog**, **Assignee** (including
+**Unassigned**) open a menu with how many tickets have each value; a set filter shows its value. A
+filter shows only when the list has more than one value for it. **Clear filters** shows everything
+again.
+
+Each view keeps its own filters, and the view you were on, its filters and the search are kept per
+profile, also after you quit and reopen Workhub.
 
 ## Using it
 

@@ -37,7 +37,39 @@ describe('TicketService', () => {
     expect((await service({}).status('work')).state).toBe('noConnection')
     expect((await service({ connections: [jira], tracker: 'work-jira' }).status('work')).state).toBe('incomplete')
     const ready = await service({ connections: [jira], tracker: 'work-jira', secrets: { 'connection/work-jira': 'tok' } }).status('work')
-    expect(ready).toEqual({ state: 'ready', provider: 'jira', connectionName: 'work-jira', projectKeys: ['ABC', 'WEB'] })
+    expect(ready).toEqual({ state: 'ready', provider: 'jira', connectionName: 'work-jira', projectKeys: ['ABC', 'WEB'], backlog: 'ready' })
+  })
+
+  it('offers the backlog once the connection has a query or project keys, and only where the tracker has one', async () => {
+    const secrets = { 'connection/work-jira': 'tok', 'connection/lin': 'k' }
+    const bare = { ...jira, settings: { email: 'dana@example.com' } }
+    expect((await service({ connections: [bare], tracker: 'work-jira', secrets }).status('work')).backlog).toBe('unconfigured')
+    expect((await service({ connections: [{ ...bare, settings: { ...bare.settings, backlogQuery: 'project = PAY' } }], tracker: 'work-jira', secrets }).status('work')).backlog).toBe('ready')
+    expect((await service({ connections: [linear], tracker: 'lin', secrets }).status('work')).backlog).toBeUndefined()
+    expect(await service({ connections: [linear], tracker: 'lin', secrets }).backlog('work')).toEqual({ ok: false, error: 'This ticket tracker has no backlog view' })
+  })
+
+  it('reads the backlog with the connection query, project keys and ignored statuses', async () => {
+    const seen: string[] = []
+    const http: HttpClient = async (req) => {
+      if (req.url.includes('/search/jql')) seen.push(new URL(req.url).searchParams.get('jql') ?? '')
+      return { status: 200, text: req.url.includes('/field') ? '[]' : JSON.stringify({ issues: [] }) }
+    }
+    const conn = { ...jira, settings: { ...jira.settings, backlogQuery: 'project = PAY' } }
+    expect(await service({ connections: [conn], tracker: 'work-jira', secrets: { 'connection/work-jira': 'tok' }, http }).backlog('work')).toEqual({ ok: true, value: [] })
+    expect(seen).toEqual(['(project = PAY) AND status NOT IN ("Blocked") ORDER BY Rank ASC'])
+  })
+
+  it('serves the demo backlog: my tickets and the team\'s, some unassigned', async () => {
+    const s = service({ demo: true })
+    expect((await s.status('work')).backlog).toBe('ready')
+    const mine = await s.call('work', (t) => t.listAssigned())
+    const team = await s.backlog('work')
+    if (!mine.ok || !team.ok) throw new Error('demo failed')
+    expect(team.value.length).toBeGreaterThan(mine.value.length)
+    expect(mine.value.every((t) => t.assignee === 'Demo User')).toBe(true)
+    expect(team.value.some((t) => !t.assignee)).toBe(true)
+    expect(team.value.some((t) => t.assignee && t.assignee !== 'Demo User')).toBe(true)
   })
 
   it('serves the demo tracker, keeping its changes, with no connection at all', async () => {

@@ -7,6 +7,7 @@ import {
   type CreateIssueInput,
   type CreatedIssue,
   type IssuePriority,
+  type BacklogOptions,
   type SearchOptions,
   type TicketSummary,
   type ListTicketsOptions,
@@ -67,10 +68,28 @@ export function statusCategoryOf(key: unknown): StatusCategory {
 /** Jira's JQL string literal. */
 const quote = (s: string) => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 
+/**
+ * The backlog's JQL, split into its condition and its order: the connection's query (its own
+ * `ORDER BY` kept, else by rank), or the open tickets of the project keys.
+ */
+export function backlogJql(options: BacklogOptions): { where: string; orderBy: string } {
+  const query = options.query?.trim() ?? ''
+  if (query) {
+    // Find the keyword alone and slice around it: no pattern spans the free text on either side.
+    const order = /\bORDER\s+BY\b/i.exec(query)
+    const where = (order ? query.slice(0, order.index) : query).trim()
+    if (!where) throw new TrackerError('The backlog query has no condition')
+    return { where: `(${where})`, orderBy: (order ? query.slice(order.index + order[0].length) : '').trim() || 'Rank ASC' }
+  }
+  const keys = (options.projectKeys ?? []).map((k) => k.trim()).filter(Boolean)
+  if (keys.length === 0) throw new TrackerError('Set a backlog query or project keys in the tracker connection')
+  return { where: `project IN (${keys.map(quote).join(', ')}) AND statusCategory != Done`, orderBy: 'Rank ASC' }
+}
+
 /** Jira Cloud (REST v3 plus the Agile API for sprints) behind the TicketTracker port. */
 export class JiraTracker implements TicketTracker {
   readonly provider = 'jira'
-  readonly capabilities: TrackerCapabilities = { sprints: true, transitions: true, comments: true, assign: true, search: true, create: true }
+  readonly capabilities: TrackerCapabilities = { sprints: true, transitions: true, comments: true, assign: true, search: true, create: true, backlog: true }
   private readonly site: string
   private readonly auth: string
   private readonly http: HttpClient
@@ -97,16 +116,26 @@ export class JiraTracker implements TicketTracker {
   }
 
   async listAssigned(options: ListTicketsOptions = {}): Promise<Ticket[]> {
+    return this.listOpen('assignee = currentUser() AND statusCategory != Done', 'updated DESC', options.ignoredStatuses)
+  }
+
+  async listBacklog(options: BacklogOptions): Promise<Ticket[]> {
+    const { where, orderBy } = backlogJql(options)
+    return this.listOpen(where, orderBy, options.ignoredStatuses)
+  }
+
+  /** The tickets a JQL condition finds, up to `LIST_CAP`, with their sprints. */
+  private async listOpen(where: string, orderBy: string, ignoredStatuses: readonly string[] = []): Promise<Ticket[]> {
     const sprintField = await this.findSprintField()
-    let jql = 'assignee = currentUser() AND statusCategory != Done'
-    const ignored = (options.ignoredStatuses ?? []).map((s) => s.trim()).filter(Boolean)
+    let jql = where
+    const ignored = ignoredStatuses.map((s) => s.trim()).filter(Boolean)
     if (ignored.length > 0) jql += ` AND status NOT IN (${ignored.map(quote).join(', ')})`
     const fields = sprintField ? [...LIST_FIELDS, sprintField] : LIST_FIELDS
     const issues: Json[] = []
     let token: string | undefined
     for (let page = 0; page < LIST_PAGES && issues.length < LIST_CAP; page++) {
       const result = (await this.request('GET', '/rest/api/3/search/jql', {
-        jql: `${jql} ORDER BY updated DESC`,
+        jql: `${jql} ORDER BY ${orderBy}`,
         fields: fields.join(','),
         maxResults: String(Math.min(SEARCH_PAGE, LIST_CAP - issues.length)),
         ...(token ? { nextPageToken: token } : {})

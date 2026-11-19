@@ -25,6 +25,7 @@ export function registerTicketIpc({ ipcMain, service, createWindow, mainWindow, 
 
   ipcMain.handle('tickets:status', (_e, profileId: string | null) => service.status(profileId))
   ipcMain.handle('tickets:list', (_e, profileId: string) => service.call(profileId, (t, ignored) => t.listAssigned({ ignoredStatuses: ignored })))
+  ipcMain.handle('tickets:backlog', (_e, profileId: string) => service.backlog(profileId))
   ipcMain.handle('tickets:get', (_e, profileId: string, key: string) => service.call(profileId, (t) => t.getTicket(key)))
   ipcMain.handle('tickets:transitions', (_e, profileId: string, key: string) => service.call(profileId, (t) => t.transitions(key)))
   ipcMain.handle('tickets:transition', async (_e, profileId: string, key: string, id: string) =>

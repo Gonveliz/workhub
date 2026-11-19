@@ -55,6 +55,7 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
     tickets: {
       status: (profileId) => invoke('tickets:status', profileId),
       list: (profileId) => invoke('tickets:list', profileId),
+      backlog: (profileId) => invoke('tickets:backlog', profileId),
       get: (profileId, key) => invoke('tickets:get', profileId, key),
       transitions: (profileId, key) => invoke('tickets:transitions', profileId, key),
       transition: (profileId, key, id) => invoke('tickets:transition', profileId, key, id),
