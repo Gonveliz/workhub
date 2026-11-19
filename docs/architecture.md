@@ -444,6 +444,37 @@ download, checksum check and unpacking (zip and tar.gz, with path checks) are
 `adapters/src/managed-tools`; the queue behind **Install what is missing** is
 `app/src/main/setup-queue.ts`.
 
+### Workhub host (not wired yet)
+
+Groundwork for running sessions inside WSL from the native Windows app. The app stays the UI and
+the orchestrator, and a `workhub host` Node process inside the distro is meant to own what has to
+run next to the code: agent runtimes, transcripts, history, git and file access. The two talk over
+the stdio of the process that starts the host (`wsl.exe`). Nothing in the app starts a host yet; the
+pieces below are used only by their tests.
+
+- **Protocol** (`core/src/host/protocol.ts`): newline-delimited JSON, one message per line, at most
+  1 MB of UTF-8 per line (`HOST_MAX_LINE_BYTES`). Four messages, told apart by `t`: `hello` (the
+  first line the host writes: protocol version, host version, features, platform, home folder and
+  path flavor), `req` (an `id`, a method `m` and params `p`), `res` (the `id` with either a result
+  `r` or an error `e` that holds a code and a message) and `ev` (an event name and its payload, not
+  tied to a request). The app refuses a host whose protocol or host version differs from the one it
+  expects (`isCompatibleHello`), so app and host come from the same build. A request waits 30
+  seconds unless the caller says otherwise. There is no cancel message: a request that times out or
+  is aborted is dropped on the app side, and the host still finishes it.
+- **Channel** (`adapters/src/host/channel.ts`): the line framing over a pair of Node streams. A line
+  that is not a valid message is reported and skipped, never fatal. A line over the cap is dropped
+  as soon as the part read so far passes it, so it is never held in memory.
+- **Client and server** (`adapters/src/host/client.ts`, `server.ts`): `HostClient` is the app side
+  (the handshake, requests with a timeout and an abort signal, events). `HostServer` is the host
+  side: a map of handlers that run concurrently, and only an error's code and message cross the
+  wire. When the channel closes, every pending request fails with `closed` and the abort signal of
+  each running handler fires.
+- **Paths** (`core/src/host/paths.ts`): join, normalize, dirname and basename for an explicit flavor
+  (`posix` or `win32`), because the Windows app handles the distro's POSIX paths and `core` cannot
+  use `node:path`. Also the translation between `\\wsl.localhost\<distro>\...` (or `\\wsl$\...`) and
+  the distro's POSIX paths. They differ from `node:path` on purpose: `dirname` normalizes first,
+  `normalize` drops a trailing separator and a UNC share is a root.
+
 ### Chat journal
 
 Each window's renderer builds a session's chat from the events main sends it (`renderer/store.ts`).
