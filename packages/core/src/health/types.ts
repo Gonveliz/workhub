@@ -125,6 +125,11 @@ export interface TrendStats {
   streakTruncated: boolean
   daysWithData: number
   state: TrendState
+  /**
+   * Documents per calendar day over the trend window, oldest first; the last day is today so far.
+   * Kept so a chart can show the days behind `typicalDay`. Absent on stats stored before it.
+   */
+  daily?: number[]
 }
 
 export interface ServiceErrorCount {

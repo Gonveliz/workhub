@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { parseTokenAmount, projectProgress, projectSpendOf, setProjectBudget, validProjectUsd, type ProjectBudgets, type ProjectProgress } from '@workhub/core'
 import type { SpendTotals } from '@shared/analytics-api'
 import { Button, Input } from '../../components/atoms'
@@ -35,6 +35,8 @@ export function ProjectBudgetsCard({ budgets, month, projects, now, disabled = f
   const [tokens, setTokens] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  // Without any budget the card folds to one line; its link opens the form.
+  const [defining, setDefining] = useState(false)
   const spendOf = new Map(month.filter((r) => r.group !== null).map((r) => [r.group as string, projectSpendOf(r)]))
   const entries = Object.entries(budgets)
 
@@ -72,9 +74,24 @@ export function ProjectBudgetsCard({ budgets, month, projects, now, disabled = f
   }
 
   const listId = 'project-budget-projects'
+  const header = (actions?: ReactNode) => <CardHeader title={t('budgets.title')} meta={formatDate(now, { month: 'long', year: 'numeric' })} help={t('budgets.help')} actions={actions} className={actions ? 'min-h-16 py-3' : undefined} />
+  if (entries.length === 0 && !defining) {
+    return (
+      <Card aria-label={t('budgets.title')} data-testid="project-budgets" data-folded="true">
+        {header(
+          <span className="text-sm whitespace-nowrap text-muted">
+            {t('budgets.folded')} ·{' '}
+            <button type="button" className="text-text underline underline-offset-2 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-45" disabled={disabled} onClick={() => setDefining(true)} data-testid="project-budgets-define">
+              {t('budgets.define')}
+            </button>
+          </span>
+        )}
+      </Card>
+    )
+  }
   return (
     <Card aria-label={t('budgets.title')} data-testid="project-budgets">
-      <CardHeader title={t('budgets.title')} meta={formatDate(now, { month: 'long', year: 'numeric' })} help={t('budgets.help')} />
+      {header()}
       <CardBody className="flex flex-col gap-3">
         {entries.length === 0 ? (
           <p className="text-sm text-muted" data-testid="project-budgets-empty">
@@ -140,7 +157,7 @@ export function ProjectBudgetsCard({ budgets, month, projects, now, disabled = f
         >
           <label className="flex min-w-48 flex-1 flex-col gap-1 text-xs text-subtle">
             {t('budgets.project')}
-            <Input list={listId} value={project} disabled={disabled} placeholder={t('budgets.projectPlaceholder')} onChange={(e) => setProject(e.target.value)} data-testid="project-budget-project" />
+            <Input list={listId} value={project} disabled={disabled} autoFocus={defining && entries.length === 0} placeholder={t('budgets.projectPlaceholder')} onChange={(e) => setProject(e.target.value)} data-testid="project-budget-project" />
             <datalist id={listId}>
               {projects.map((p) => (
                 <option key={p} value={p} />

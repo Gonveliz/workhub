@@ -363,7 +363,7 @@ describe('Map list', () => {
     const html = renderToStaticMarkup(createElement(FlowMapList, { maps, states: { checkout: 'alert', refunds: 'ok' }, alerts: { checkout: 3 }, opened: 'checkout', query: '', onQuery: noop, onOpen: noop }))
     expect((html.match(/data-testid="flow-map-over"/g) ?? []).length).toBe(1)
     expect(html).toContain('title="3 parts over their limits"')
-    expect(html).toContain('w-56')
+    expect(html).toContain('w-[300px]')
   })
 
   it('shows no dot for a map whose state is unknown, so nothing looks live without a fresh reading', () => {

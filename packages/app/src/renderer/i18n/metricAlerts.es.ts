@@ -90,5 +90,22 @@ export const metricAlertsEs: Record<keyof typeof metricAlertsEn, string> = {
   'metricAlerts.settings.metric': 'Id de la métrica',
   'metricAlerts.settings.removeOverride': 'Quitar el ajuste de {metric}',
   'metricAlerts.settings.critical': 'Crítica (siempre alta)',
-  'metricAlerts.settings.muted': 'Silenciada'
+  'metricAlerts.settings.muted': 'Silenciada',
+  'metricAlerts.filtersCount': 'Filtros · {count}',
+  'metricAlerts.chip.remove': 'Quitar el filtro {filter}',
+  'metricAlerts.pinnedCount.one': '{count} fijada',
+  'metricAlerts.pinnedCount.other': '{count} fijadas',
+  'metricAlerts.onlyPinned': 'Solo fijadas',
+  'metricAlerts.layout': 'Vista',
+  'metricAlerts.layout.list': 'Lista',
+  'metricAlerts.layout.cards': 'Tarjetas',
+  'metricAlerts.pinned': 'Fijadas',
+  'metricAlerts.rest': 'Resto, por severidad',
+  'metricAlerts.bySeverity': 'Por severidad',
+  'metricAlerts.band': 'banda gris = rango de sus 7 valores anteriores',
+  'metricAlerts.pin': 'Fijar {name}',
+  'metricAlerts.unpin': 'Desfijar {name}',
+  'metricAlerts.more': 'Más acciones',
+  'metricAlerts.action.toInbox': 'A la bandeja',
+  'metricAlerts.noPinned': 'Ninguna alerta fijada coincide: fija una con su estrella.'
 }

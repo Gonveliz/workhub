@@ -1,11 +1,12 @@
-import { Trash2, Upload } from 'lucide-react'
+import { Download, Trash2, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { moduleScreens } from '@workhub/core'
 import type { ConfigSnapshot } from '@shared/api'
 import type { FlowMapSummary } from '@shared/health-api'
-import { Button } from '../components/atoms'
+import { Button, IconButton } from '../components/atoms'
 import { Dialog, EmptyState, useToast } from '../components/molecules'
 import { useI18n } from '../i18n/I18nProvider'
+import { cn } from '../lib/cn'
 import { errorText } from '../lib/errorText'
 import { SettingsGroup } from './settings/SettingsLayout'
 import type { Run } from './settings/run'
@@ -29,6 +30,7 @@ export function FlowMapsSettings({ snap, profileId, onOpenModules }: { snap: Con
   const [error, setError] = useState<string>()
   const [deleting, setDeleting] = useState<FlowMapSummary | null>(null)
   const [busy, setBusy] = useState(false)
+  const [dragging, setDragging] = useState(false)
   const load = () =>
     window.hub.health
       .flowMaps(profile?.id ?? null)
@@ -47,13 +49,19 @@ export function FlowMapsSettings({ snap, profileId, onOpenModules }: { snap: Con
   const healthOn = modules.includes('health')
   const envName = (id: string) => profile.health?.environments.find((e) => e.id === id)?.name ?? id
 
-  const importFiles = async () => {
+  /** Imports from the file picker, or the files dropped on the import area (several at once). */
+  const importFiles = async (dropped?: File[]) => {
     setBusy(true)
     try {
-      const results = await window.hub.flowMaps.importFiles()
-      const good = results.filter((r) => r.ok).length
-      if (good) toast(tn('flowMaps.settings.imported', good))
-      for (const r of results) if (!r.ok) toast(t('flowMaps.settings.importFailed', { file: r.file.split(/[\\/]/).pop() ?? r.file, errors: r.errors.slice(0, 3).join('; ') }), 'danger')
+      const results = dropped ? await window.hub.flowMaps.importTexts(await Promise.all(dropped.map(async (f) => ({ name: f.name, text: await f.text() })))) : await window.hub.flowMaps.importFiles()
+      const good = results.filter((r) => r.ok)
+      const replaced = good.filter((r) => r.replaced).length
+      if (good.length) toast(replaced ? tn('flowMaps.settings.importedReplaced', good.length, { replaced }) : tn('flowMaps.settings.imported', good.length))
+      for (const r of results) {
+        if (r.ok) continue
+        const file = r.file.split(/[\\/]/).pop() ?? r.file
+        toast(t('flowMaps.settings.importFailed', { file: r.name ? `${file} · ${r.name}` : file, errors: r.errors.slice(0, 3).join('; ') }), 'danger')
+      }
       await load()
     } catch (e) {
       toast(errorText(e), 'danger')
@@ -61,6 +69,21 @@ export function FlowMapsSettings({ snap, profileId, onOpenModules }: { snap: Con
       setBusy(false)
     }
   }
+  /** Saves the maps to a file the user picks: one map by id, or every valid map when no id is given. */
+  const exportMaps = async (ids?: string[]) => {
+    setBusy(true)
+    try {
+      const r = await window.hub.flowMaps.exportMaps(ids)
+      if (r.ok) toast(tn('flowMaps.settings.exported', r.count, { file: r.file.split(/[\\/]/).pop() ?? r.file }))
+      else if (r.reason === 'empty') toast(t('flowMaps.settings.exportEmpty'), 'danger')
+      else if (r.reason === 'failed') toast(t('flowMaps.settings.exportFailed', { detail: r.detail ?? '' }), 'danger')
+    } catch (e) {
+      toast(errorText(e), 'danger')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const valid = (maps ?? []).filter((m) => !m.error)
   const remove = async () => {
     if (!deleting) return
     const ok = await window.hub.flowMaps.remove(deleting.id)
@@ -75,12 +98,36 @@ export function FlowMapsSettings({ snap, profileId, onOpenModules }: { snap: Con
       {on && !healthOn && <p className="rounded-md bg-warning-soft px-3 py-2 text-sm text-warning">{t('flowMaps.settings.needsHealth')}</p>}
 
       <SettingsGroup title={t('flowMaps.settings.add')} footnote={t('flowMaps.settings.format')}>
-        <div className="flex flex-col gap-2 py-3">
+        <div
+          className={cn('my-3 flex flex-col gap-2 rounded-md border border-dashed p-3 transition-colors duration-150', dragging ? 'border-accent bg-accent-soft' : 'border-border')}
+          onDragOver={(e) => {
+            if (!Array.from(e.dataTransfer.types).includes('Files')) return
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'copy'
+            setDragging(true)
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false)
+          }}
+          onDrop={(e) => {
+            e.preventDefault()
+            setDragging(false)
+            const files = Array.from(e.dataTransfer.files)
+            const json = files.filter((f) => f.name.toLowerCase().endsWith('.json'))
+            if (json.length < files.length) toast(tn('flowMaps.settings.dropSkipped', files.length - json.length), 'danger')
+            if (json.length && !busy) void importFiles(json)
+          }}
+          data-testid="flow-maps-drop"
+        >
           <p className="text-xs text-subtle">{t('flowMaps.settings.addHint')}</p>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="primary" icon={<Upload className="size-3.5" aria-hidden />} disabled={busy} onClick={() => void importFiles()}>
               {t('flowMaps.settings.import')}
             </Button>
+            <Button size="sm" variant="secondary" icon={<Download className="size-3.5" aria-hidden />} disabled={busy || valid.length === 0} onClick={() => void exportMaps()} data-testid="flow-maps-export-all">
+              {t('flowMaps.settings.exportAll', { count: valid.length })}
+            </Button>
+            <span className="text-xs text-subtle">{t('flowMaps.settings.dropHint')}</span>
           </div>
         </div>
         <div className="flex flex-col gap-1 py-3">
@@ -103,6 +150,7 @@ export function FlowMapsSettings({ snap, profileId, onOpenModules }: { snap: Con
                 {m.error ? m.error : `${t('flowMaps.size', { nodes: m.nodes, edges: m.edges })} · ${m.environmentId ? t('flowMaps.settings.env', { env: envName(m.environmentId) }) : t('flowMaps.settings.anyEnv')} · ${m.file.split(/[\\/]/).pop()}`}
               </p>
             </div>
+            {!m.error && <IconButton size="sm" label={t('flowMaps.settings.exportOne', { name: m.name })} icon={<Download className="size-3.5" aria-hidden />} disabled={busy} onClick={() => void exportMaps([m.id])} />}
             <Button size="sm" variant="ghost" icon={<Trash2 className="size-3.5" aria-hidden />} onClick={() => setDeleting(m)}>
               {t('flowMaps.settings.delete')}
             </Button>

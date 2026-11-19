@@ -19,10 +19,18 @@ stored in the database and the folder is renamed to `flow-maps.migrated/` (nothi
 two files had the same `id`, `<id>.json` wins and the other is left as `.skipped`). Dropping a file in
 a `flow-maps/` folder no longer adds a map: import it in Settings or post it with the skill.
 
+**Export.** In the same section, **Export all…** saves every valid map (limits included) to one
+JSON file (`{"format": "workhub.flow-maps", "version": 1, "maps": [...]}`), to move them to another
+machine or share them; the download icon on a map in the list saves only that map, as a plain map
+file. Both import back with **Import JSON…**.
+
 Three ways to add one:
 
 - **Settings → Profiles → (profile) → Screens → Flow maps → Import JSON…** picks one or more files; each is validated and stored
-  under its `id`.
+  under its `id` (a map with that `id` is replaced, and the message says how many were). A file can
+  be one map or an export of several; a map of an export that does not validate is reported and the
+  others still import. You can also drop several JSON files at once on the import area; files that
+  are not `.json` are skipped and the message says how many.
 - Post it to the local control endpoint from inside a Workhub session (what the
   `workhub-flow-map` skill does):
 
@@ -43,8 +51,8 @@ port with a token made at each launch): replace `--unix-socket "$WORKHUB_SOCKET"
   A posted map replaces the stored one with the same `id`; when the posted file has no `alerts`,
   the stored map's `alerts` are kept, so an agent that redraws a map does not drop its limits.
   New limits a posted map brings wait for you: the map is saved with the limits it had, the answer
-  carries a `note` saying so, and the change is listed under **Changes by agents** on Home with the
-  limits before and after. **Keep** puts the new limits in effect; **Revert** keeps the old ones and
+  carries a `note` saying so, and the change waits under **Changes by agents** (**See changes** on
+  Home, or the sidebar entry, opens the window that lists it) with the limits before and after. **Keep** puts the new limits in effect; **Revert** keeps the old ones and
   puts back the rest of the map as it was (a map the agent added is deleted). When the old limits no
   longer fit the redrawn map (a part they name is gone), the new limits apply at once and the entry
   says they are already in effect. Revert refuses when the map changed again since.
@@ -60,66 +68,100 @@ of showing numbers.
 ## The screen
 
 **Flow maps (⌘7)** has one header row: the title, the Health environments as a segmented control
-(a dot for each one's state; hover it for the label), and **Reload** (reads the stored maps and the
-opened map again) and **Settings** (Settings → Profiles → (profile) → Screens → Flow maps) at the right.
+(a dot for each one's state; hover it for the label) and, at the right, **Favorites only** (lists
+only the starred maps; remembered), the window of the opened map (6 h, 1 d, 3 d, 7 d), a button that reads its
+numbers again (never more than every 30 s) and a **⋯** menu with everything else: **Ask Claude**
+(a session with the map, its numbers and what is missing already written, and not sent), the
+animation (a comet runs along every hop in order), **Fit to width**, zoom in and out, **Copy as
+image** (the diagram on the clipboard as a PNG), **Open in a window** (the map in a window of its
+own), **Reload** (reads the stored maps and the opened map again) and **Settings** (Settings →
+Profiles → (profile) → Screens → Flow maps).
 
-The left rail lists the stored maps that name the chosen environment (or name none): under
-their `group` heading (maps without one under **Other**, last), with a search box that matches name,
-heading and description (accents and case ignored). The dot next to each map says how it stands in
-the last stored hour: red when a part is over the map's limits, green when none is. A map with no
-limits, no data yet, or no reading in the last two hours (the connection down, the profile idle)
-shows no dot, so nothing looks live when it is not; a red count next to a map says how many parts
-are over. The dots and counts come from the local history only: listing the maps never reads the
-cluster.
+The left column lists the stored maps that name the chosen environment (or name none), one card
+per map, with a search box that matches name, heading and description (accents and case ignored).
+The star on a card adds the map to **Favorites**, listed first; the rest stay under their `group`
+heading (maps without one under **Other**, last). Favorites are kept on this computer.
 
-The map picked opens next to the rail with:
+A card shows the map's name, a small picture of the flow (its nodes and hops where the diagram puts
+them, a part over its limits in red) and the flow's own numbers over the last day: the p95 and the
+failure share of the node that starts it, and its p95 hour by hour as a line. Once it has numbers
+the card also says how the flow stands, in a word: **Normal** (every measured part within its
+limits and close to its seven-day usual), **Slow** (a part over 1.2 times slower than its usual),
+**Errors** (a part over its failure limit, or failing two points more than its usual) or **Over
+limit** (a part over another of its limits). The numbers come from the local history only (listing
+the maps never reads the cluster), so a map that was never read says **No stored numbers yet**
+until it is opened once.
 
-- **The map header.** The name and description; the window (6 h, 1 d, 3 d, 7 d); **Diagram** or
-  **Sequence** (the same flow as a sequence diagram: one lifeline per service, one arrow per hop
-  in order, or in the order of the chosen execution); the animation button (a comet runs along
-  every hop in order; press it again to stop); **Fit to width**; a **⋯** menu with zoom in, zoom
-  out, **Copy as image** (the diagram on the clipboard as a PNG) and **Open in a window** (the map
-  in a window of its own); **Ask Claude** opens a session with the map, its numbers and what is
-  missing already written (and not sent); the last button reads the numbers again (never more
-  than every 30 s).
-- **Four verdict tiles.** **Coverage**: how many parts are measured, and a link to the Coverage
-  tab with how many have no measure, no APM data or failed to read. **Slowest part**: its name
-  (click to pick it), p95 and share of the flow's time. **Alerts**: how many parts are over their
-  limits in the window (red when any; click for the Alerts tab). **Against the usual**: how many
-  parts deviate from their own seven-day numbers, and the worst one ("«orders» is ×2.4 slower than
-  its 7-day usual", or a failure share that grew); click it to pick the part. Every measure is
-  read with two baselines: the same window right before it (yesterday, for a one-day window) and
-  the last seven days.
-- **The diagram.** Fitted to the width of its box. Border colour is the kind of part; a solid
-  arrow is a call that waits, a dashed one a message, a red dotted one time waiting in a queue.
-  The label on a hop is its p50. The slowest parts get a thicker, warmer outline and the top
-  three a rank badge. A part without a measure is faded and dotted; a measured part with no data
-  in the window is hatched. Click a part (or its row, or focus it with Tab and press Enter) to
-  light it up and dim the rest; click the background to clear. The Sequence view fits its
-  lifelines to the width too, and scrolls sideways only past eight services.
-- **The detail drawer.** Beside the diagram, the picked part: its kind, its rank and share, calls,
-  p50 / p95, failures, calls per minute, how it compares with the previous window and with its
-  seven-day usual (×1.3: a third slower; hover for the baseline's numbers), the hour-by-hour chart
-  (bars: calls, line: p95, the slowest hour marked), its result codes (`transaction.result`:
-  "HTTP 2xx", "HTTP 4xx"…), its limits with the ones exceeded flagged (**adjust** opens Settings → Profiles → (profile) → Screens →
-  Flow maps), and **Investigate this part**, which opens the Ask Claude draft focused on it. The
-  chevron folds the drawer; Workhub remembers it, and starts it folded when the screen is narrower
-  than 1200 px.
-- **Parts.** Every part, slowest first, with calls, calls per minute, p50, p95, p99, failures
-  (count and share), its share of the flow's time, and how it compares with the previous window
-  and with its seven-day usual. Picking a row picks the part in the diagram and the drawer.
-- **Executions.** The real executions of the flow: the APM traces of its entry transaction,
-  latest, slowest or failed only. Pick one and the diagram shows what each part took in it
-  (and when it started), parts it never touched fade, and a waterfall lists the hops on one time
-  axis. **Seen in the trace, not in the map** lists the transactions and outgoing calls of that
-  execution that no part measures: the candidates to add. **Logs** lists, under the waterfall,
-  the APM errors of that trace and the container log lines that carry its trace id, in order,
-  with the service and the level. Ask Claude passes them along.
-- **Coverage.** The parts without a measure, the measured ones APM returned nothing for (a name
-  that differs from what APM records, or a part nothing called), and failed reads.
-- **Alerts.** Every measured part with its limits (`alerts` in the file), its current p95,
-  failure share and share of slow calls, and whether it is above a limit. **Set alert limits**
-  (or **Edit limits**) opens the limits editor in Settings.
+A card without numbers yet keeps the dot that says how the map stands in the last stored hour:
+red when a part is over the map's limits, green when none is. A map with no limits, no data yet, or no reading in the last two
+hours (the connection down, the profile idle) shows no dot, so nothing looks live when it is not; a
+red count next to the name says how many parts are over.
+
+The map picked opens next to the column with:
+
+- **The map header.** The star (adds the map to Favorites or removes it), the name and
+  description, how the flow stands in a word, and **Map** or **Sequence** (the same flow as a
+  sequence diagram: one lifeline per service, one arrow per hop in order, or in the order of the
+  chosen execution).
+- **Four tiles with the flow's own numbers.** **Flow p95**: the p95 of the node that starts the
+  flow, and how it compares with its seven-day usual (×1.3: a third slower). **Calls**, and calls
+  per minute. **Errors**: its failure share, and its limit when the map sets one. **Slowest
+  part**: its name (click to pick it) and its share of the flow's time. Without Health the tiles
+  say what turning it on brings instead.
+- **The diagram.** Fitted to the width of its box, with the stage chips in a row under the last
+  lane so the picture stays narrow and is drawn larger. A node shows what it does on the left, its
+  p95 on the right and its share of the flow's time as a bar. Its dot, border and bar say how the
+  part stands: green and a quiet border when it is within its limits and close to its usual,
+  amber when it is slower or failing more than its seven-day usual, red when it is over one of its
+  limits. A solid arrow is a call that waits, a dashed one a message, a red dotted one time
+  waiting in a queue; the label on a hop is its p50. A part without a measure is faded and dotted;
+  a measured part with no data in the window is hatched. Click a part (or its row, or focus it
+  with Tab and press Enter) to light it up; the rest steps back; click the background to clear.
+  The Sequence view fits its lifelines to the width too, and scrolls sideways only past eight
+  services.
+- **Parts.** The one place a part is read (with **Executions**, the only two tabs). Every part
+  with numbers, slowest first, with calls, p50, p95, failures (count and share), how it compares
+  with its seven-day usual, its limits and its share of the flow's time as a bar; its p99, calls
+  per minute and how it compares with the previous window are in the opened row. Click a column's
+  heading to sort by it (again to reverse). A p95 is amber when the part is slower than its usual
+  and red when it is over a limit; failures are red when over the failure limit and amber when
+  they grew. The parts without a measure fold into one row at the end; click it to list them.
+- **A row opens.** Click a row (or pick the part in the diagram, which opens its row and brings it
+  into view) and its detail shows under it; click it again to close it. One row is open at a time,
+  and the row you clicked stays where it was on screen. The detail has the part's kind, how it
+  stands in a word (**Normal**, **Slow**, **Errors**, **Over limit**) and why in a sentence with
+  the numbers compared ("Failing more than usual: 4.0 % of its calls fail now, against 2.0 % over
+  the last seven days"); **Investigate**, which opens the Ask Claude draft focused on the part,
+  and **Executions**, which opens that tab; its p95 hour by hour as a line (its seven-day usual
+  and its p95 limit as dashed marks, the slowest hour as a dot) over its calls hour by hour as
+  bars, with the hours on one axis (hover an hour for its numbers); how its calls ended, as a bar
+  split by result (`transaction.result`: "HTTP 2xx", "HTTP 4xx"…); and its limits, the one broken
+  in red (**adjust** opens Settings → Profiles → (profile) → Screens → Flow maps). In a map's own
+  window the header carries every control, the tiles are the verdicts (coverage, slowest part,
+  alerts, against the usual), border colour is the kind of part, rows do not open, and the detail
+  is a drawer beside the diagram that starts folded when the window is narrower than 1200 px.
+- **Executions.** The real executions of the flow: the APM traces of its entry transaction, as
+  one table (latest, slowest or failed only). Each row shows when it ran, how long it took as a
+  bar against the slowest of the list (red when it failed, amber past the flow's p95, which is
+  marked on every bar) and how it ended. Click a row to open it (again to close it): the diagram
+  then shows what each part took in it, and parts it never touched fade. The opened row says
+  first what happened in a sentence (where it failed, when and with what error, taken from its
+  first error log; or which part took longest), with the trace id to copy, **Investigate** (the
+  Ask Claude draft with this execution and its logs) and **See on the map**. Under it, the parts
+  as a waterfall over one time axis, the log lines marked on that axis and the failed part in
+  red; then **Logs** (the APM errors of the trace and the container log lines that carry its
+  trace id, in order, with the service and the level, errors set apart); and a last line with
+  what it did **outside the map** (transactions and outgoing calls no part measures: the
+  candidates to add) and the measured parts it never touched.
+- **Coverage and limits, in the Parts table.** Over the table, five filters with how many parts
+  each keeps: **All**, **With problems** (off their usual, over a limit, or a failed read),
+  **Over a limit**, **Not measured** (drawn, with no measure in the file) and **No data**
+  (measured, but APM returned nothing: a name that differs from what APM records, or a part
+  nothing called). Open one of those rows and its sentence says why it has no numbers. Each row
+  shows its limits (`alerts` in the file) in the **Limits** column (p95, slow calls, failures),
+  in red with "exceeded" when the part is over one. At the right of the filters, the map's own
+  limits and **adjust** (or **set them**), which opens the limits editor in Settings. In a map's
+  own window these are still the **Coverage** and **Alerts** tabs.
 
   Three kinds of limit, for the whole map or per part:
 
@@ -134,10 +176,12 @@ The map picked opens next to the rail with:
   **Notify** switch in Settings → Profiles → (profile) → Screens → Flow maps turns off only that map). A part with fewer calls in the
   window than the map's minimum (default 20) is never over a limit. **Settings → Profiles → (profile) → Screens → Flow
   maps → Flow maps · limits** edits the limits of every map without opening its file: see below.
-- **Legend.** The same explanation, in the app.
+- **How to read it.** A button on the corner of the diagram opens the key: what the colours of
+  a part mean, what a node shows and what each arrow is. In a map's own window it is the
+  **Legend** tab.
 
 Without Health (the module off, or not set up yet) the maps are still listed and drawn, without
-numbers: a badge in the header says so, and the tiles and the drawer say "no numbers" with a link
+numbers: a badge in the header says so, and the tiles and the part detail say "no numbers" with a link
 to turn Health on. Without the Flow maps module the screen only says how to turn it on.
 
 ### Editing the limits in Settings

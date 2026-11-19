@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_HEALTH_THRESHOLDS, FLOW_LATENCY_BOUNDS_US, HealthConnectionError, refreshEnvironment, windowVerdict, type HealthEnvironment } from '@workhub/core'
+import { DEFAULT_HEALTH_THRESHOLDS, FLOW_LATENCY_BOUNDS_US, HealthConnectionError, parseFlowMap, refreshEnvironment, windowVerdict, type FlowMap, type HealthEnvironment } from '@workhub/core'
 import { DemoHealthProvider, DEMO_HEALTH_SETTINGS, ElasticClient, ElasticHealthProvider, elasticQueries as q, kibanaDiscoverUrl, kibanaErrorGroupUrl, kibanaServiceErrorsUrl } from '../src/health-elastic'
 import type { HttpClient } from '../src/shared/http'
 
@@ -395,6 +397,25 @@ describe('flow maps', () => {
     const logs = await new DemoHealthProvider().flowTraceLogs(env(), 'demo-abc', 10)
     expect(logs.filter((l) => l.source === 'apm.error')).toHaveLength(1)
     expect(logs.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('opens a demo execution that agrees with its row of the list: its duration, and its failure with the error that caused it', async () => {
+    const demo = new DemoHealthProvider()
+    const map = (parseFlowMap(JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'docs', 'examples', 'flow-maps', 'checkout.json'), 'utf8'))) as { ok: true; map: FlowMap }).map
+    const rows = await demo.flowTraces(env(), map, Date.UTC(2026, 0, 5, 12), 24, 'latest', 120)
+    const failed = rows.find((r) => r.outcome === 'failure')!
+    const fine = rows.find((r) => r.outcome === 'success')!
+    const bad = await demo.flowTrace(env(), map, failed.traceId)
+    expect(bad.outcome).toBe('failure')
+    expect(Math.abs(bad.durationMs - failed.durationMs)).toBeLessThan(5)
+    expect(Object.values(bad.hops).filter((h) => h.failed).length).toBeGreaterThanOrEqual(1)
+    const badLogs = await demo.flowTraceLogs(env(), failed.traceId, 10)
+    expect(badLogs.filter((l) => l.source === 'apm.error')).toHaveLength(1)
+    expect(badLogs.every((l) => l.at >= failed.at && l.at <= failed.at + failed.durationMs)).toBe(true)
+    const good = await demo.flowTrace(env(), map, fine.traceId)
+    expect(good.outcome).toBe('success')
+    expect(Math.abs(good.durationMs - fine.durationMs)).toBeLessThan(5)
+    expect((await demo.flowTraceLogs(env(), fine.traceId, 10)).some((l) => l.source === 'apm.error')).toBe(false)
   })
 })
 

@@ -12,8 +12,9 @@ export interface TicketsView {
 
 export const DEFAULT_TICKETS_VIEW: TicketsView = { scope: 'mine', filters: { mine: {}, backlog: {} } }
 
-const FILTER_KEYS = ['text', 'project', 'assignee', 'status'] as const
+const LIST_KEYS = ['project', 'assignee', 'status'] as const
 const MAX_VALUE = 500
+const MAX_VALUES = 100
 
 /** Kept per profile in the renderer's localStorage, so the view survives a restart. */
 export const ticketsViewKey = (profileId: string): string => `workhub.ticketsView.${profileId}`
@@ -21,9 +22,13 @@ export const ticketsViewKey = (profileId: string): string => `workhub.ticketsVie
 function parseFilter(value: unknown): TicketFilter {
   const out: TicketFilter = {}
   if (!value || typeof value !== 'object' || Array.isArray(value)) return out
-  for (const key of FILTER_KEYS) {
-    const v = (value as Record<string, unknown>)[key]
-    if (typeof v === 'string' && v !== '') out[key] = v.slice(0, MAX_VALUE)
+  const v = value as Record<string, unknown>
+  if (typeof v['text'] === 'string' && v['text'] !== '') out.text = v['text'].slice(0, MAX_VALUE)
+  for (const key of LIST_KEYS) {
+    // A view saved before the filters took several values holds a single string.
+    const raw = typeof v[key] === 'string' ? [v[key]] : Array.isArray(v[key]) ? v[key] : []
+    const values = [...new Set(raw.filter((x): x is string => typeof x === 'string' && x !== '').map((x) => x.slice(0, MAX_VALUE)))].slice(0, MAX_VALUES)
+    if (values.length > 0) out[key] = values
   }
   return out
 }
@@ -53,4 +58,15 @@ export function saveTicketsView(profileId: string, view: TicketsView): void {
 }
 
 /** Whether a filter narrows anything. */
-export const isFiltered = (f: TicketFilter): boolean => Boolean(f.text?.trim() || f.project || f.assignee || f.status)
+export const isFiltered = (f: TicketFilter): boolean => Boolean(f.text?.trim() || f.project?.length || f.assignee?.length || f.status?.length)
+
+/** A list filter with `value` added, or removed when it was there; empty becomes unset. */
+export function toggleValue(values: readonly string[] | undefined, value: string): string[] | undefined {
+  const next = values?.includes(value) ? values.filter((v) => v !== value) : [...(values ?? []), value]
+  return next.length > 0 ? next : undefined
+}
+
+/** A chip's text for its chosen values: the one value, or the first and how many more. */
+export function chipLabel(values: readonly string[], label: (v: string) => string): string {
+  return values.length > 1 ? `${label(values[0]!)} +${values.length - 1}` : label(values[0]!)
+}

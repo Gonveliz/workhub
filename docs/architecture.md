@@ -275,8 +275,10 @@ never breaks the session.
   string, is kept as a short preview or `[redacted]` and is never restored. Each entry holds a
   digest of its fields right after the change. A flow map's new `alerts` are held: the map is saved
   with its old limits, and Keep writes the new ones with `setFlowMapAlerts`; when the old limits no
-  longer validate against the redrawn map, it is saved as posted. Home's **Changes by agents**
-  (`AgentChangesCard`, a count in the sidebar, a badge on the automation's card) offers Keep (marks
+  longer validate against the redrawn map, it is saved as posted. Home shows how many wait
+  (`AgentChangesCard`), the sidebar a count and the automation's card a badge; the list is in its
+  own window (`#agent-changes`, `AgentChangesWindow`, one at a time, opened with
+  `agentChanges:openWindow`; `agentChanges:changed` goes to every window), which offers Keep (marks
   the entry reviewed) and Revert (writes the "before" fields back through `AutomationService`,
   `saveFlowMap`/`deleteFlowMap` and `PlannerService`, only when the object's digest still matches).
   The `agentChanges:*` channels are not on the paired devices' allowlist, and no endpoint marks an

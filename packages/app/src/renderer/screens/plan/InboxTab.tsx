@@ -1,13 +1,15 @@
-import { ExternalLink, Inbox, Plus, X } from 'lucide-react'
-import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import { ChevronRight, ExternalLink, Inbox, Plus, Search, X } from 'lucide-react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { availableInboxActions, filterInbox, inboxSettings, INBOX_KINDS, plannerSettings, trackedState, type CriticalityLevel, type InboxAction, type InboxItem, type InboxKind, type Person, type TrackedTicket } from '@workhub/core'
-import { Badge, Button, Input, Select, Spinner, Textarea } from '../../components/atoms'
-import { Card, CardBody, CardHeader, ConfirmDeleteDialog, Dialog, EmptyState, Field, useToast } from '../../components/molecules'
+import { Badge, Button, IconButton, Input, Select, Spinner } from '../../components/atoms'
+import { ConfirmDeleteDialog, Dialog, EmptyState, Field, useToast } from '../../components/molecules'
 import { useI18n } from '../../i18n/I18nProvider'
-import { cn } from '../../lib/cn'
+import { isEditable } from '../../lib/composer-focus'
 import { errorText } from '../../lib/errorText'
-import { BULK_CLEAR, BULK_KEEP, bulkChangeCount, createsTicket, bulkFormToPatch, EMPTY_BULK_FORM, EMPTY_ITEM_FORM, formToProposal, inboxActionLabel, INBOX_KIND_LABEL, INBOX_SOURCE_LABEL, INBOX_STATUS_LABEL, PIECE_STATE_LABEL, PIECE_STATE_TONE, plainPreview, selectedShown, type BulkForm, type InboxItemForm } from '../../lib/planner'
-import { ItemMilestones } from './ItemMilestones'
+import { BULK_CLEAR, BULK_KEEP, bulkChangeCount, createsTicket, bulkFormToPatch, EMPTY_BULK_FORM, EMPTY_ITEM_FORM, inboxActionLabel, INBOX_DECISION_KEYS, INBOX_KIND_LABEL, INBOX_SOURCE_LABEL, INBOX_STATUS_LABEL, PIECE_STATE_LABEL, PIECE_STATE_TONE, plainPreview, selectedShown, stepSelection, triageSelection, type BulkForm, type InboxItemForm } from '../../lib/planner'
+import { useNow } from '../../lib/usage'
+import { AddItemDialog } from './AddItemDialog'
+import { DecisionBar, TriageDetail, TriageRow } from './InboxTriage'
 import { requestPlanTab, usePlanner } from '../../plannerStore'
 import type { PlanTabContext } from './planTabs'
 
@@ -20,22 +22,7 @@ export function applyFilters(items: readonly InboxItem[], f: InboxFilters): Inbo
   return filterInbox(items, { ...f, status: 'all' })
 }
 
-/** Toggle chips for the people an item involves. */
-export function PeoplePicker({ people, value, onChange }: { people: Person[]; value: string[]; onChange: (ids: string[]) => void }) {
-  if (people.length === 0) return null
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {people.map((p) => {
-        const on = value.includes(p.id)
-        return (
-          <button key={p.id} type="button" aria-pressed={on} onClick={() => onChange(on ? value.filter((x) => x !== p.id) : [...value, p.id])} className={cn('rounded-full border px-2 py-0.5 text-xs', on ? 'border-accent bg-accent-soft text-accent' : 'border-border text-muted hover:bg-surface-hover')}>
-            {p.name}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
+export { PeoplePicker } from './PeoplePicker'
 
 /** One inbox item with its facts and the actions it offers. */
 export function InboxRow({ item, people, selected, onSelect, busy, canCreate, onAction, profileId, onOpen, ticketState, milestones }: { item: InboxItem; people: Person[]; selected?: boolean; onSelect?: (on: boolean) => void; busy: boolean; canCreate: boolean; onAction?: (action: InboxAction) => void; profileId: string; onOpen?: () => void; ticketState?: TrackedTicket; milestones?: ReactNode }) {
@@ -252,168 +239,169 @@ export function useInboxActions(profileId: string, onActed: (id: string) => void
   return { busy, onAction, dialog }
 }
 
-/** Inbox: what came in and waits for you to say what it is and which milestone it is for. The work itself is on the Tasks tab. */
+/**
+ * Inbox: what came in and waits for you to say what it is, reviewed one item at a time. The list
+ * of pending items sits on the left; the selected one is on the right in full, with the decisions
+ * it allows at the bottom (number keys take them, ↑ and ↓ move). After a decision the next item
+ * takes its place, so the list never jumps under the pointer. The work itself is on the Tasks tab.
+ */
 export function InboxTab({ profile, openSettings, openItem }: PlanTabContext) {
   const { t, tn } = useI18n()
-  const toast = useToast()
   const { view } = usePlanner(profile.id, true)
+  const now = useNow()
   const settings = inboxSettings(plannerSettings(profile))
   const people = plannerSettings(profile).people
   const [filters, setFilters] = useState<InboxFilters>(NO_FILTERS)
   const [adding, setAdding] = useState<InboxItemForm | null>(null)
-  const [duplicate, setDuplicate] = useState(false)
   const [selected, setSelected] = useState<string[]>([])
+  const [currentId, setCurrentId] = useState<string | null>(null)
+  // Where the shown item sits in the list: when it leaves (decided, or gone on a refresh), the one that takes its place is shown.
+  const lastIndex = useRef(0)
+  const rows = useRef(new Map<string, HTMLLIElement>())
   const { busy, onAction, dialog } = useInboxActions(profile.id, (id) => setSelected((s) => s.filter((x) => x !== id)), settings.project)
   const items = view?.inbox ?? []
   const milestones = view?.milestones ?? []
   const pending = useMemo(() => items.filter((i) => i.status === 'pending').sort((a, b) => b.createdAt - a.createdAt), [items])
   const shown = applyFilters(pending, filters)
+  const shownIds = shown.map((i) => i.id)
+  const currentShown = triageSelection(shownIds, currentId, lastIndex.current)
+  const current = shown.find((i) => i.id === currentShown)
   // Only what is still listed counts: a row a refresh removed never gets the bulk edit.
   const picked = selectedShown(selected, shown)
   // Another filter shows other rows: the selection (and its pending edit) starts over.
   useEffect(() => setSelected([]), [filters])
+  useEffect(() => {
+    if (currentShown === null) return
+    lastIndex.current = shownIds.indexOf(currentShown)
+    if (currentShown !== currentId) setCurrentId(currentShown)
+    rows.current.get(currentShown)?.scrollIntoView?.({ block: 'nearest' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentShown])
   const working = items.filter((i) => i.status === 'local' || i.status === 'ticket').length
   const canCreate = view?.tracker.create ?? false
   const areas = [...new Set([...settings.areas, ...items.map((i) => i.area).filter((a): a is string => Boolean(a))])]
-
-  const add = async (force = false) => {
-    if (!adding) return
-    const proposal = formToProposal(adding)
-    if (!proposal.title) return toast(t('planner.inbox.titleRequired'), 'danger')
-    const r = await window.hub.planner.addItem(profile.id, proposal, force)
-    if (r.ok) {
-      setDuplicate(false)
-      return setAdding(null)
-    }
-    if (r.duplicateOf) return setDuplicate(true)
-    toast(r.error, 'danger')
+  const decide = (item: InboxItem, action: InboxAction) => {
+    if (busy || !availableInboxActions(item).includes(action)) return
+    if (action === 'approve' && item.kind !== 'decision' && !canCreate) return
+    onAction(item)(action)
   }
-  const select = (id: string, on: boolean) => setSelected((s) => (on ? [...s, id] : s.filter((x) => x !== id)))
-  const levelOptions = [{ value: '', label: t('planner.inbox.none') }, ...settings.criticalities.map((c) => ({ value: c.name, label: c.name }))]
-  const areaOptions = [{ value: '', label: t('planner.inbox.none') }, ...areas.map((a) => ({ value: a, label: a }))]
+
+  // The keyboard while the tab is shown and nobody is typing or answering a dialog or a menu.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return
+      const focused = document.activeElement
+      if (isEditable(focused) || focused?.getAttribute('role') === 'combobox') return
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]')) return
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setCurrentId(stepSelection(shownIds, currentShown, e.key === 'ArrowDown' ? 1 : -1))
+        return
+      }
+      const action = INBOX_DECISION_KEYS[e.key]
+      if (action && current) {
+        e.preventDefault()
+        decide(current, action)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  const workingLine = view && working > 0 && (
+    <button type="button" className="flex w-full items-center gap-1 border-t border-border px-2.5 pt-2.5 pb-1 text-left text-xs text-subtle hover:text-text" onClick={() => requestPlanTab('tasks')}>
+      {tn('planner.triage.working', working)}
+      <ChevronRight className="size-3" aria-hidden />
+    </button>
+  )
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="flex-1 text-sm text-muted">{t('planner.inbox.intro')}</p>
+        <h2 className="text-md font-semibold">{t('planner.inbox.pending')}</h2>
+        <p className="mr-auto text-sm text-subtle">
+          <span className="tabular-nums">{pending.length}</span> · {t('planner.triage.hint')}
+        </p>
+        {pending.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t('planner.inbox.filters')}>
+            <div className="relative w-48">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-subtle" aria-hidden />
+              <Input value={filters.text} onChange={(e) => setFilters({ ...filters, text: e.target.value })} placeholder={t('planner.inbox.search')} aria-label={t('planner.inbox.search')} className="pl-8" />
+            </div>
+            <div className="w-36 shrink-0"><Select value={filters.kind} aria-label={t('planner.inbox.kind')} onChange={(v) => setFilters({ ...filters, kind: v as InboxFilters['kind'] })} options={[{ value: 'all', label: t('planner.inbox.allKinds') }, ...INBOX_KINDS.map((k) => ({ value: k, label: t(INBOX_KIND_LABEL[k]) }))]} /></div>
+            <div className="w-36 shrink-0"><Select value={filters.area} aria-label={t('planner.inbox.area')} onChange={(v) => setFilters({ ...filters, area: v })} options={[{ value: 'all', label: t('planner.inbox.allAreas') }, ...areas.map((a) => ({ value: a, label: a }))]} /></div>
+            {hasFilters(filters) && <IconButton label={t('planner.inbox.clearFilters')} icon={<X className="size-3.5" aria-hidden />} onClick={() => setFilters(NO_FILTERS)} />}
+          </div>
+        )}
         {!canCreate && view?.tracker.error && (
-          <Button size="sm" variant="ghost" onClick={() => openSettings('plan')}>
+          <Button variant="ghost" onClick={() => openSettings('plan')}>
             {t('planner.inbox.setupTracker')}
           </Button>
         )}
-        <Button size="sm" variant="primary" icon={<Plus className="size-3.5" aria-hidden />} onClick={() => setAdding(EMPTY_ITEM_FORM)}>
+        <Button variant="primary" icon={<Plus className="size-3.5" aria-hidden />} onClick={() => setAdding(EMPTY_ITEM_FORM)}>
           {t('planner.inbox.add')}
         </Button>
       </div>
 
-      {adding && (
-        <Card>
-          <CardHeader title={t('planner.inbox.addTitle')} />
-          <CardBody className="grid grid-cols-2 gap-3">
-            <Field label={t('planner.inbox.kind')}>
-              <Select value={adding.kind} onChange={(v) => setAdding({ ...adding, kind: v as InboxKind })} options={INBOX_KINDS.map((k) => ({ value: k, label: t(INBOX_KIND_LABEL[k]) }))} />
-            </Field>
-            <Field label={t('planner.inbox.dueLabel')}>
-              <Input type="date" value={adding.due} onChange={(e) => setAdding({ ...adding, due: e.target.value })} />
-            </Field>
-            <Field label={t('planner.inbox.title')} className="col-span-2">
-              <Input
-                value={adding.title}
-                onChange={(e) => {
-                  setAdding({ ...adding, title: e.target.value })
-                  setDuplicate(false)
-                }}
-                maxLength={300}
-              />
-            </Field>
-            <Field label={t('planner.inbox.detail')} hint={t('planner.detail.markdownHint')} className="col-span-2">
-              <Textarea rows={3} value={adding.detail} onChange={(e) => setAdding({ ...adding, detail: e.target.value })} />
-            </Field>
-            <Field label={t('planner.inbox.area')}>
-              <Select value={adding.area} onChange={(v) => setAdding({ ...adding, area: v })} options={areaOptions} />
-            </Field>
-            <Field label={t('planner.inbox.criticality')}>
-              <Select value={adding.criticality} onChange={(v) => setAdding({ ...adding, criticality: v })} options={levelOptions} />
-            </Field>
-            {people.length > 0 && (
-              <Field label={t('planner.inbox.people')} className="col-span-2">
-                <PeoplePicker people={people} value={adding.people} onChange={(ids) => setAdding({ ...adding, people: ids })} />
-              </Field>
-            )}
-            {duplicate && (
-              <p role="alert" className="col-span-2 flex items-center gap-2 rounded-md bg-warning-soft px-3 py-2 text-sm text-warning">
-                <span className="flex-1">{t('planner.inbox.duplicate')}</span>
-                <Button size="sm" variant="ghost" onClick={() => void add(true)}>
-                  {t('planner.inbox.addAnyway')}
-                </Button>
-              </p>
-            )}
-            <div className="col-span-2 flex justify-end gap-2 border-t border-border pt-3">
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setAdding(null)
-                  setDuplicate(false)
-                }}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button variant="primary" onClick={() => void add()}>
-                {t('planner.inbox.addSave')}
-              </Button>
-            </div>
-          </CardBody>
-        </Card>
-      )}
-
-      {pending.length > 0 && <InboxFilterBar filters={filters} onChange={setFilters} areas={areas} />}
       <BulkBar profileId={profile.id} items={items} selected={picked} onDone={() => setSelected([])} areas={areas} criticalities={settings.criticalities} />
 
       {!view ? (
         <p className="flex items-center gap-2 py-6 text-sm text-muted" role="status">
           <Spinner /> {t('plan.loading')}
         </p>
-      ) : pending.length === 0 && !adding ? (
-        <EmptyState compact icon={<Inbox className="size-5" aria-hidden />} title={t('planner.inbox.empty')} description={t('planner.inbox.emptyHint')} />
+      ) : pending.length === 0 ? (
+        <div className="rounded-lg border border-border bg-surface px-4 pb-3 shadow-sm">
+          <EmptyState icon={<Inbox className="size-6" aria-hidden />} title={t('planner.inbox.empty')} description={t('planner.inbox.emptyHint')} />
+          {workingLine}
+        </div>
       ) : (
-        <section className="flex flex-col gap-2" data-testid="inbox-pending">
-          <h2 className="flex items-baseline gap-2 px-1 text-md font-semibold">
-            {t('planner.inbox.pending')} <span className="text-sm font-normal text-subtle">{shown.length}</span>
-          </h2>
-          {shown.length === 0 ? (
-            <p className="px-1 text-sm text-muted">{t('planner.inbox.noMatch')}</p>
-          ) : (
-            <ul className="rounded-lg border border-border bg-surface shadow-sm">
-              {shown.map((item) => (
-                <InboxRow
-                  key={item.id}
-                  item={item}
-                  people={people}
-                  selected={selected.includes(item.id)}
-                  onSelect={(on) => select(item.id, on)}
-                  busy={busy === item.id}
-                  canCreate={canCreate}
-                  onAction={onAction(item)}
-                  profileId={profile.id}
-                  onOpen={() => openItem('inbox', item.id)}
-                  ticketState={view.itemTickets[item.id]}
-                  milestones={<ItemMilestones item={item} milestones={milestones} profileId={profile.id} onOpen={(id) => openItem('milestone', id)} />}
-                />
-              ))}
-            </ul>
-          )}
-        </section>
+        <div className="grid grid-cols-1 gap-3.5 @min-[760px]:h-[calc(100vh-19rem)] @min-[760px]:min-h-[26rem] @min-[760px]:grid-cols-[18rem_minmax(0,1fr)] @min-[1000px]:grid-cols-[23rem_minmax(0,1fr)]" data-testid="inbox-pending">
+          <div className="flex min-h-0 flex-col rounded-lg border border-border bg-surface p-1.5 shadow-sm">
+            {shown.length === 0 ? (
+              <p className="flex-1 px-2.5 py-2 text-sm text-muted">{t('planner.inbox.noMatch')}</p>
+            ) : (
+              <ul className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto" aria-label={t('planner.inbox.pending')}>
+                {shown.map((item) => (
+                  <TriageRow
+                    key={item.id}
+                    ref={(el) => {
+                      if (el) rows.current.set(item.id, el)
+                      else rows.current.delete(item.id)
+                    }}
+                    item={item}
+                    people={people}
+                    levels={settings.criticalities}
+                    current={item.id === currentShown}
+                    onPick={() => setCurrentId(item.id)}
+                    checked={selected.includes(item.id)}
+                    selecting={picked.length > 0}
+                    onCheck={(on) => setSelected((s) => (on ? [...s, item.id] : s.filter((x) => x !== item.id)))}
+                  />
+                ))}
+              </ul>
+            )}
+            {workingLine}
+          </div>
+          <div className="flex min-h-0 flex-col rounded-lg border border-border bg-surface shadow-sm">
+            {current ? (
+              <TriageDetail
+                key={current.id}
+                item={current}
+                people={people}
+                milestones={milestones}
+                profileId={profile.id}
+                now={now}
+                onOpenMilestone={(id) => openItem('milestone', id)}
+                footer={<DecisionBar item={current} canCreate={canCreate} busy={busy === current.id} onAction={(a) => decide(current, a)} />}
+              />
+            ) : (
+              <p className="m-auto px-4 text-sm text-muted">{t('planner.inbox.noMatch')}</p>
+            )}
+          </div>
+        </div>
       )}
 
-      {view && working > 0 && (
-        <p className="px-1 text-sm text-muted">
-          {tn('planner.inbox.workingHint', working)}{' '}
-          <button type="button" className="font-medium text-accent hover:underline" onClick={() => requestPlanTab('tasks')}>
-            {t('planner.inbox.openTasks')}
-          </button>
-        </p>
-      )}
-
+      <AddItemDialog profile={profile} initial={adding} areas={areas} onClose={() => setAdding(null)} />
       {dialog}
     </div>
   )

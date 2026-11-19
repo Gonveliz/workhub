@@ -47,11 +47,11 @@ The **View** switch in the session header changes how the same session is shown:
 
 | View | What it is |
 |---|---|
-| **App** | A chat: messages, tool calls, permission prompts, the monitor and the composer. |
+| **Chat** | A chat: messages, tool calls, permission prompts, the monitor and the composer. |
 | **Terminal** | The agent's own terminal UI, in a PTY. It is the same conversation: Workhub hands the session over (for Claude Code it runs `claude` with the same session id). Offered only for agents that have a terminal UI Workhub can launch; a read-only reviewer session has none. |
 | **Shell** | A plain shell in the session folder, next to the agent. |
 
-Switch from **View → Show as App**, **Show as Console** or **Show as Shell** (⌘/Ctrl+Alt+1, 2, 3). If the agent is in the
+Switch from the bar or **View → Show as App**, **Show as Console** or **Show as Shell** (⌘/Ctrl+Alt+1, 2, 3). If the agent is in the
 middle of a turn, the switch waits for it ("Switches to Terminal when the turn ends") and you can
 answer questions in the meantime; **Switch now** stops the turn and switches immediately, **Cancel**
 stays in the current view.
@@ -164,11 +164,29 @@ In the agent's replies:
 
 ## Header and More
 
-The header shows the agent, the account, the folder, what the agent is doing with a timer
-(**Starting**, **Working**, **Needs you**, **Idle**, **Stopped**, **Error**), the Slack threads
-that wake the session, and **Stop**. On a narrow window the secondary controls fold into **More**.
-The panel button at the right end (**Hide the monitor**, ⇧⌘M) folds the side panel away and
-brings it back; its icon shows whether the panel is open.
+The bar at the top of a session reads, from left to right:
+
+- The agent's icon and the **session's title**: the name you gave it, else the title its agent
+  gave the conversation, else your first message. A long title is cut with an ellipsis; hover
+  it for the whole title and the folder. The pencil renames it in place (Enter saves, Escape
+  cancels, an empty name goes back to the automatic one).
+- The state as a badge with its time: **Ready · 4 min ago**, **Working · 2 min**, **Needs you**,
+  **Stopped**, **Error**.
+- The git branch, when the session has one.
+- The **Chat / Terminal / Shell** switch (only the views that session has).
+- **Changes**, with the lines added and removed when Workhub knows them, opens the local review.
+  **Create PR** appears when the branch is pushed, has commits and no open pull request; it opens
+  the form in the monitor.
+- **Stop**, only while the agent is working.
+- **⋯** (More) holds the rest: the account, the agent's mode and the folder, **Files**,
+  **Review before PR**, **Continue elsewhere**, **Stop** while the agent is idle, and, on a
+  narrow window, whatever did not fit the row (the branch, **Create PR**).
+- The panel button at the right end (**Hide the monitor**, ⇧⌘M) folds the side panel away and
+  brings it back; its icon shows whether the panel is open.
+
+The Slack threads that wake the session show as a small badge with their count next to the state.
+On a narrow window the bar folds level by level (the switch to icons, **Create PR** into **⋯**,
+**Changes** and **Stop** to icons, the branch into **⋯**) and never wraps.
 
 - **No output for …**: a session that is working and whose agent has sent nothing for 10
   minutes (the limit is in **Settings → General → On open and close**, or off) shows a notice

@@ -89,7 +89,7 @@ function NavButton({
   )
 }
 
-/** "Changes by agents" with its count, while some change waits for Keep or Revert: opens Home, where they are listed. */
+/** "Changes by agents" with its count, while some change waits for Keep or Revert: opens the window that lists them. */
 function AgentChangesLink({ onOpen }: { onOpen: () => void }) {
   const { t, tn } = useI18n()
   const count = useAgentChanges().length
@@ -169,7 +169,7 @@ export function Sidebar(props: SidebarProps) {
           }
         />
         {props.sessionList}
-        <AgentChangesLink onOpen={() => props.onNavigate('home')} />
+        <AgentChangesLink onOpen={() => window.hub.agentChanges.openWindow()} />
         <SectionTitle
           action={<IconButton size="sm" className="size-6" label={t('toolbar.newSession')} icon={<Plus className="size-3.5" />} onClick={() => props.onNewSessionIn(null)} />}
         >

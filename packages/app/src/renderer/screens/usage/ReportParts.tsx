@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { REPORT_FILTER_KEYS, type ReportFilterValues, type ReportGroupBy, type ReportSession, type SpendTotals, type WeeklyReport } from '../../../shared/analytics-api'
 import { AgentIcon, Badge, Button, IconButton, Input, Select, Spinner } from '../../components/atoms'
 import { Card, CardBody, CardHeader, CopyButton } from '../../components/molecules'
+import { ActiveFilterChips, FiltersPopover, FiltersPopoverClose, type ActiveFilter } from '../../components/molecules/FiltersPopover'
 import { PAGE_SIZE, Pager, pageRows } from '../../components/molecules/Pager'
 import { TagsEditor } from '../../components/molecules/TagsEditor'
 import { useI18n } from '../../i18n/I18nProvider'
@@ -46,13 +47,47 @@ const ALL = '\u0000all'
 /** The exact project first, then the folder-and-below menu. */
 const MENU_ORDER: FilterKey[] = ['profileId', 'project', 'cwdPrefix', ...REPORT_FILTER_KEYS.filter((k) => k !== 'profileId' && k !== 'project' && k !== 'cwdPrefix')]
 
-/** Period, group by, measure, then one menu per filter that has values; "Clear filters" once one is set. */
+/** The filter menus with something to pick, in menu order; Tag stays (disabled) to say where tags come from. */
+function filterMenus(state: ReportState, values: ReportFilterValues | null) {
+  return MENU_ORDER.flatMap((key) => {
+    const list = values?.[VALUES_OF[key]] ?? []
+    const current = state.filters[key]
+    // A menu stays visible with one value, so the filter can be found; with none it goes,
+    // except Tag, which stays (disabled) to say where tags come from.
+    if (list.length === 0 && !current && key !== 'tag') return []
+    const empty = list.length === 0 && !current
+    const options = [...new Set(current && !list.includes(current) ? [current, ...list] : list)]
+    return [{ key, current, empty, options }]
+  })
+}
+
+/** Sets one filter (ALL clears it) and keeps the others. */
+function filterSetter(state: ReportState, onChange: (patch: Partial<ReportState>) => void) {
+  return (key: FilterKey, value: string) => {
+    const filters = { ...state.filters }
+    if (value === ALL) delete filters[key]
+    else filters[key] = value
+    onChange({ filters })
+  }
+}
+
+/** A filter's value as its chip shows it: a folder by its name (the path in the tooltip). */
+function chipValue(key: FilterKey, value: string, names: Names): string {
+  return key === 'project' || key === 'cwdPrefix' ? folderName(value) : filterLabel(key, value, names)
+}
+
+/**
+ * Period, group by and measure, then a "Filters · N" button whose panel holds one menu per filter
+ * (profile, project, folder, agent, account, model, ticket, pull request, tag), and the filters in
+ * use as chips under the row.
+ */
 export function ReportFiltersBar({
   state,
   values,
   names,
   onChange,
-  effective
+  effective,
+  overall = null
 }: {
   state: ReportState
   values: ReportFilterValues | null
@@ -60,17 +95,23 @@ export function ReportFiltersBar({
   onChange: (patch: Partial<ReportState>) => void
   /** The custom period actually shown, when it differs from the dates typed (a date missing, or too long a span). */
   effective?: { since: number; until: number } | null
+  /** The report's totals over every group: the panel says how many sessions and turns the filters keep. */
+  overall?: SpendTotals | null
 }) {
   const { t, formatDate } = useI18n()
-  const setFilter = (key: FilterKey, value: string) => {
-    const filters = { ...state.filters }
-    if (value === ALL) delete filters[key]
-    else filters[key] = value
-    onChange({ filters })
-  }
-  const anyFilter = Object.keys(state.filters).length > 0
+  const setFilter = filterSetter(state, onChange)
+  const inUse = MENU_ORDER.filter((key) => state.filters[key] !== undefined)
+  const chips: ActiveFilter[] = inUse.map((key) => {
+    const value = state.filters[key]!
+    return {
+      key,
+      label: t('reports.filterChip', { title: t(`reports.filter.${key}` as MessageKey), value: chipValue(key, value, names) }),
+      title: filterLabel(key, value, names),
+      onRemove: () => setFilter(key, ALL)
+    }
+  })
   return (
-    <section aria-label={t('reports.filters')} className="flex flex-col gap-2" data-testid="report-filters">
+    <section aria-label={t('reports.filters')} className="flex flex-col gap-2.5" data-testid="report-filters">
       <div className="flex flex-wrap items-end gap-2">
         <Labeled label={t('reports.period')}>
           <Select aria-label={t('reports.period')} value={state.period} onChange={(v) => onChange({ period: v as ReportState['period'] })} options={PERIODS.map((p) => ({ value: p, label: t(`reports.period.${p}` as MessageKey) }))} />
@@ -108,36 +149,62 @@ export function ReportFiltersBar({
             ))}
           </div>
         </Labeled>
+        <FiltersPopover label={t('reports.filters')} count={inUse.length} size="md" width={470} data-testid="report-filters-button">
+          <ReportFilterPanel state={state} values={values} names={names} onChange={onChange} overall={overall} />
+        </FiltersPopover>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {MENU_ORDER.map((key) => {
-          const list = values?.[VALUES_OF[key]] ?? []
-          const current = state.filters[key]
-          // A menu stays visible with one value, so the filter can be found; with none it goes,
-          // except Tag, which stays (disabled) to say where tags come from.
-          if (list.length === 0 && !current && key !== 'tag') return null
-          const empty = list.length === 0 && !current
-          const options = [...new Set(current && !list.includes(current) ? [current, ...list] : list)]
-          return (
-            <div key={key} className="w-48 shrink-0" title={empty ? t('reports.noTags') : undefined}>
-              <Select
-                aria-label={t(`reports.filter.${key}` as MessageKey)}
-                value={current ?? ALL}
-                onChange={(v) => setFilter(key, v)}
-                disabled={empty}
-                options={[{ value: ALL, label: empty ? t('reports.noTags') : t(`reports.all.${key}` as MessageKey) }, ...options.map((v) => ({ value: v, label: filterLabel(key, v, names) }))]}
-                className={cn(current && 'border-accent')}
-              />
-            </div>
-          )
-        })}
-        {anyFilter && (
-          <Button size="sm" variant="ghost" onClick={() => onChange({ filters: {} })} data-testid="report-clear-filters">
-            {t('reports.clearFilters')}
-          </Button>
-        )}
-      </div>
+      <ActiveFilterChips filters={chips} clearLabel={t('reports.clearFilters')} removeLabel={(label) => t('reports.removeFilter', { label })} onClear={() => onChange({ filters: {} })} data-testid="report-active-filters" />
     </section>
+  )
+}
+
+/**
+ * The Filters panel: one menu per filter with something to pick, two to a row with their names,
+ * the ones in use tinted; Clear, and how many sessions and turns the report counts with Done.
+ */
+export function ReportFilterPanel({ state, values, names, onChange, overall }: { state: ReportState; values: ReportFilterValues | null; names: Names; onChange: (patch: Partial<ReportState>) => void; overall: SpendTotals | null }) {
+  const { t, tn } = useI18n()
+  const setFilter = filterSetter(state, onChange)
+  const inUse = MENU_ORDER.filter((key) => state.filters[key] !== undefined).length
+  return (
+    <div className="flex flex-col" data-testid="report-filter-panel">
+      <div className="mb-2.5 flex items-center gap-2">
+        <h2 className="text-md font-semibold text-text">{t('reports.filters')}</h2>
+        {inUse > 0 && <span className="text-xs text-subtle">{tn('reports.filtersActive', inUse)}</span>}
+        <Button size="sm" variant="ghost" className="ml-auto" disabled={inUse === 0} onClick={() => onChange({ filters: {} })} data-testid="report-clear-filters">
+          {t('reports.clearFilters')}
+        </Button>
+      </div>
+      <div className="grid grid-cols-2 gap-x-3.5 gap-y-3">
+        {filterMenus(state, values).map(({ key, current, empty, options }) => (
+          <div key={key} className="flex min-w-0 flex-col gap-1" title={empty ? t('reports.noTags') : undefined}>
+            <span className="text-xs text-subtle" aria-hidden>
+              {t(`reports.filter.${key}` as MessageKey)}
+            </span>
+            <Select
+              aria-label={t(`reports.filter.${key}` as MessageKey)}
+              value={current ?? ALL}
+              onChange={(v) => setFilter(key, v)}
+              disabled={empty}
+              options={[{ value: ALL, label: empty ? t('reports.noTags') : t(`reports.all.${key}` as MessageKey) }, ...options.map((v) => ({ value: v, label: filterLabel(key, v, names) }))]}
+              className={current ? 'border-accent! bg-accent-soft! font-semibold' : 'text-muted!'}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="mt-3.5 flex items-center gap-2 border-t border-border pt-2.5">
+        {overall && (
+          <span className="text-xs text-subtle tabular-nums" data-testid="report-filter-count">
+            {tn('reports.filtersSessions', overall.sessions)} · {tn('reports.sessions.turns', overall.turns)}
+          </span>
+        )}
+        <FiltersPopoverClose asChild>
+          <Button size="sm" variant="primary" className="ml-auto">
+            {t('reports.filtersDone')}
+          </Button>
+        </FiltersPopoverClose>
+      </div>
+    </div>
   )
 }
 

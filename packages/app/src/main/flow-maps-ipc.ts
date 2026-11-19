@@ -3,14 +3,16 @@
  * main process can do for it (the clipboard, forwarding "Ask Claude" to the main window).
  */
 import type { BrowserWindow } from 'electron'
-import type { FlowMapImportResult, FlowMapSetAlertsResult } from '../shared/flow-maps-api'
-import { deleteFlowMap, importFlowMapFiles, readFlowMapFiles, setFlowMapAlerts, type FlowMapRows } from './flow-maps'
+import type { FlowMapExportResult, FlowMapImportResult, FlowMapSetAlertsResult } from '../shared/flow-maps-api'
+import { deleteFlowMap, DROP_LIMITS, exportFlowMaps, importFlowMapFiles, importFlowMapTexts, readFlowMapFiles, setFlowMapAlerts, type FlowMapRows } from './flow-maps'
 import type { IpcRegistrar } from './ipc-guard'
 
 export interface FlowMapsIpcDeps {
   maps: FlowMapRows
   /** Asks for JSON files; empty when cancelled. */
   pickFiles(): Promise<string[]>
+  /** Asks where to save `text` (suggesting `name`) and writes it; the path written, or null when cancelled. */
+  saveFile(name: string, text: string): Promise<string | null>
   createWindow(hash: string, title: string): BrowserWindow
   mainWindow(): BrowserWindow | null
   /** Puts a PNG data URL on the clipboard; false when it is not an image. */
@@ -26,6 +28,26 @@ export function flowMapWindowHash(profileId: string | null, environmentId: strin
 export function registerFlowMapsIpc(ipc: IpcRegistrar, deps: FlowMapsIpcDeps): void {
   const windows = new Map<string, BrowserWindow>()
   ipc.handle('flowMaps:import', async (): Promise<FlowMapImportResult[]> => importFlowMapFiles(deps.maps, await deps.pickFiles()))
+  ipc.handle('flowMaps:importTexts', (_e, items: unknown): FlowMapImportResult[] => {
+    if (!Array.isArray(items)) return []
+    const read = items.slice(0, DROP_LIMITS.files).flatMap((it): { file: string; text: string }[] => {
+      if (!it || typeof it !== 'object') return []
+      const { name, text } = it as Record<string, unknown>
+      return typeof name === 'string' && typeof text === 'string' ? [{ file: name.slice(0, 255), text }] : []
+    })
+    return read.flatMap((it) => (it.text.length > DROP_LIMITS.bytes ? [{ file: it.file, ok: false as const, errors: ['The file is too big'] }] : importFlowMapTexts(deps.maps, [it])))
+  })
+  ipc.handle('flowMaps:export', async (_e, ids: unknown): Promise<FlowMapExportResult> => {
+    const wanted = Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string').slice(0, 1000) : undefined
+    const out = exportFlowMaps(deps.maps, wanted)
+    if (!out) return { ok: false, reason: 'empty' }
+    try {
+      const file = await deps.saveFile(out.name, out.text)
+      return file ? { ok: true, file, count: out.count } : { ok: false, reason: 'canceled' }
+    } catch (e) {
+      return { ok: false, reason: 'failed', detail: e instanceof Error ? e.message : String(e) }
+    }
+  })
   ipc.handle('flowMaps:remove', (_e, id: unknown) => (typeof id === 'string' ? deleteFlowMap(deps.maps, id) : false))
   ipc.handle('flowMaps:get', (_e, mapId: unknown) => (typeof mapId === 'string' ? (readFlowMapFiles(deps.maps).find((f) => f.map?.id === mapId)?.map ?? null) : null))
   ipc.handle('flowMaps:setAlerts', (_e, _profileId: unknown, mapId: unknown, alerts: unknown): FlowMapSetAlertsResult => {

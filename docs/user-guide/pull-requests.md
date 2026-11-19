@@ -35,9 +35,14 @@ profile's folders, then to everything your login sees. Hidden repositories apply
 | **Stale** | Yours that have been idle for 30 days. |
 | **All** | Mine and the ones waiting for you. |
 
-Search by title, author, branch or ticket. The narrowing bar filters by **Status**, **Into** (base
-branch), **Repo**, **Author** and **Ticket** (**With ticket** / **Without ticket**), and sets the
-**Order of the list** (newest update, oldest update, repository). Each row shows its state: **Draft**,
+Search by title, author, branch or ticket. The **Filters** button under it opens a panel that
+filters by **Status**, **Into** (base branch), **Repo**, **Author** and **Ticket** (**With ticket** /
+**Without ticket**): click an option to turn it on or off (several statuses, branches, repositories
+or authors at once; one ticket choice), type in **Filter by…** to narrow the options shown, and read
+how many pull requests match at the bottom, next to **Clear**. The button says how many filters are
+in use (**Filters · 3**), and each one shows as a chip under it: its **×** removes it, **Clear**
+removes them all. Escape or a click outside closes the panel. Beside the button, **Order of the
+list** sorts by newest update, oldest update or repository. Each row shows its state: **Draft**,
 **Awaiting review**, **Approved**, **Changes requested**, **CI running**, **CI failing**,
 **Conflicts**, **Merged** or **Closed**. Tickets in titles and branch names link to the
 [Tickets](tickets.md) screen when a tracker is connected.

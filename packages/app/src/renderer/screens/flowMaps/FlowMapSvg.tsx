@@ -22,6 +22,24 @@ export interface FlowMapSvgProps {
   /** Drawn size over the natural one (the viewBox never changes, so the picture scales as a whole). */
   scale?: number
   svgRef?: Ref<SVGSVGElement>
+  /** The stage chips in a row under their lane's nodes instead of beside them: a narrower picture, drawn larger. */
+  stagesRow?: boolean
+  /**
+   * How each measured part stands, keyed `nodes:<id>`: with it a node's dot, border and share bar
+   * take the colour of its standing (and a neutral border when it is fine) instead of its kind's.
+   */
+  tones?: ReadonlyMap<string, FlowPartTone>
+}
+
+/** How a part stands: fine, slower or failing more than its own usual, or over one of its limits. */
+export type FlowPartTone = 'ok' | 'warn' | 'bad'
+export const TONE_COLOR: Record<FlowPartTone, string> = { ok: '#34d399', warn: '#f59e0b', bad: '#fb7185' }
+const NEUTRAL = '#475569'
+
+/** A text cut to what fits `width` at about `charWidth` per character, with an ellipsis. */
+const clip = (text: string, width: number, charWidth: number): string => {
+  const max = Math.max(1, Math.floor(width / charWidth))
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text
 }
 
 const sameRef = (a: FlowPartRef | null, b: FlowPartRef): boolean => a !== null && a.of === b.of && a.key === b.key
@@ -34,8 +52,8 @@ export const PART_CLASS = 'cursor-pointer outline-none focus-visible:[filter:dro
  * comets along the edges in Flow mode. A picked part lights up and the rest dims; the slowest parts
  * get a warmer, thicker outline; parts without a measure are faded, measured parts without data hatched.
  */
-export function FlowMapSvg({ map, reading, trace, flow, picked, onPick, ranks, coverage, scale = 1, svgRef }: FlowMapSvgProps) {
-  const layout = useMemo(() => layoutFlowMap(map), [map])
+export function FlowMapSvg({ map, reading, trace, flow, picked, onPick, ranks, coverage, scale = 1, svgRef, stagesRow = false, tones }: FlowMapSvgProps) {
+  const layout = useMemo(() => layoutFlowMap(map, stagesRow ? { stages: 'row' } : {}), [map, stagesRow])
   const names = useMemo(() => new Map(map.nodes.map((n) => [n.id, n.label])), [map])
   const kinds = useMemo(() => new Map(map.nodes.map((n) => [n.id, n.kind])), [map])
   const heat = useMemo(() => new Map((ranks ?? []).map((r, i) => [`${r.of}:${r.key}`, { rank: i + 1, share: r.share }])), [ranks])
@@ -93,7 +111,8 @@ export function FlowMapSvg({ map, reading, trace, flow, picked, onPick, ranks, c
   const dim = (ref: FlowPartRef, touches?: boolean): number => {
     if (!picked) return 1
     if (sameRef(picked, ref) || touches) return 1
-    return 0.3
+    // With standings the colours carry meaning, so the rest only steps back.
+    return tones ? 0.6 : 0.3
   }
   // A trace: measured parts it never touched fade, so the path it took stands out.
   const traced = (ref: FlowPartRef): number => (trace && trace.missing.includes(ref.key) ? 0.25 : 1)
@@ -156,7 +175,7 @@ export function FlowMapSvg({ map, reading, trace, flow, picked, onPick, ranks, c
       {layout.lanes.map((l) => (
         <g key={l.id} onClick={() => onPick(null)}>
           <rect x={40} y={l.y} width={layout.width - 80} height={l.h} rx={10} fill="currentColor" className="text-surface" fillOpacity={0.5} stroke="#334155" strokeDasharray={l.kind === 'exception' ? '6 5' : undefined} />
-          <text x={52} y={l.y + 15} fontSize={11} fill="currentColor" className="text-muted">{l.label}</text>
+          <text x={52} y={l.y + 15} fontSize={tones ? 10 : 11} fill="currentColor" className="text-muted" style={tones ? { textTransform: 'uppercase', letterSpacing: '0.05em' } : undefined}>{l.label}</text>
         </g>
       ))}
       {layout.stages && (
@@ -209,7 +228,11 @@ export function FlowMapSvg({ map, reading, trace, flow, picked, onPick, ranks, c
         const ref: FlowPartRef = { of: 'nodes', key: n.id }
         const timing = reading?.nodes[n.id]
         const hop = trace?.hops[n.id]
-        const color = KIND_COLOR[kinds.get(n.id) ?? 'service']
+        const kindColor = KIND_COLOR[kinds.get(n.id) ?? 'service']
+        const tone = tones?.get(`nodes:${n.id}`)
+        // With standings, colour is how the part stands (a part that is fine keeps a quiet border); without, its kind.
+        const color = tones ? (tone && tone !== 'ok' ? TONE_COLOR[tone] : NEUTRAL) : kindColor
+        const dot = tones ? (tone ? TONE_COLOR[tone] : '#64748b') : kindColor
         const active = sameRef(picked, ref)
         const second = trace
           ? hop
@@ -218,6 +241,10 @@ export function FlowMapSvg({ map, reading, trace, flow, picked, onPick, ranks, c
           : timing
             ? `p50 ${formatMs(timing.p50Ms)} · p95 ${formatMs(timing.p95Ms)}`
             : n.subtitle ?? ''
+        // Standings layout: what the node does on the left, its p95 on the right, its share of the flow's time as a bar.
+        const split = Boolean(tones) && !trace && timing !== undefined && timing.count > 0
+        const p95 = split ? formatMs(timing.p95Ms) : ''
+        const share = heatOf(ref)?.share
         return (
           <g key={n.id} className={PART_CLASS} opacity={dim(ref) * traced(ref)} data-part={`nodes:${n.id}`} {...pressable(() => onPick(ref), { label: n.label, pressed: active })}>
             <title>{[n.label, n.subtitle, n.note, timing ? `p50 ${formatMs(timing.p50Ms)} · p95 ${formatMs(timing.p95Ms)} · ${timing.count}` : undefined].filter(Boolean).join('\n')}</title>
@@ -230,15 +257,24 @@ export function FlowMapSvg({ map, reading, trace, flow, picked, onPick, ranks, c
               fill={fillOf(ref)}
               className="text-surface"
               stroke={active ? PICK : hop?.failed ? WAIT : color}
-              strokeWidth={active ? 2.4 : widthOf(ref, 1.3)}
+              strokeWidth={active ? 2.4 : tones ? (tone && tone !== 'ok' ? 2 : 1.2) : widthOf(ref, 1.3)}
               strokeOpacity={outlineOpacity(ref)}
               strokeDasharray={dash(ref)}
               filter={active ? 'url(#fm-glow)' : undefined}
             />
-            <circle cx={b.x + 12} cy={b.y + 13} r={3} fill={color} />
+            <circle cx={b.x + 12} cy={b.y + 13} r={3} fill={dot} />
             <text x={b.x + 22} y={b.y + 17} fontSize={11.5} fontWeight={600} fill="currentColor" className="text-text">{n.label}</text>
-            <text x={b.x + 12} y={b.y + 34} fontSize={9} fill="currentColor" className="text-muted">{second}</text>
-            {rankBadge(ref, b.x + b.w - 2, b.y + 2)}
+            {split ? (
+              <>
+                <text x={b.x + 12} y={b.y + 31} fontSize={9} fill="currentColor" className="text-muted">{clip(n.subtitle ?? '', b.w - 34 - p95.length * 6, 4.9)}</text>
+                <text x={b.x + b.w - 10} y={b.y + 31} fontSize={10.5} fontWeight={600} textAnchor="end" fill="currentColor" className="text-text" data-testid="flow-node-p95">{p95}</text>
+                <rect x={b.x + 12} y={b.y + 37} width={b.w - 24} height={3} rx={1.5} fill="currentColor" className="text-border" />
+                {share !== undefined && <rect x={b.x + 12} y={b.y + 37} width={Math.max(3, (b.w - 24) * Math.min(1, share))} height={3} rx={1.5} fill={dot} />}
+              </>
+            ) : (
+              <text x={b.x + 12} y={b.y + 34} fontSize={9} fill="currentColor" className="text-muted">{second}</text>
+            )}
+            {!tones && rankBadge(ref, b.x + b.w - 2, b.y + 2)}
           </g>
         )
       })}

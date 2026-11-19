@@ -109,16 +109,19 @@ export function pullRequestsForTicket<P extends TicketPullRequestRef>(
 /** The assignee filter value for tickets nobody has. */
 export const UNASSIGNED = ':unassigned'
 
-/** What the Tickets screen narrows a list by; empty fields match everything. */
+/**
+ * What the Tickets screen narrows a list by; empty fields match everything. A list field keeps a
+ * ticket that has any of its values; different fields must all match.
+ */
 export interface TicketFilter {
   /** Words that must all be in the key or the title (case-insensitive). */
   text?: string
-  /** A project, as `ticketProject` names it. */
-  project?: string
-  /** An assignee's name, or `UNASSIGNED`. */
-  assignee?: string
-  /** A tracker status name. */
-  status?: string
+  /** Projects, as `ticketProject` names them. */
+  project?: string[]
+  /** Assignees' names, and `UNASSIGNED` for tickets nobody has. */
+  assignee?: string[]
+  /** Tracker status names. */
+  status?: string[]
 }
 
 /** The project part of a key: `ABC` for `ABC-123`, `acme/app` for `acme/app#12`. */
@@ -133,11 +136,9 @@ export function ticketProject(key: string): string {
 export function filterTickets<T extends Pick<Ticket, 'key' | 'title' | 'status' | 'assignee'>>(tickets: readonly T[], filter: TicketFilter): T[] {
   const words = (filter.text ?? '').toLowerCase().split(/\s+/).filter(Boolean)
   return tickets.filter((t) => {
-    if (filter.project && ticketProject(t.key) !== filter.project) return false
-    if (filter.status && t.status !== filter.status) return false
-    if (filter.assignee) {
-      if (filter.assignee === UNASSIGNED ? Boolean(t.assignee) : t.assignee !== filter.assignee) return false
-    }
+    if (filter.project?.length && !filter.project.includes(ticketProject(t.key))) return false
+    if (filter.status?.length && !filter.status.includes(t.status)) return false
+    if (filter.assignee?.length && !filter.assignee.includes(t.assignee || UNASSIGNED)) return false
     if (words.length > 0) {
       const text = `${t.key} ${t.title}`.toLowerCase()
       if (!words.every((w) => text.includes(w))) return false

@@ -95,9 +95,20 @@ you edit here is saved at once, whatever **Milestone changes by agents** says (t
 applies to agents). If the item changes while you edit it, the form says so; saving keeps your
 version. Saving or **Cancel** (or **Esc**) goes back to the details.
 
-**People** lists the people you added, with their next meeting. Pick one to edit them, see your
-meetings with them in the next two weeks, and **Prepare 1:1** (see below). The trash next to a
-person asks before it removes them.
+**People** answers "what do I have to talk about with this person, and when". The list on the left
+(with **Search people** and **+** to add someone) shows each person's initials, their next meeting
+and, as a number, their open topics. Pick one to see, on the right:
+
+- A header with their next meeting (and **in N min** when it starts within the hour), their open
+  topics and how many meetings you have together in the next 7 days, then **Join** (the next
+  meeting's call link, when it has one) and **Prepare 1:1** (see below). The **⋯** menu holds
+  **Edit details** and **Remove** (which asks first).
+- **To talk about**: the open inbox items that involve them. Tick one to mark it done (a local task
+  or one that follows a ticket; a pending item is decided on the Inbox tab first, and a recorded
+  decision stays open until it is discarded). Click a title to open the item. **Add topic** adds an
+  item with the person already picked.
+- **Meetings together**: your meetings with them in the next 7 days, one per row. The icon at the
+  end of a row starts or opens its brief; the meeting about to start says **in N min** instead.
 
 When a calendar cannot be read, the screen says which one and why (unreachable, address refused or
 reset, not a calendar, too large, no address stored) and keeps the events of its last good read.
@@ -172,7 +183,7 @@ Workhub never starts a brief by itself unless a brief rule says so.
 
 **Prepare 1:1** starts the brief of your next meeting with that person, or, when there is none in the
 next two weeks, a general 1:1 brief for today (also kept once per day). The People tab also lists
-the open inbox items that involve the person.
+the open inbox items that involve the person, under **To talk about**.
 
 ## Milestones
 
@@ -259,8 +270,14 @@ progress does not drop after the week **Closed this week** keeps items.
 
 The inbox collects things to act on. Every item is a **task**, a **bug** or a **decision**, with a
 title, a detail, where it came from, and optionally an area, a criticality, a due date and people.
-The Inbox tab shows only the items that wait in **To review**, with their actions in the card's
-header; once you keep or send one, it moves to the **Tasks** tab:
+The Inbox tab shows only the items that wait in **To review**, one at a time: the list of pending
+items on the left (kind, due date, criticality, title, source and people), the selected one in full
+on the right (where it came from and when, its whole detail and links, area, criticality, people,
+due date and milestone), and at the bottom of the right pane the bar **What is it?** with the
+decisions. The pencil opens the item's edit form and the arrow opens it in a window of its own.
+Number keys take the decisions (**1** Create ticket or Record, **2** Local task, **3** Discard) and
+**↑** and **↓** move through the list, while the focus is not in a text field. After a decision the
+next item is selected; once you keep or send one, it moves to the **Tasks** tab:
 
 - **Create ticket** (a task or bug) asks first, naming the project, then creates the issue in the
   tracker (see the settings below) and links it from the item, which moves to the **Tasks** tab (see
@@ -271,14 +288,17 @@ header; once you keep or send one, it moves to the **Tasks** tab:
   this week**, where **Reopen** brings it back.
 
 Every task and bug shows the milestones it counts toward as chips (click one to open the
-milestone). **No milestone** (or **Change milestone**) opens a menu of the active milestones: tick
+milestone). **Pick a milestone** (in the Inbox's **Milestone** field; **No milestone** on the Tasks
+tab), or **Change milestone**, opens a menu of the active milestones: tick
 one to add the item as one of its pieces (weight 5, change it in the milestone's form), untick it
 to take it out. Only milestones made of pieces take items; one whose progress is typed by hand or
 counted from a query is listed but cannot be picked, so its progress is never changed by surprise.
 An item belongs to a milestone that lists it as a task piece or lists its ticket as a ticket piece.
 
 Nothing becomes a ticket without your approval. Filters narrow the list by kind and area, and
-**Search** finds words in titles and details.
+**Search** finds words in titles and details. The line under the list says how many tasks are in
+progress and opens the **Tasks** tab. To edit several pending items at once, tick the checkbox that
+shows when you point at a row (see the bulk edit below).
 
 ### Tasks
 
@@ -414,8 +434,11 @@ proposal never undoes your edit. With **Apply at once** the change answers `200`
 `applied: true`.
 
 Every change an agent makes this way that is in effect (items it proposes, its edits and notes on
-items, milestone changes applied at once) is also listed under **Changes by agents** on Home, with
-the fields before and after. **Keep** marks it as reviewed; **Revert** puts the values from before
+items, milestone changes applied at once) also waits under **Changes by agents**. Home shows how
+many wait, by kind, and when the latest happened; **See changes** there, or the **Changes by agents**
+entry in the sidebar, opens a window that lists them with the fields before and after (for an item
+the agent added, what it holds, without its id or where it came from). The window updates on its
+own, and opening it again brings it to the front. **Keep** marks it as reviewed; **Revert** puts the values from before
 back (a proposed item is discarded, a milestone it created is deleted, one it deleted comes back).
 Revert refuses when the item or milestone changed again since, so it never undoes a later edit; a
 value too long to keep in the journal (over 2000 characters) is shown shortened and must be changed

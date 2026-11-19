@@ -14,7 +14,7 @@ import { isDirty } from '../../lib/unsavedChanges'
 import { formToMilestone, INBOX_KIND_LABEL, INBOX_SOURCE_LABEL, INBOX_STATUS_LABEL, linksToRows, MILESTONE_STATUS_LABEL, MILESTONE_STATUS_TONE, milestoneToForm, PIECE_STATE_LABEL, PIECE_STATE_TONE, rowsToLinks, type LinkRow, type MilestoneForm } from '../../lib/planner'
 import { relativeTime } from '../../lib/pullRequests'
 import { usePlanner } from '../../plannerStore'
-import { PeoplePicker } from './InboxTab'
+import { PeoplePicker } from './PeoplePicker'
 import { LinksEditor } from './LinksEditor'
 import { PiecesList } from './MilestonePieces'
 import { MilestoneBar, MilestoneEditor } from './MilestonesTab'
@@ -104,7 +104,7 @@ function Facts({ rows }: { rows: [string, ReactNode][] }) {
 }
 
 /** The item's links: the single `link` first (named by its host), then the labelled ones. */
-function LinksList({ link, links, profileId }: { link?: string; links?: PlanLink[]; profileId: string }) {
+export function LinksList({ link, links, profileId }: { link?: string; links?: PlanLink[]; profileId: string }) {
   const { t } = useI18n()
   const all = [...(link ? [{ label: hostOf(link), url: link }] : []), ...(links ?? []).filter((l) => l.url !== link)]
   if (all.length === 0) return <p className="text-sm text-muted">{t('planner.links.none')}</p>

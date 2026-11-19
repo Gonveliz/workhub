@@ -1,6 +1,6 @@
 import { app, autoUpdater as nativeUpdater, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, net, Notification, powerMonitor, safeStorage, screen, shell, utilityProcess } from 'electron'
 import { existsSync } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { stat, writeFile } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
 import { AcpRuntime, agentAvailability, discoverKiroOptions } from '@workhub/adapters/agent-acp'
@@ -99,7 +99,7 @@ import { AnalyticsQueries, type QueryWorker } from './analytics-queries'
 import { StorageMaintenance } from './storage-maintenance'
 import { DatabaseRestore } from './database-restore'
 import { createAutomationControl } from './automation-control'
-import { createAgentChanges, journalControl, registerAgentChangesIpc, type AgentChangeState } from './agent-changes'
+import { agentChangesWindow, createAgentChanges, journalControl, registerAgentChangesIpc, type AgentChangeState } from './agent-changes'
 import { createPlanControl, resolveControlProfile } from './plan-control'
 import { registerSessionRequestsIpc, SessionRequests } from './session-control'
 import { FlowHistoryStore } from './flow-history'
@@ -997,7 +997,11 @@ const localReview = new LocalReviewService({
     return lists?.mine ?? []
   },
   emit: (sessionId, delivery) => broadcast.toWindows('localReview:delivery', sessionId, delivery),
-  history: (sessionId) => sessions.history(sessionId)
+  history: (sessionId) => sessions.history(sessionId),
+  touchedRepos: async (sessionId) => {
+    const cwd = sessions.cwdOf(sessionId)
+    return cwd ? ((await localGit.localChanges(cwd, sessions.changePathsOf(sessionId)))?.repos ?? []) : []
+  }
 })
 
 // Continuity across accounts and agents: Claude account failover and hand-off to another agent.
@@ -1356,12 +1360,18 @@ function registerIpc(): void {
   // The usage reports and session tags (main window only: not in the remote allowlist).
   registerAnalyticsIpc(ipc, { db, records: sessionRecords, scan: () => tokenSpend.scanNow(), reports: (r) => usageReports.report(r), exportCsv: createUsageCsvExporter({ window: windows.liveMain }) })
   registerSessionRequestsIpc(ipc, sessionRequests)
-  registerAgentChangesIpc(ipc, agentChanges)
+  registerAgentChangesIpc(ipc, agentChanges, agentChangesWindow((hash, title) => createAuxWindow(hash, title, { width: 780, height: 820, minWidth: 480, minHeight: 400 })))
   registerFlowMapsIpc(ipc, {
     maps: flowMaps,
     pickFiles: async () => {
       const r = await dialog.showOpenDialog(windows.main()!, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'JSON', extensions: ['json'] }], defaultPath: homedir() })
       return r.canceled ? [] : r.filePaths
+    },
+    saveFile: async (name, text) => {
+      const r = await dialog.showSaveDialog(windows.main()!, { defaultPath: join(homedir(), name), filters: [{ name: 'JSON', extensions: ['json'] }] })
+      if (r.canceled || !r.filePath) return null
+      await writeFile(r.filePath, text, { encoding: 'utf8' })
+      return r.filePath
     },
     createWindow: (hash, title) => createAuxWindow(hash, title, { width: 1320, height: 900, minWidth: 760, minHeight: 520 }),
     mainWindow: windows.main,
@@ -1479,7 +1489,7 @@ const planner = new PlannerService({
   changed: (profileId) => broadcast.toWindowsAndDevices('planner:changed', profileId)
 })
 // What agents change over the control endpoint, kept for Keep or Revert on Home (desktop windows only).
-const agentChanges = createAgentChanges({ store: db.state<AgentChangeState>('agent-changes', 0), changed: (list) => send('agentChanges:changed', list), automations, flowMaps, planner, sessions: () => sessions.list() })
+const agentChanges = createAgentChanges({ store: db.state<AgentChangeState>('agent-changes', 0), changed: (list) => broadcast.toWindows('agentChanges:changed', list), automations, flowMaps, planner, sessions: () => sessions.list() })
 
 const ticketWatcher = new TicketWatcher({
   activeProfileId: async () => (await configuration.current()).activeProfileId ?? null,

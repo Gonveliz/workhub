@@ -143,6 +143,10 @@ shows every change in those repos, whoever made it (other sessions, you). Edits 
 through shell commands or sub-agents are only in **Whole repo**. The window remembers the choice;
 a review a tool opens for you (below) starts in **Whole repo**, since the tool already says what to
 compare with.
+The session bar counts the changes in every repo the session changed, also worktrees and clones
+outside its folder; the window reviews its folder's repos. When the session changed repos it does
+not show, a line under the header says how many, with their files and lines, and **Review them
+here too** adds them to the review next to the session's folder.
 Compare **Branch vs base** (everything since the branch left its base) or **Uncommitted
 only**. Pick a file to see its diff, click a line to **Comment on line {n}**, and send all comments
 to the agent as one message (**Send {n} comments to {agent}**, or ⌘/Ctrl+Return). **Looks good**

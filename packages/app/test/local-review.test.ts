@@ -1,6 +1,8 @@
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { HistoryMessage, LocalReview } from '@workhub/core'
 import type { SessionView } from '../src/shared/api'
@@ -9,6 +11,7 @@ import type { IpcRegistrar } from '../src/main/ipc-guard'
 import { editedPaths, insideRoot, LocalReviewService, opensAsProgram, PENDING_TTL_MS, registerLocalReviewIpc, validComment } from '../src/main/local-review'
 import { folderLabel, formatBytes, parseFileHash, parseReviewHash, sessionFiles } from '../src/renderer/lib/localReview'
 import type { ChatItem } from '../src/renderer/store'
+import { ElsewhereBar } from '../src/renderer/screens/LocalReviewWindow'
 
 describe('file viewer reading', () => {
   let dir: string
@@ -249,5 +252,63 @@ describe('opening a file of the review', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('changes the session made outside the review', () => {
+  const repo = (root: string, files = 1) => ({ root, name: root.split('/').pop()!, branch: 'main', base: 'main', files: Array.from({ length: files }, (_, i) => ({ path: `f${i}.ts`, status: 'modified', additions: 1, deletions: 0 })) })
+  const touched = (root: string, files: number, additions: number, deletions: number) => ({ name: root.split('/').pop()!, root, branch: 'feat/x', files, additions, deletions })
+
+  function make(touchedRepos: ReturnType<typeof touched>[]) {
+    const load = vi.fn(async (input: { extraRepos?: { path: string }[] }) => ({
+      folder: '/w/app',
+      scope: 'branch' as const,
+      repos: [repo('/w/app'), ...(input.extraRepos ?? []).filter((r) => r.path !== '/w/app').map((r) => repo(r.path))],
+      scannedRepos: 1
+    }) as unknown as LocalReview)
+    const service = new LocalReviewService({ sessions: { list: () => [view()] }, deliver: async () => 'delivered', changes: { load }, emit: () => {}, touchedRepos: async () => touchedRepos })
+    return { service, load }
+  }
+
+  it('lists the repos with changes the session bar counts and the review did not load', async () => {
+    const { service } = make([touched('/w/app', 2, 46, 4), touched('/scratch/clone', 108, 7263, 1466), touched('/scratch/clean', 0, 0, 0)])
+    const res = await service.load('s1', 'branch')
+    expect(res.ok && res.elsewhere).toEqual([{ name: 'clone', root: '/scratch/clone', files: 108, additions: 7263, deletions: 1466 }])
+  })
+
+  it('says nothing when every changed repo is in the review', async () => {
+    const { service } = make([touched('/w/app', 2, 46, 4)])
+    const res = await service.load('s1', 'branch')
+    expect(res.ok && res.elsewhere).toBeUndefined()
+  })
+
+  it('reviews them next to its own folder once asked, and lists nothing more', async () => {
+    const { service, load } = make([touched('/w/app', 2, 46, 4), touched('/scratch/clone', 108, 7263, 1466)])
+    await service.load('s1', 'branch')
+    service.includeElsewhere('s1')
+    const res = await service.load('s1', 'branch')
+    expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ extraRepos: [{ path: '/w/app' }, { path: '/scratch/clone' }] }))
+    expect(res.ok && res.review.repos.map((r) => r.root)).toEqual(['/w/app', '/scratch/clone'])
+    expect(res.ok && res.elsewhere).toBeUndefined()
+  })
+})
+
+describe('the elsewhere bar', () => {
+  it('says how many repos, files and lines the review leaves out, names them and offers to add them', () => {
+    const html = renderToStaticMarkup(
+      createElement(ElsewhereBar, {
+        repos: [
+          { name: 'clone-a', root: '/scratch/clone-a', files: 3, additions: 1200, deletions: 40 },
+          { name: 'clone-b', root: '/scratch/clone-b', files: 2, additions: 10, deletions: 5 }
+        ],
+        busy: false,
+        onInclude: () => {}
+      })
+    )
+    expect(html).toContain('The session also changed 2 repos outside this folder')
+    expect(html).toContain('5 files')
+    expect(html).toContain('+1,210')
+    expect(html).toContain('clone-a, clone-b')
+    expect(html).toContain('Review them here too')
   })
 })

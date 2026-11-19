@@ -18,7 +18,7 @@ import {
   type LocalRevertTarget,
   type ReviewComment
 } from '@workhub/core'
-import type { LocalReviewLoad, LocalReviewSession } from '@shared/local-review-api'
+import type { LocalReviewElsewhere, LocalReviewLoad, LocalReviewSession } from '@shared/local-review-api'
 import { Badge, Button, Input, Select, Spinner, TooltipProvider } from '../components/atoms'
 import { Dialog, EmptyState, RefreshButton } from '../components/molecules'
 import { I18nProvider, useI18n } from '../i18n/I18nProvider'
@@ -43,6 +43,31 @@ function Counts({ additions, deletions }: { additions: number; deletions: number
 }
 
 const sum = (files: LocalReviewFile[], k: 'additions' | 'deletions') => files.reduce((n, f) => n + f[k], 0)
+
+/**
+ * The repos the session changed that this review does not show (worktrees or clones outside its
+ * folder): the session bar counts them, so the window says how much more there is and offers to
+ * review them here too.
+ */
+export function ElsewhereBar({ repos, busy, onInclude }: { repos: readonly LocalReviewElsewhere[]; busy: boolean; onInclude: () => void }) {
+  const { t, tn } = useI18n()
+  const files = repos.reduce((n, r) => n + r.files, 0)
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-surface px-5 py-2 text-sm" role="status" data-testid="review-elsewhere">
+      <FolderGit2 className="size-4 shrink-0 text-muted" aria-hidden />
+      <span className="text-muted">
+        {tn('localReview.elsewhere', repos.length)} · {tn('localReview.fileCount', files)} ·{' '}
+        <Counts additions={repos.reduce((n, r) => n + r.additions, 0)} deletions={repos.reduce((n, r) => n + r.deletions, 0)} />
+      </span>
+      <span className="min-w-0 flex-1 truncate font-mono text-xs text-subtle" title={repos.map((r) => r.root).join('\n')}>
+        {repos.map((r) => r.name).join(', ')}
+      </span>
+      <Button size="sm" variant="secondary" disabled={busy} onClick={onInclude} title={t('localReview.elsewhereHint')} data-testid="review-elsewhere-include">
+        {t('localReview.elsewhereInclude')}
+      </Button>
+    </div>
+  )
+}
 
 function Review({ sessionId }: { sessionId: string }) {
   const { t, tn } = useI18n()
@@ -120,6 +145,8 @@ function Review({ sessionId }: { sessionId: string }) {
   const review: LocalReview | null = result?.ok ? result.review : null
   /** Changed files the session's agent did not edit, left out while `shown` is 'session'. */
   const hiddenFiles = result?.ok ? (result.hiddenFiles ?? 0) : 0
+  const elsewhere = result?.ok ? (result.elsewhere ?? []) : []
+  const includeElsewhere = () => void window.hub.localReview.includeElsewhere(sessionId).then(reload)
   /** What the switch shows: what main actually loaded, else the saved default. */
   const shown: LocalReviewFiles = result?.ok && result.files ? result.files : savedShown
   const setComments = useCallback(
@@ -317,6 +344,7 @@ function Review({ sessionId }: { sessionId: string }) {
           {t('localReview.looksGood')}
         </Button>
       </header>
+      {elsewhere.length > 0 && <ElsewhereBar repos={elsewhere} busy={loading} onInclude={includeElsewhere} />}
 
       {!result ? (
         <div className="flex flex-1 items-center justify-center gap-2 text-muted">

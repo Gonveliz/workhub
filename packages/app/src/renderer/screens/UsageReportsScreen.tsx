@@ -43,7 +43,6 @@ import {
   type GroupBy,
   type Names,
   type ReportState,
-  type Sort,
   type TableView
 } from '../lib/usageReports'
 import { clampPage, PAGE_SIZE } from '../components/molecules/Pager'
@@ -430,7 +429,7 @@ export function UsageReportsView({ state, onChange, range, data, values, loading
           <RefreshButton size="md" iconClassName="size-4" label={t('reports.refresh')} loading={loading} onRefresh={onRefresh} />
         </header>
 
-        <ReportFiltersBar state={state} values={values} names={names} onChange={onChange} effective={effective} />
+        <ReportFiltersBar state={state} values={values} names={names} onChange={onChange} effective={effective} overall={data?.overall ?? null} />
 
         {budgets}
 

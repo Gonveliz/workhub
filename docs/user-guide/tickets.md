@@ -47,8 +47,11 @@ the view is open, at the connection's **Refresh every**.
 
 Next to **Assigned to me** and **Team backlog** (each with its count) is a search by words in the
 key or title. Under them, **Project**, **Status** and, in **Team backlog**, **Assignee** (including
-**Unassigned**) open a menu with how many tickets have each value; a set filter shows its value. A
-filter shows only when the list has more than one value for it. **Clear filters** shows everything
+**Unassigned**) open a menu with how many tickets have each value. Each filter takes several
+values: tick as many as you want (the menu stays open) and the list keeps tickets with any of them;
+different filters must all match. A set filter shows its value, or the first one and how many more
+(**To Do +2**); **All** in its menu unticks them. A filter shows only when the list has more than one
+value for it. **Clear filters** shows everything
 again.
 
 Each view keeps its own filters, and the view you were on, its filters and the search are kept per

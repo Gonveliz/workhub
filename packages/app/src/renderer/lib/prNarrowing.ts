@@ -90,3 +90,20 @@ export function toggleValue(n: PrNarrowing, field: NarrowField, value: string): 
 export function clearNarrowing(n: PrNarrowing): PrNarrowing {
   return { ...NO_NARROWING, order: n.order }
 }
+
+/** How many filter values are in use: each status, branch, repository and author picked, and the ticket choice. */
+export function narrowingCount(n: PrNarrowing): number {
+  return n.statuses.length + n.bases.length + n.repos.length + n.authors.length + (n.ticket === 'any' ? 0 : 1)
+}
+
+/** The ticket filter stays single-choice: picking the choice in use goes back to "any". */
+export function toggleTicket(n: PrNarrowing, choice: Exclude<TicketFilter, 'any'>): PrNarrowing {
+  return { ...n, ticket: n.ticket === choice ? 'any' : choice }
+}
+
+/** A field's options for the filters panel: the values the list has, plus any picked value it no longer has (so it can be turned off). */
+export function panelOptions(items: readonly PullRequestItem[], n: PrNarrowing, field: NarrowField): NarrowOption[] {
+  const options = narrowOptions(items, field)
+  const missing = n[field].filter((v) => !options.some((o) => o.value === v)).map((value) => ({ value, count: 0 }))
+  return [...options, ...missing]
+}

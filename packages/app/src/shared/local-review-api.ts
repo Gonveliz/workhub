@@ -15,7 +15,16 @@ export interface LocalReviewSession {
  * `files`: what the review shows (it can differ from the one asked; see `load`). `hiddenFiles`: changed
  * files left out because the session's agent did not edit them (`files: 'session'`).
  */
-export type LocalReviewLoad = { ok: true; session: LocalReviewSession; review: LocalReview; files?: LocalReviewFiles; hiddenFiles?: number } | { ok: false; reason: 'unknownSession' | 'failed'; detail?: string }
+/** A repo the session changed that the review did not load (a worktree or a clone outside its folder). */
+export interface LocalReviewElsewhere {
+  name: string
+  root: string
+  files: number
+  additions: number
+  deletions: number
+}
+
+export type LocalReviewLoad = { ok: true; session: LocalReviewSession; review: LocalReview; files?: LocalReviewFiles; hiddenFiles?: number; elsewhere?: LocalReviewElsewhere[] } | { ok: false; reason: 'unknownSession' | 'failed'; detail?: string }
 
 export interface LocalReviewApi {
   /**
@@ -42,6 +51,8 @@ export interface LocalReviewApi {
   revert(sessionId: string, request: LocalRevertRequest): Promise<LocalRevertAnswer>
   /** The absolute path of a file of a reviewed repo, for the file viewer; null when it is not one. */
   filePath(sessionId: string, repoRoot: string, path: string): Promise<string | null>
+  /** Adds the repos the last load listed under `elsewhere` to the session's review, next to its own folder. */
+  includeElsewhere(sessionId: string): Promise<void>
 }
 
 /** Size and modification time: enough to tell that a file changed on disk. */

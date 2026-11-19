@@ -31,6 +31,8 @@ export interface Prefs {
   monitorWidth: number
   /** Width of the left sidebar in px. */
   sidebarWidth: number
+  /** Width of the service detail sheet of the Health board in px. */
+  healthDetailWidth: number
   /** Monitor sections the user folded (section ids). */
   monitorCollapsed: string[]
   /** Whether the left sidebar is folded away (Workhub 1's sidebar toggle). */
@@ -48,6 +50,20 @@ export interface Prefs {
   expandedFolders: string[]
   /** Whether the part detail drawer of the Flow maps screen is folded. */
   flowMapDrawerCollapsed: boolean
+  /** Flow maps starred in the list (map ids), listed first under Favorites. */
+  favoriteFlowMaps: string[]
+  /** Flow maps: only the starred maps are listed. */
+  flowMapsFavoritesOnly: boolean
+  /** Health services starred on the Environments board (`healthFavoriteKey`), shown first as large cards. */
+  favoriteHealthServices: string[]
+  /** Health board: only the starred services. */
+  healthFavoritesOnly: boolean
+  /** Metric alerts pinned on Health → Alerts (`pinnedAlertKey`), shown first as large cards. */
+  pinnedMetricAlerts: string[]
+  /** Health → Alerts: only the pinned alerts. */
+  alertsPinnedOnly: boolean
+  /** How Health → Alerts lays the alerts out: cards (the default) or the compact list. */
+  alertsLayout: 'cards' | 'list'
   /** Automations screen: every profile's automations, not only the open profile's. */
   automationsShowAll: boolean
   /** Whether the menu bar panel's folded "Usage" (more than 3 accounts) is unfolded. */
@@ -57,7 +73,7 @@ export interface Prefs {
 }
 
 /** Ranges of the size preferences, as Workhub 1 offered them. */
-export const SIZE_RANGES = { terminalFontSize: [10, 24], terminalScrollback: [1000, 100_000], chatFontSize: [11, 20], textSize: [11, 20], monitorWidth: [240, 560], sidebarWidth: [200, 420] } as const
+export const SIZE_RANGES = { terminalFontSize: [10, 24], terminalScrollback: [1000, 100_000], chatFontSize: [11, 20], textSize: [11, 20], monitorWidth: [240, 560], sidebarWidth: [200, 420], healthDetailWidth: [380, 900] } as const
 /** The app's base text size (styles.css `--text-base`). */
 export const BASE_TEXT_SIZE = 13
 
@@ -75,6 +91,7 @@ export const DEFAULT_PREFS: Prefs = {
   chatFontSize: BASE_TEXT_SIZE,
   textSize: BASE_TEXT_SIZE,
   monitorWidth: 320,
+  healthDetailWidth: 520,
   sidebarWidth: 256,
   monitorCollapsed: [],
   sidebarHidden: false,
@@ -83,6 +100,13 @@ export const DEFAULT_PREFS: Prefs = {
   favoriteFolders: [],
   expandedFolders: [],
   flowMapDrawerCollapsed: false,
+  favoriteFlowMaps: [],
+  flowMapsFavoritesOnly: false,
+  favoriteHealthServices: [],
+  healthFavoritesOnly: false,
+  pinnedMetricAlerts: [],
+  alertsPinnedOnly: false,
+  alertsLayout: 'cards',
   automationsShowAll: false,
   trayPopoverUsageExpanded: false,
   trayPopoverRecent: {}
@@ -114,6 +138,7 @@ export function parsePrefs(raw: string | null): Prefs {
       chatFontSize: clampSize('chatFontSize', v.chatFontSize),
       textSize: clampSize('textSize', v.textSize),
       monitorWidth: clampSize('monitorWidth', v.monitorWidth),
+      healthDetailWidth: clampSize('healthDetailWidth', v.healthDetailWidth),
       sidebarWidth: clampSize('sidebarWidth', v.sidebarWidth),
       monitorCollapsed: Array.isArray(v.monitorCollapsed) ? v.monitorCollapsed.filter((x): x is string => typeof x === 'string').slice(0, 40) : [],
       sidebarHidden: v.sidebarHidden === true,
@@ -122,6 +147,13 @@ export function parsePrefs(raw: string | null): Prefs {
       favoriteFolders: pathList(v.favoriteFolders, 100),
       expandedFolders: pathList(v.expandedFolders, 200),
       flowMapDrawerCollapsed: v.flowMapDrawerCollapsed === true,
+      favoriteFlowMaps: pathList(v.favoriteFlowMaps, 200),
+      flowMapsFavoritesOnly: v.flowMapsFavoritesOnly === true,
+      favoriteHealthServices: pathList(v.favoriteHealthServices, 300),
+      healthFavoritesOnly: v.healthFavoritesOnly === true,
+      pinnedMetricAlerts: pathList(v.pinnedMetricAlerts, 300),
+      alertsPinnedOnly: v.alertsPinnedOnly === true,
+      alertsLayout: v.alertsLayout === 'list' ? 'list' : 'cards',
       automationsShowAll: v.automationsShowAll === true,
       trayPopoverUsageExpanded: v.trayPopoverUsageExpanded === true,
       trayPopoverRecent: recentMemory(v.trayPopoverRecent)
@@ -131,7 +163,7 @@ export function parsePrefs(raw: string | null): Prefs {
   }
 }
 
-/** A list of folder paths: strings only, no empty or repeated ones, each and the list kept short. */
+/** A list of folder paths or ids: strings only, no empty or repeated ones, each and the list kept short. */
 function pathList(raw: unknown, max: number): string[] {
   return Array.isArray(raw) ? [...new Set(raw.filter((f): f is string => typeof f === 'string' && f !== '').map((f) => f.slice(0, 1024)))].slice(0, max) : []
 }

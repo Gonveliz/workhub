@@ -1,7 +1,7 @@
-import { AppWindowMac, Bot, Pencil } from 'lucide-react'
+import { AppWindowMac, Bot } from 'lucide-react'
 import { Dialog as RDialog } from 'radix-ui'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Badge, Button, IconButton, Input, STATE_TONE, StateDot, TooltipProvider } from '../components/atoms'
+import { Button, TooltipProvider } from '../components/atoms'
 import { ToastProvider, useToast } from '../components/molecules'
 import { CloseSessionDialog } from '../components/organisms/CloseSessionDialog'
 import { isWorking } from '../components/organisms/SessionList'
@@ -50,50 +50,6 @@ export function SessionWindowRoot({ sessionId }: { sessionId: string }) {
 function TitleBar({ children }: { children: ReactNode }) {
   const platform = usePlatform()
   return <header className={cn('drag-region flex h-12 shrink-0 items-center gap-3 border-b border-border px-4', platform === 'mac' ? 'pl-20' : 'pr-36')}>{children}</header>
-}
-
-/** The session's name, renamed in place: double-click (or the pencil) edits, Enter saves, Escape cancels. */
-function InlineName({ id, name, fallback }: { id: string; name: string | undefined; fallback: string }) {
-  const { t } = useI18n()
-  const toast = useToast()
-  const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState('')
-  const start = () => {
-    setValue(name ?? '')
-    setEditing(true)
-  }
-  const save = () => {
-    setEditing(false)
-    if ((value.trim() || undefined) === name) return
-    void window.hub.sessions.rename(id, value.trim() || null).catch((e: unknown) => toast(t('session.renameFailed', { message: errorText(e) }), 'danger'))
-  }
-  if (editing) {
-    return (
-      <Input
-        autoFocus
-        aria-label={t('session.renameLabel')}
-        value={value}
-        maxLength={120}
-        placeholder={fallback}
-        data-testid="inline-session-name"
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={save}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') save()
-          if (e.key === 'Escape') setEditing(false)
-        }}
-        className="h-7 max-w-80 text-md"
-      />
-    )
-  }
-  return (
-    <span className="group/name flex min-w-0 items-center gap-1">
-      <h1 className="min-w-0 truncate text-md font-semibold" title={t('session.renameInline')} onDoubleClick={start}>
-        {name || fallback}
-      </h1>
-      <IconButton size="sm" className="size-6 opacity-0 group-hover/name:opacity-100 focus-visible:opacity-100" label={t('session.rename')} icon={<Pencil className="size-3" />} onClick={start} />
-    </span>
-  )
 }
 
 /** The window's title before a session names it: what the page was opened with (the app's name). */
@@ -176,13 +132,11 @@ function SessionWindow({ sessionId }: { sessionId: string }) {
   return (
     <div className="flex h-full flex-col bg-bg" data-testid="session-window">
       <TitleBar>
-        <StateDot tone={STATE_TONE[v.state]} pulse={v.state === 'busy' || v.state === 'starting'} />
+        {/* The session's title, state and rename live in the header below; the title bar keeps the folder. */}
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <InlineName id={v.id} name={v.name} fallback={v.agentName} />
           <span className="truncate font-mono text-xs text-subtle" title={v.cwd}>
             {folderName(v.cwd)}
           </span>
-          {v.name && <Badge className="shrink-0">{v.agentName}</Badge>}
         </div>
         <Button size="sm" variant="ghost" icon={<AppWindowMac className="size-3.5" aria-hidden />} title={t('window.moveToMainHint')} data-testid="move-to-main" onClick={() => window.hub.windows.dock(v.id)}>
           {t('window.moveToMain')}
