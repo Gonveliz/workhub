@@ -44,6 +44,12 @@ describe('parsing the distribution lists', () => {
       { name: 'legacy', isDefault: false, state: 'Stopped', version: 1 }
     ])
     expect(parseWslVerboseList('*Ubuntu Running 2')).toEqual([{ name: 'Ubuntu', isDefault: true, state: 'Running', version: 2 }])
+    // A state of more than one word (a translated WSL), and rows that are not one.
+    expect(parseWslVerboseList('* Ubuntu    En ejecución   2\n  Debian Detenido 2')).toEqual([
+      { name: 'Ubuntu', isDefault: true, state: 'En ejecución', version: 2 },
+      { name: 'Debian', isDefault: false, state: 'Detenido', version: 2 }
+    ])
+    expect(parseWslVerboseList('Ubuntu 2\n* Running 2\nUbuntu Running two\n' + 'a '.repeat(5000) + 'b')).toEqual([])
   })
 })
 

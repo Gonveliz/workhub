@@ -50,9 +50,16 @@ export function parseWslQuietList(text: string): string[] {
 export function parseWslVerboseList(text: string): WslDistro[] {
   const out: WslDistro[] = []
   for (const line of lines(text)) {
-    const m = /^(\*\s*)?(\S+)\s+(.+?)\s+(\d+)$/.exec(line)
-    if (!m || !isWslDistroName(m[2]!)) continue
-    out.push({ name: m[2]!, isDefault: m[1] !== undefined, state: m[3]!, version: Number(m[4]) })
+    // Split into words (no regular expression that could backtrack on a long line): the star, the
+    // name, the state (one word or more, in WSL's language) and the version.
+    const words = line.trim().split(/\s+/)
+    const isDefault = words[0]!.startsWith('*')
+    if (isDefault) words[0] = words[0]!.slice(1)
+    if (words[0] === '') words.shift()
+    const [name, ...rest] = words
+    const version = rest.pop()
+    if (!name || rest.length === 0 || !version || !/^\d+$/.test(version) || !isWslDistroName(name)) continue
+    out.push({ name, isDefault, state: rest.join(' '), version: Number(version) })
   }
   return out
 }
