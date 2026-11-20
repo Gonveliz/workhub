@@ -1,11 +1,18 @@
 // The hosts of the WSL distributions profiles name (`profile.host`): one `workhub host` per
 // distribution, started through `wsl.exe` on Windows the first time a profile names it, and
-// registered as `wsl:<distro>`. Until it connects, or when it cannot (no WSL, the host not
-// installed in the distribution yet), the sessions of those profiles run on this computer.
-import { hostIdOf, probeWslDistro, wslHostLaunch, wslHostPayload, type HostLaunch, type ProfileHost, type WslRun } from '@workhub/core'
+// registered as `wsl:<distro>`. The host is installed into the distribution first when this version
+// is not there yet (wsl-host-install.ts). Until it connects, or when it cannot (no WSL, the install
+// failed), the sessions of those profiles run on this computer.
+import { hostIdOf, nodeArchOfMachine, probeWslDistro, wslHostArgs, wslHostLaunch, type HostLaunch, type HostPayloadArch, type ProfileHost, type WslRun } from '@workhub/core'
 import type { Logger } from './log-file'
 import type { SessionHost } from './hosts'
 import type { HostProcessOptions } from './host-process'
+
+/** How long a host in WSL gets to say hello: a stopped distribution boots first, which can take a while. */
+export const WSL_HELLO_TIMEOUT_MS = 60_000
+
+/** Where the host of this version is installed in a distribution (installing it when it is not). */
+export type WslHostInstall = (target: { distro: string; home: string; arch: HostPayloadArch }) => Promise<{ dir: string; nodePath: string; entry: string }>
 
 /** The parts of a HostProcess this uses (faked in tests). */
 export interface WslHostProcess {
@@ -18,10 +25,11 @@ export interface WslHostsDeps {
   /** The host build this app expects inside the distribution. */
   hostVersion: string
   run: WslRun
+  install: WslHostInstall
   register(host: SessionHost): void
   log: Pick<Logger, 'info' | 'warn' | 'error'>
   /** A HostProcess with these options. */
-  createProcess(options: Pick<HostProcessOptions, 'id' | 'launch' | 'hostVersion' | 'onRestart'>): WslHostProcess
+  createProcess(options: Pick<HostProcessOptions, 'id' | 'launch' | 'hostVersion' | 'onRestart' | 'helloTimeoutMs'>): WslHostProcess
 }
 
 /** The distributions these hosts name, once each, in order. */
@@ -67,16 +75,24 @@ export class WslHosts {
     let launch: HostLaunch
     let dir: string
     try {
-      const { home } = await probeWslDistro(this.deps.run, distro)
-      const payload = wslHostPayload(home, this.deps.hostVersion)
+      const info = await probeWslDistro(this.deps.run, distro)
+      const arch = nodeArchOfMachine(info.arch)
+      if (!arch) throw new Error(`no host is built for its processor (${info.arch})`)
+      const payload = await this.deps.install({ distro, home: info.home, arch })
       dir = payload.dir
-      launch = wslHostLaunch({ distro, nodePath: payload.nodePath, entry: payload.entry, hostVersion: this.deps.hostVersion })
+      launch = wslHostLaunch({ distro, nodePath: payload.nodePath, entry: payload.entry, hostVersion: this.deps.hostVersion, args: wslHostArgs(payload.dir, arch) })
     } catch (err) {
       this.deps.log.error(`host ${id}: ${message(err)}; ${fallback}`)
       return
     }
     if (this.stopped) return
-    const hostProcess = this.deps.createProcess({ id, hostVersion: this.deps.hostVersion, launch: () => launch, onRestart: (host) => this.deps.register(host) })
+    const hostProcess = this.deps.createProcess({
+      id,
+      hostVersion: this.deps.hostVersion,
+      launch: () => launch,
+      onRestart: (host) => this.deps.register(host),
+      helloTimeoutMs: WSL_HELLO_TIMEOUT_MS
+    })
     this.processes.push(hostProcess)
     try {
       const host = await hostProcess.connect()

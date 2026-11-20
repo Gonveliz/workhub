@@ -22,7 +22,7 @@ import { GitWorktrees } from '@workhub/adapters/git-worktree'
 import { AutomationRunLog, BackgroundRuns, BACKUP_FOLDER, backupDatabase, DB_FILE, describeImport, importLegacyJson, listBackups, SessionRecords, SqliteFlowMaps, SqliteHistoryIndex, SqlitePrEventStore, Timelines, TurnIngest, repoProjects, WorkhubDb, type ProjectResolver } from '@workhub/adapters/sqlite-store'
 import { DemoCalendarSource, IcsCalendarSource } from '@workhub/adapters/calendar-ics'
 import { OpenCodeTranscriptReader } from '@workhub/adapters/transcript-opencode'
-import { composeExecutionServices, wslRunner } from '@workhub/adapters/host'
+import { composeExecutionServices, wslInputRunner, wslRunner } from '@workhub/adapters/host'
 import {
   alertRulesOf,
   appOptions,
@@ -92,6 +92,7 @@ import { routeSessionEvent } from './terminal-routing'
 import { HostRegistry, localHost } from './hosts'
 import { HostProcess } from './host-process'
 import { WslHosts } from './wsl-hosts'
+import { ensureWslHost } from './wsl-host-install'
 import { SessionDriver } from './session-driver'
 import { OwnerStarts } from './owner-starts'
 import { resolveChoice, SessionManager, ticketPrefixes } from './session-manager'
@@ -124,7 +125,7 @@ import { registerAnalyticsIpc, REPORT_BUDGET_MS } from './analytics-ipc'
 import { ProjectBudgetAlerts, type MonthRow } from './project-budget-alerts'
 import { ApiSpendService, CostLedger, spendAgentId, type CostLedgerState } from './api-spend'
 import { backgroundUsage } from './background-usage'
-import { UpdateService } from './updates'
+import { RELEASE_REPO, UpdateService } from './updates'
 import { readUpdatePromptState, shouldPromptUpdate, type UpdatePromptState } from './update-prompt'
 import { buildAppMenuTemplate, isSessionCommand } from './app-menu'
 import { SessionNames } from './session-names'
@@ -589,11 +590,28 @@ const { runtimes, terminal, history: historySources } = execution
 let profileHosts = new Map<string, ProfileHost>()
 // The hosts sessions run on: this computer, and the ones profiles name once they connect (see hosts.ts).
 const hosts = new HostRegistry(localHost(execution), (profileId) => profileHosts.get(profileId))
-// A profile that names a WSL distribution starts its host there (Windows only), once per distribution.
+// A profile that names a WSL distribution starts its host there (Windows only), once per distribution,
+// installing it first: from the release of this version, or from WORKHUB_HOST_PAYLOAD (a local
+// workhub-host-<version>-linux-<arch>.tar.gz, offline or for a development build).
 const wslHosts = new WslHosts({
   platform: process.platform,
   hostVersion: app.getVersion(),
   run: wslRunner(),
+  install: ({ distro, home, arch }) =>
+    ensureWslHost({
+      distro,
+      home,
+      arch,
+      version: app.getVersion(),
+      // Moving and removing a payload folder (hundreds of MB) can take longer than a listing.
+      run: wslRunner({ timeoutMs: 120_000 }),
+      runWithInput: wslInputRunner(),
+      fetch: (url) => net.fetch(url),
+      payloadFile: process.env['WORKHUB_HOST_PAYLOAD'] || undefined,
+      cacheDir: join(dataDir, 'host-payloads'),
+      repo: RELEASE_REPO,
+      log: diagnostics.log
+    }),
   register: (host) => hosts.register(host),
   log: diagnostics.log,
   createProcess: (options) => new HostProcess({ ...options, log: diagnostics.log })
