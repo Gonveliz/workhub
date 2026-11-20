@@ -3,8 +3,8 @@ import { existsSync } from 'node:fs'
 import { stat, writeFile } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
-import { AcpRuntime, agentAvailability, discoverKiroOptions } from '@workhub/adapters/agent-acp'
-import { CLAUDE_PERMISSION_MODES, ClaudeNativeRuntime, ClaudePlanUsageReader, ClaudeSessionHistory, discoverClaudeOptions } from '@workhub/adapters/agent-claude-native'
+import { agentAvailability, discoverKiroOptions } from '@workhub/adapters/agent-acp'
+import { CLAUDE_PERMISSION_MODES, ClaudePlanUsageReader, discoverClaudeOptions } from '@workhub/adapters/agent-claude-native'
 import { DemoChatSource, SlackAgentChatSource, SlackTrackingHook } from '@workhub/adapters/chat-slack'
 import { ListenSummarizer } from '@workhub/adapters/listen-summary'
 import { JsonConfigStore } from '@workhub/adapters/config-json'
@@ -15,13 +15,14 @@ import { augmentedPath, pathKeyOf, refreshLoginPath, utf8LocaleEnv, withFoldersF
 import { ManagedToolsInstaller } from '@workhub/adapters/managed-tools'
 import { readNotificationPermission } from '@workhub/adapters/notification-permission'
 import { ClaudeTranscriptReader, copyClaudeSession, readClaudeHandoffFacts } from '@workhub/adapters/transcript-claude'
-import { CodexPlanUsageReader, CodexSessionHistory, CodexTranscriptReader } from '@workhub/adapters/transcript-codex'
-import { KiroPlanUsageReader, KiroSessionHistory, KiroTranscriptReader, readKiroCreditEntries } from '@workhub/adapters/transcript-kiro'
+import { CodexPlanUsageReader, CodexTranscriptReader } from '@workhub/adapters/transcript-codex'
+import { KiroPlanUsageReader, KiroTranscriptReader, readKiroCreditEntries } from '@workhub/adapters/transcript-kiro'
 import { GitReview, LocalChanges, LocalReverter } from '@workhub/adapters/git-review'
 import { GitWorktrees } from '@workhub/adapters/git-worktree'
 import { AutomationRunLog, BackgroundRuns, BACKUP_FOLDER, backupDatabase, DB_FILE, describeImport, importLegacyJson, listBackups, SessionRecords, SqliteFlowMaps, SqliteHistoryIndex, SqlitePrEventStore, Timelines, TurnIngest, repoProjects, WorkhubDb, type ProjectResolver } from '@workhub/adapters/sqlite-store'
 import { DemoCalendarSource, IcsCalendarSource } from '@workhub/adapters/calendar-ics'
-import { OpenCodeSessionHistory, OpenCodeTranscriptReader } from '@workhub/adapters/transcript-opencode'
+import { OpenCodeTranscriptReader } from '@workhub/adapters/transcript-opencode'
+import { composeExecutionServices } from '@workhub/adapters/host'
 import {
   alertRulesOf,
   appOptions,
@@ -557,28 +558,25 @@ const bundledClaudeDir = join(
   `claude-agent-sdk-${process.platform}-${process.arch}`
 )
 const fallbackPath = existsSync(bundledClaudeDir) ? [bundledClaudeDir] : []
-const terminal = new TerminalRuntime({ path: sessionPath, fallbackPath })
 // Agent adapters installed with the app (claude-agent-acp) are found through PATH.
 const extraPath = app.isPackaged
   ? [join(bridgeDir, 'node_modules', '.bin')]
   : [join(repoRoot, 'node_modules', '.bin'), join(appRoot, 'node_modules', '.bin')]
-const runtimes = {
-  native: new ClaudeNativeRuntime({ bridgeDir, path: sessionPath }),
-  acp: new AcpRuntime({
-    clientName: 'workhub',
-    clientVersion: app.getVersion(),
-    extraPath,
-    path: sessionPath
-  }),
-  terminal
-}
 // Claude transcripts are parsed in a utility process, never on this one (a 50 MB file froze every window).
 const transcriptReader = createTranscriptReader((m) => diagnostics.log.warn(m))
-const claudeHistory = new ClaudeSessionHistory({ bridgeDir, transcripts: transcriptReader.read })
 // Kiro's data folder (~/.kiro); WORKHUB_KIRO_DIR points the readers elsewhere (smoke runs, demos).
 const kiroDir = process.env['WORKHUB_KIRO_DIR'] ? resolve(process.env['WORKHUB_KIRO_DIR']) : undefined
-// Past sessions per agent id; the readers behind them are kiro, opencode and codex (PLAN D9).
-const historySources = { claude: claudeHistory, kiro: new KiroSessionHistory({ kiroDir }), opencode: new OpenCodeSessionHistory(), codex: new CodexSessionHistory() }
+// Agent runtimes, transcript readers, past sessions per agent id and git, built as a host would build them.
+const execution = composeExecutionServices({
+  bridgeDir,
+  sessionPath,
+  fallbackPath,
+  extraPath,
+  clientVersion: app.getVersion(),
+  kiroDir,
+  claudeTranscripts: transcriptReader.read
+})
+const { runtimes, terminal, history: historySources } = execution
 // Models and modes each agent offers before a session starts (Kiro: its listing commands; Claude Code:
 // what it reports when a session starts, read without a prompt; others: their last session).
 const agentOptions = new AgentOptionsService({
@@ -695,7 +693,7 @@ const sessions = new SessionManager({
   accountEnv: (account) => accountSessionEnv(account, secrets),
   runtimes,
   terminal,
-  transcripts: [new ClaudeTranscriptReader(), new KiroTranscriptReader({ kiroDir }), new OpenCodeTranscriptReader(), new CodexTranscriptReader()],
+  transcripts: execution.transcripts,
   history: historySources,
   onAgentOptions: (agentId, accountId, options) => agentOptions.record(agentId, accountId, options),
   emitEvent: (e) => {
@@ -962,14 +960,14 @@ const briefs = new BriefService({
 })
 
 // The monitor's "Local changes" of a session's folder (read-only git commands).
-const localGit = new GitReview()
+const localGit = new GitReview(execution.git)
 
 // AI review before a pull request: a reviewer agent on a separate checkout of the dev session's branch.
 const aiReview = new AiReviewService({
   config: () => configuration.current(),
   sessions,
   driver,
-  git: new GitReview(),
+  git: new GitReview(execution.git),
   state: db.state('ai-review-state', 500),
   workDir: join(dataDir, 'ai-review'),
   emit: (snap) => send('aiReview:changed', snap),
@@ -989,9 +987,9 @@ const aiReview = new AiReviewService({
 const localReview = new LocalReviewService({
   sessions,
   deliver: (id, text) => driver.deliver(id, text),
-  changes: new LocalChanges(),
+  changes: new LocalChanges(execution.git),
   // Content HEAD does not have (an untracked or new file) goes to the system trash, never deleted.
-  reverter: new LocalReverter({ trash: (path) => shell.trashItem(path) }),
+  reverter: new LocalReverter({ git: execution.git, trash: (path) => shell.trashItem(path) }),
   myPullRequests: async (profileId) => {
     const lists = await Promise.race([codeHost.lists(profileId), new Promise<null>((r) => setTimeout(() => r(null), 5_000))]).catch(() => null)
     return lists?.mine ?? []
@@ -1040,7 +1038,7 @@ const continuity = new ContinuityService({
   copySession: (input) => copyClaudeSession(input),
   facts: handoffFacts,
   git: async (cwd) => {
-    const probe = await new GitReview().probe(cwd, 'main')
+    const probe = await new GitReview(execution.git).probe(cwd, 'main')
     return probe ? { branch: probe.branch, dirtyFiles: probe.dirtyFiles } : null
   },
   placeBeside: placeInSidebar,
