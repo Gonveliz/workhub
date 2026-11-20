@@ -227,6 +227,9 @@ describe('opening a file of the review', () => {
     expect(opensAsProgram('C:\\r\\index.js', {}, 'win32')).toBe(true)
     expect(opensAsProgram('/r/index.js', { mode: 0o100644 }, 'darwin')).toBe(false)
     expect(opensAsProgram('C:\\r\\notes.txt', { mode: 0o100777 }, 'win32')).toBe(false)
+    // A Linux path on Windows is a file of a WSL host: its mode bits are Linux ones and count.
+    expect(opensAsProgram('/home/ana/repo/tool', { mode: 0o100755 }, 'win32')).toBe(true)
+    expect(opensAsProgram('/home/ana/repo/notes.txt', { mode: 0o100644 }, 'win32')).toBe(false)
   })
 
   it.skipIf(process.platform === 'win32')('shows a risky file in its folder and opens the rest', async () => {
@@ -276,7 +279,7 @@ describe('opening a reviewed file', () => {
     expect(await open('gone.ts')).toBe(false)
     expect(asked).toEqual([['s1', '/w/acme/notes.md'], ['s1', '/w/acme/tool'], ['s1', '/w/acme/gone.ts']])
     expect(opened).toEqual(['/w/acme/notes.md'])
-    expect(shown).toEqual(process.platform === 'win32' ? [] : ['/w/acme/tool'])
+    expect(shown).toEqual(['/w/acme/tool'])
   })
 })
 

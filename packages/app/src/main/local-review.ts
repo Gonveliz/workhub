@@ -334,13 +334,15 @@ const WINDOWS_SCRIPT_EXTENSIONS = new Set(['.js'])
 /**
  * Whether opening this path with the system's default app could run something instead of showing
  * it: a known program, script, bundle or shortcut extension (for files and folders: a macOS bundle
- * is a folder), or a file with an execute bit (not on Windows). Such paths are shown in their folder.
+ * is a folder), or a file with an execute bit (on Windows, only for a WSL host's Linux path). Such paths are shown in their folder.
  */
 export function opensAsProgram(path: string, file: { isDirectory?: boolean; mode?: number }, platform: NodeJS.Platform = process.platform): boolean {
   const ext = extname(path.replace(/[\\/]+$/, '')).toLowerCase()
   if (PROGRAM_EXTENSIONS.has(ext) || (platform === 'win32' && WINDOWS_SCRIPT_EXTENSIONS.has(ext))) return true
   if (file.isDirectory) return false
-  return platform !== 'win32' && file.mode !== undefined && (file.mode & 0o111) !== 0
+  // Windows has no execute bits of its own; a Linux path there is a file of a WSL host, whose bits count.
+  const posixModes = platform !== 'win32' || path.startsWith('/')
+  return posixModes && file.mode !== undefined && (file.mode & 0o111) !== 0
 }
 
 export interface LocalReviewIpcDeps {
