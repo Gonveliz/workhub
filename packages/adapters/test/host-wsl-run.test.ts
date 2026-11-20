@@ -1,5 +1,6 @@
+import { Readable } from 'node:stream'
 import { describe, expect, it } from 'vitest'
-import { decodeWslOutput, wslRunner } from '../src/host'
+import { decodeWslOutput, wslInputRunner, wslRunner } from '../src/host'
 
 // A stand-in for wsl.exe: Node itself, so the runner's handling of arguments and bytes is checked on any OS.
 const node = process.execPath
@@ -29,5 +30,35 @@ describe('wslRunner', () => {
   it('reports a failed run as its exit code, and a missing command as -1', async () => {
     expect((await wslRunner({ command: node })(['-e', 'process.exit(3)'])).code).toBe(3)
     expect((await wslRunner({ command: '/w/acme/no-such-wsl.exe' })(['-l', '-q'])).code).toBe(-1)
+  })
+})
+
+describe('wslInputRunner', () => {
+  // Counts the bytes it reads from stdin and prints them with its arguments.
+  const counter = "let n = 0; process.stdin.on('data', (b) => (n += b.length)).on('end', () => process.stdout.write(process.argv.slice(1).join('|') + ':' + n))"
+
+  it('pipes the input to the command and returns its output', async () => {
+    const r = await wslInputRunner({ command: node })(['-e', counter, 'a b', '$1'], Readable.from([Buffer.alloc(300_000, 1), Buffer.alloc(5, 2)]))
+    expect(r).toEqual({ code: 0, stdout: 'a b|$1:300005', stderr: '' })
+  })
+
+  it('reports a command that exits without reading its input, and an input that fails', async () => {
+    const early = await wslInputRunner({ command: node })(['-e', "process.stderr.write('tar: bad'); process.exit(2)"], Readable.from([Buffer.alloc(4_000_000)]))
+    expect(early.code).toBe(2)
+    expect(early.stderr).toBe('tar: bad')
+    const broken = new Readable({
+      read() {
+        this.destroy(new Error('EACCES'))
+      }
+    })
+    const failed = await wslInputRunner({ command: node })(['-e', 'process.stdin.resume()'], broken)
+    expect(failed.code).not.toBe(0)
+    expect(failed.stderr).toContain('could not read the input: EACCES')
+  })
+
+  it('kills a run past its timeout', async () => {
+    const r = await wslInputRunner({ command: node, timeoutMs: 200 })(['-e', 'setTimeout(() => {}, 10_000)'], Readable.from([]))
+    expect(r.code).not.toBe(0)
+    expect(r.stderr).toContain('timed out')
   })
 })

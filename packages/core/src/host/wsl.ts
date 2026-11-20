@@ -2,6 +2,7 @@
 // one. Pure: every call to `wsl.exe` goes through an injected runner, so this runs (and is tested)
 // on any OS.
 import { isWslDistroName, joinFlavorPath } from './paths'
+import { isHostVersion, type HostPayloadArch } from './payload'
 
 /**
  * What one `wsl.exe` run returned: its exit code and its output as text. The runner decodes it
@@ -113,15 +114,38 @@ export function nodeArchOfMachine(machine: string): 'x64' | 'arm64' | null {
   return null
 }
 
+/** The folder the host versions live in inside a distribution: `~/.workhub/host`. */
+export const wslHostRoot = (home: string): string => joinFlavorPath('posix', home, '.workhub', 'host')
+
 /**
- * Where the host of this app version lives inside a distribution: `~/.workhub/host/<version>/`,
- * with `host.js` and its own Node at `node/bin/node`. The one place that layout is written down;
- * installing it there is a separate step.
+ * Where the host of this app version lives inside a distribution: `<root>/<version>/` (the root is
+ * `~/.workhub/host` unless given), with `host.js` and its own Node at `node/bin/node`. The one
+ * place that layout is written down; installing it there is a separate step (wsl-host-install.ts).
  */
-export function wslHostPayload(home: string, hostVersion: string): { dir: string; nodePath: string; entry: string } {
-  if (!/^[\w.+-]+$/.test(hostVersion)) throw new Error(`not a host version: ${JSON.stringify(hostVersion)}`)
-  const dir = joinFlavorPath('posix', home, '.workhub', 'host', hostVersion)
-  return { dir, nodePath: joinFlavorPath('posix', dir, 'node', 'bin', 'node'), entry: joinFlavorPath('posix', dir, 'host.js') }
+export function wslHostPayload(home: string, hostVersion: string, root: string = wslHostRoot(home)): { root: string; dir: string; nodePath: string; entry: string } {
+  if (!isHostVersion(hostVersion)) throw new Error(`not a host version: ${JSON.stringify(hostVersion)}`)
+  if (!root.startsWith('/')) throw new Error(`the host folder must be an absolute path inside the distribution: ${JSON.stringify(root)}`)
+  const dir = joinFlavorPath('posix', root, hostVersion)
+  return { root, dir, nodePath: joinFlavorPath('posix', dir, 'node', 'bin', 'node'), entry: joinFlavorPath('posix', dir, 'host.js') }
+}
+
+/**
+ * The host's arguments for an installed payload, as the app computes them for its own host: the
+ * SDK's bundled `claude` as the terminal's fallback, and the bridge's adapters (claude-agent-acp)
+ * on the PATH of agent adapters. The payload's Node goes there too, after them: claude-agent-acp
+ * starts through `env node`, which a distribution without Node would not find. `--bridge-dir`
+ * is left out: the host defaults to the `bridge` folder next to host.js.
+ */
+export function wslHostArgs(dir: string, arch: HostPayloadArch): string[] {
+  const modules = joinFlavorPath('posix', dir, 'bridge', 'node_modules')
+  return [
+    '--fallback-path',
+    joinFlavorPath('posix', modules, '@anthropic-ai', `claude-agent-sdk-linux-${arch}`),
+    '--extra-path',
+    joinFlavorPath('posix', modules, '.bin'),
+    '--extra-path',
+    joinFlavorPath('posix', dir, 'node', 'bin')
+  ]
 }
 
 /** A command to start, with its arguments as a list (never through a shell). */

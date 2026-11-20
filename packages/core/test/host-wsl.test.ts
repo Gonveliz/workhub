@@ -6,6 +6,7 @@ import {
   parseWslVerboseList,
   probeWslDistro,
   WslProbeError,
+  wslHostArgs,
   wslHostLaunch,
   wslHostPayload,
   type WslRun,
@@ -101,11 +102,28 @@ describe('probeWslDistro', () => {
 describe('the host inside a distribution', () => {
   it('lives in one folder per version under the home folder', () => {
     expect(wslHostPayload('/users/ana/', '2.1.0-alpha.3')).toEqual({
+      root: '/users/ana/.workhub/host',
       dir: '/users/ana/.workhub/host/2.1.0-alpha.3',
       nodePath: '/users/ana/.workhub/host/2.1.0-alpha.3/node/bin/node',
       entry: '/users/ana/.workhub/host/2.1.0-alpha.3/host.js'
     })
     expect(() => wslHostPayload('/users/ana', '../x')).toThrow()
+  })
+
+  it('can live under another root (a test install), which must be absolute', () => {
+    expect(wslHostPayload('/users/ana', '2.1.0', '/users/ana/.workhub-test/host').dir).toBe('/users/ana/.workhub-test/host/2.1.0')
+    expect(() => wslHostPayload('/users/ana', '2.1.0', 'relative/host')).toThrow(/absolute/)
+  })
+
+  it('gets the bundled claude as fallback and the bridge adapters and its Node on the PATH', () => {
+    expect(wslHostArgs('/users/ana/.workhub/host/2.1.0', 'arm64')).toEqual([
+      '--fallback-path',
+      '/users/ana/.workhub/host/2.1.0/bridge/node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64',
+      '--extra-path',
+      '/users/ana/.workhub/host/2.1.0/bridge/node_modules/.bin',
+      '--extra-path',
+      '/users/ana/.workhub/host/2.1.0/node/bin'
+    ])
   })
 
   it('starts through wsl.exe with its arguments as a list and no Windows variables', () => {
