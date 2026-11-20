@@ -90,6 +90,7 @@ import { PrEventService, registerPrEventsIpc } from './pr-events-service'
 import { OutputCoalescer } from './output-coalescer'
 import { routeSessionEvent } from './terminal-routing'
 import { HostRegistry, localHost } from './hosts'
+import type { ControlServe } from './host-control'
 import { HostProcess } from './host-process'
 import { WslHosts } from './wsl-hosts'
 import { ensureWslHost } from './wsl-host-install'
@@ -98,7 +99,7 @@ import { OwnerStarts } from './owner-starts'
 import { resolveChoice, SessionManager, ticketPrefixes } from './session-manager'
 import { registerLinksIpc } from './links'
 import { LocalReviewService, registerLocalReviewIpc } from './local-review'
-import { CONTROL_ENV_KEYS, controlEnv, controlSocketPath, newControlToken, reviewPathOutside, startControlServer, startLoopbackControlServer, usesLoopbackControl, type ControlDeps, type ControlEndpoint } from './control-server'
+import { CONTROL_ENV_KEYS, controlEnv, controlSocketPath, newControlToken, reviewPathOutside, serveControl, startControlServer, startLoopbackControlServer, usesLoopbackControl, type ControlDeps, type ControlEndpoint } from './control-server'
 import { createAnalyticsControl } from './analytics-control'
 import { ControlTokens } from './control-auth'
 import { kiroUsageProbeEnabled } from './kiro-usage-probe'
@@ -590,6 +591,9 @@ const { runtimes, terminal, history: historySources } = execution
 let profileHosts = new Map<string, ProfileHost>()
 // The hosts sessions run on: this computer, and the ones profiles name once they connect (see hosts.ts).
 const hosts = new HostRegistry(localHost(execution), (profileId) => profileHosts.get(profileId))
+// Main's control endpoint as a function, once its deps exist: what serves the requests hosts relay
+// from their own sockets (host-control.ts), so sessions on a host reach it without a network path.
+let controlServe: ControlServe | null = null
 // A profile that names a WSL distribution starts its host there (Windows only), once per distribution,
 // installing it first: from the release of this version, or from WORKHUB_HOST_PAYLOAD (a local
 // workhub-host-<version>-linux-<arch>.tar.gz, offline or for a development build).
@@ -614,7 +618,7 @@ const wslHosts = new WslHosts({
     }),
   register: (host) => hosts.register(host),
   log: diagnostics.log,
-  createProcess: (options) => new HostProcess({ ...options, log: diagnostics.log })
+  createProcess: (options) => new HostProcess({ ...options, log: diagnostics.log, serveControl: () => controlServe })
 })
 function readProfileHosts(config: WorkhubConfig): void {
   profileHosts = new Map(config.profiles.flatMap((p): [string, ProfileHost][] => (p.host ? [[p.id, p.host]] : [])))
@@ -637,7 +641,8 @@ const childHost =
           ...(kiroDir ? ['--kiro-dir', kiroDir] : [])
         ],
         log: diagnostics.log,
-        onRestart: (host) => hosts.register(host)
+        onRestart: (host) => hosts.register(host),
+        serveControl: () => controlServe
       })
     : null
 if (childHost) {
@@ -1738,6 +1743,7 @@ void app.whenReady().then(async () => {
     sessions: sessionRequests,
     log: (m) => diagnostics.log.warn(m)
   }, agentChanges)
+  controlServe = (req) => serveControl(controlDeps, req)
   if (loopbackControl) {
     const started = await startLoopbackControlServer(controlToken, controlDeps)
     controlServer = started?.server ?? null

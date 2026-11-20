@@ -1,0 +1,53 @@
+// The app's end of a host's control relay (`@workhub/adapters/host` control-relay.ts): a request a
+// session sent to the host's socket arrives as a `control.request` event, is served by main's
+// endpoint (`serveControl`, which authorizes it by the session token like any other request), and
+// the answer goes back as a `control.respond` request. Reaching the host's socket (mode 0600, in a
+// folder only the user can open) stands where reaching the app's socket, or its loopback token on
+// Windows, does for a local session.
+import { CONTROL_REQUEST_EVENT, CONTROL_RESPOND_METHOD, HostRequestError, relayedControlRequestSchema, type HostClient, type RelayedControlResponse } from '@workhub/adapters/host'
+import type { ControlRequest, ControlResponse } from './control-server'
+
+/** Serves one control request in main; the endpoint's deps are bound by the caller. */
+export type ControlServe = (req: ControlRequest) => Promise<ControlResponse>
+
+const errorResponse = (rid: number, status: number, error: string): RelayedControlResponse => ({
+  rid,
+  status,
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ ok: false, error })
+})
+
+/**
+ * Answers the control requests a host relays, for as long as its client lives. `serve` is asked at
+ * each request: null while main's endpoint is not up (the request gets a 503).
+ */
+export function answerRelayedControl(client: Pick<HostClient, 'onEvent' | 'request'>, serve: () => ControlServe | null, log: (message: string) => void): () => void {
+  return client.onEvent(CONTROL_REQUEST_EVENT, (payload) => {
+    const parsed = relayedControlRequestSchema.safeParse(payload)
+    if (!parsed.success) return log('host: a malformed control request was dropped')
+    void answer(client, parsed.data.rid, serve(), parsed.data, log)
+  })
+}
+
+async function answer(client: Pick<HostClient, 'request'>, rid: number, serve: ControlServe | null, req: ControlRequest, log: (message: string) => void): Promise<void> {
+  let response: RelayedControlResponse
+  if (!serve) response = errorResponse(rid, 503, 'the Workhub endpoint is not available')
+  else {
+    try {
+      const r = await serve({ method: req.method, url: req.url, headers: req.headers, body: req.body })
+      response = { rid, status: r.status, headers: r.headers, body: r.body }
+    } catch (err) {
+      response = errorResponse(rid, 500, err instanceof Error ? err.message : String(err))
+    }
+  }
+  try {
+    await client.request(CONTROL_RESPOND_METHOD, response)
+  } catch (err) {
+    // An answer over the channel's line cap still tells the caller why.
+    if (err instanceof HostRequestError && err.code === 'too_large') {
+      await client.request(CONTROL_RESPOND_METHOD, errorResponse(rid, 502, 'the answer is too large to relay to the host; ask for less (a smaller page or query)')).catch(() => {})
+      return
+    }
+    log(`host: a control answer was not delivered: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}

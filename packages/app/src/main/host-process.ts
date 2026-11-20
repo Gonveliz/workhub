@@ -16,6 +16,7 @@ import {
   remoteGitRunner
 } from '@workhub/adapters/host'
 import { killProcessTree } from '@workhub/adapters/spawn-plan'
+import { answerRelayedControl, type ControlServe } from './host-control'
 import type { Logger } from './log-file'
 import type { SessionHost } from './hosts'
 
@@ -60,6 +61,8 @@ export interface HostProcessOptions {
   /** Delay before the first restart, doubled after each failed one up to `maxMs`. */
   backoff?: { initialMs: number; maxMs: number }
   helloTimeoutMs?: number
+  /** Serves the control requests the host relays from its socket (`host-control.ts`); null while main's endpoint is down. */
+  serveControl?: () => ControlServe | null
 }
 
 const DEFAULT_BACKOFF = { initialMs: 1_000, maxMs: 60_000 }
@@ -112,6 +115,7 @@ export class HostProcess {
       onNotice: (n) => options.log.warn(`host: unexpected ${n.kind}`)
     })
     this.client = client
+    if (options.serveControl) answerRelayedControl(client, options.serveControl, (m) => options.log.warn(m))
     let lost = false
     const onLost = (reason: string) => {
       if (lost) return
