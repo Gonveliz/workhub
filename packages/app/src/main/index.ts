@@ -90,7 +90,7 @@ import { PrEventService, registerPrEventsIpc } from './pr-events-service'
 import { OutputCoalescer } from './output-coalescer'
 import { routeSessionEvent } from './terminal-routing'
 import { HostRegistry, localHost } from './hosts'
-import type { ControlServe } from './host-control'
+import { mcpLaunchTarget, sessionEndpoint, type ControlServe } from './host-control'
 import { HostProcess } from './host-process'
 import { WslHosts } from './wsl-hosts'
 import { ensureWslHost } from './wsl-host-install'
@@ -757,11 +757,12 @@ const sessions = new SessionManager({
   log: (m) => diagnostics.log.warn(m),
   worktrees: new GitWorktrees(),
   text: (key, params) => trayText(tray.locale()).t(key, params),
-  sessionEnv: (sessionId) => controlEnv(sessionId, controlEndpoint, () => controlTokens.mint(sessionId)),
+  // A session on a host reaches the endpoint through the host's socket, relayed to main (host-control.ts).
+  sessionEnv: (sessionId, control) => controlEnv(sessionId, sessionEndpoint(control, controlEndpoint, controlServe !== null), () => controlTokens.mint(sessionId)),
   // Workhub's MCP server (Settings → Agents → Workhub tools), for sessions that reach the endpoint.
-  sessionMcp: async (env) => {
+  sessionMcp: async (env, _agent, control) => {
     if (!appOptions(await configuration.current()).workhubMcp) return []
-    return workhubMcpLaunch(env, { node: process.execPath, script: join(bridgeDir, WORKHUB_MCP_SCRIPT) })
+    return workhubMcpLaunch(env, mcpLaunchTarget(control, { node: process.execPath, script: join(bridgeDir, WORKHUB_MCP_SCRIPT) }))
   },
   names: sessionNames,
   profileEnv: async (profileId, cwd) => {
@@ -775,7 +776,7 @@ const sessions = new SessionManager({
   history: historySources,
   hostFor: (target) => {
     const host = hosts.hostFor(target)
-    return { ...host.services, exists: host.exists }
+    return { ...host.services, exists: host.exists, control: host.control }
   },
   onAgentOptions: (agentId, accountId, options) => agentOptions.record(agentId, accountId, options),
   emitEvent: (e) => {

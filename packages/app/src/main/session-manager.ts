@@ -51,7 +51,7 @@ import { JOURNAL_MAX_ENTRIES } from './chat-journal'
 import { ConsoleActivity } from './console-activity'
 import { NO_CONTROL_ENV } from './control-server'
 import { pathInsideFolder } from './reveal'
-import type { HostTarget } from './hosts'
+import type { HostControlInfo, HostTarget } from './hosts'
 import { SendGate } from './send-gate'
 import { StallWatch } from './stall-watch'
 import { translate, type MessageKey } from '../renderer/i18n/translate'
@@ -143,6 +143,8 @@ export interface SessionServices {
   history: Partial<Record<string, SessionHistorySource>>
   /** Whether a path exists where the host's folders live; this computer's disk when not given. */
   exists?: (path: string) => Promise<boolean>
+  /** How sessions here reach Workhub (`SessionHost.control`): undefined for main's own endpoint, null for none. */
+  control?: HostControlInfo | null
 }
 
 export interface SessionManagerDeps extends SessionServices {
@@ -158,9 +160,9 @@ export interface SessionManagerDeps extends SessionServices {
    * every session when this is not set, get `NO_CONTROL_ENV`: the variables set to empty strings,
    * so an agent never reaches an endpoint through values inherited from a parent process.
    */
-  sessionEnv?: (sessionId: string) => Record<string, string>
-  /** MCP servers a session gets on top of the agent's own (Workhub's), from its environment. Never for a reviewer. */
-  sessionMcp?: (env: Record<string, string>, agent: AgentDefinition) => Promise<McpServerLaunch[]>
+  sessionEnv?: (sessionId: string, control: HostControlInfo | null | undefined) => Record<string, string>
+  /** MCP servers a session gets on top of the agent's own (Workhub's), from its environment and its host. Never for a reviewer. */
+  sessionMcp?: (env: Record<string, string>, agent: AgentDefinition, control: HostControlInfo | null | undefined) => Promise<McpServerLaunch[]>
   /**
    * The services of the host a session of this profile runs on, asked once per start. Without it
    * every session runs on the services given here (`runtimes`, `terminal`, `transcripts`, `history`).
@@ -409,10 +411,10 @@ export class SessionManager {
     const env = {
       ...launchEnvironment(agent, account, account ? await this.deps.accountEnv?.(account) : undefined),
       ...((await this.deps.profileEnv?.(input.profileId, input.cwd)) ?? {}),
-      ...(input.readOnly ? NO_CONTROL_ENV : (this.deps.sessionEnv?.(id) ?? NO_CONTROL_ENV)),
+      ...(input.readOnly ? NO_CONTROL_ENV : (this.deps.sessionEnv?.(id, services.control) ?? NO_CONTROL_ENV)),
       ...(internal.env ?? {})
     }
-    const mcp = input.readOnly ? [] : ((await this.deps.sessionMcp?.(env, agent)) ?? [])
+    const mcp = input.readOnly ? [] : ((await this.deps.sessionMcp?.(env, agent, services.control)) ?? [])
     const view: SessionView = {
       id,
       identity,

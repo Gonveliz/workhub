@@ -7,7 +7,9 @@
  * On Windows Node cannot serve a Unix socket and curl cannot talk to a named pipe, so it is HTTP on
  * a random loopback port guarded by a token made at each launch: sessions get `WORKHUB_URL` and
  * `WORKHUB_TOKEN` instead, and every request sends `Authorization: Bearer $WORKHUB_TOKEN`. The
- * `workhub-*` skills pick whichever the session has.
+ * `workhub-*` skills pick whichever the session has. A session on another host (a WSL
+ * distribution) gets `WORKHUB_SOCKET` naming a socket of that host, which relays each request to
+ * `serveControl` here over the host channel (`host-control.ts`), even when the app runs on Windows.
  *
  * Reaching the endpoint does not say which session is calling: every session also gets its own
  * token, `WORKHUB_SESSION_TOKEN`, sent as `X-Workhub-Token`, and a request acts as the session of

@@ -41,10 +41,25 @@ export interface HostServices {
   git: GitRunner
 }
 
+/** How sessions on a host reach Workhub: the host's relay socket and Workhub's MCP server there. */
+export interface HostControlInfo {
+  /** The host's Unix socket, relayed to main's endpoint (`host-control.ts`). */
+  socket: string
+  /** The Node the host runs on (Electron as Node for the child host). */
+  node: string
+  /** `workhub-mcp.mjs` in the host's bridge folder. */
+  mcpScript: string
+}
+
 /** A place sessions run: its agent runtimes, transcript readers, past sessions, and its folders. */
 export interface SessionHost extends HostFolders {
   id: HostId
   services: HostServices
+  /**
+   * How its sessions reach Workhub: undefined for main's own endpoint (this computer, or a child
+   * host on Windows, where no socket is relayed), null for a host that offers none.
+   */
+  control?: HostControlInfo | null
 }
 
 /** Picks the host of a session or folder. */

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { CONTROL_REQUEST_EVENT, CONTROL_RESPOND_METHOD, HostRequestError } from '@workhub/adapters/host'
-import { answerRelayedControl, type ControlServe } from '../src/main/host-control'
+import { workhubMcpLaunch } from '../src/main/agent-tools'
+import { answerRelayedControl, mcpLaunchTarget, sessionEndpoint, type ControlServe } from '../src/main/host-control'
 import { serveControl } from '../src/main/control-server'
 
 /** A client that records what is answered and lets the test fire relayed requests. */
@@ -80,5 +81,30 @@ describe('answerRelayedControl', () => {
     fire(relayed(7, '/v1/history', 't'))
     await vi.waitFor(() => expect(sent).toHaveLength(2))
     expect(sent[1]!.params).toMatchObject({ rid: 7, status: 502 })
+  })
+})
+
+describe('endpoint and MCP server per host', () => {
+  const remote = { socket: '/run/user/1000/workhub/host-42.sock', node: '/users/ana/.workhub/host/2.0.0/node/bin/node', mcpScript: '/users/ana/.workhub/host/2.0.0/bridge/workhub-mcp.mjs' }
+  const local = { node: 'C:\\Program Files\\Workhub\\Workhub.exe', script: 'C:\\Program Files\\Workhub\\bridge\\workhub-mcp.mjs' }
+  const loopback = { url: 'http://127.0.0.1:5000', token: 't' }
+
+  it("gives a local session main's endpoint and a host session the host's socket", () => {
+    expect(sessionEndpoint(undefined, loopback, true)).toBe(loopback)
+    expect(sessionEndpoint(undefined, null, true)).toBeNull()
+    expect(sessionEndpoint(remote, loopback, true)).toEqual({ socket: remote.socket })
+    // Nothing serves what the host relays yet, or the host has no socket: no endpoint.
+    expect(sessionEndpoint(remote, loopback, false)).toBeNull()
+    expect(sessionEndpoint(null, loopback, true)).toBeNull()
+  })
+
+  it("runs Workhub's MCP server with the host's Node and bridge for a host session", () => {
+    const env = { WORKHUB_SESSION: 's1', WORKHUB_SESSION_TOKEN: 'st', WORKHUB_SOCKET: remote.socket, WORKHUB_URL: '', WORKHUB_TOKEN: '' }
+    expect(workhubMcpLaunch(env, mcpLaunchTarget(remote, local))).toEqual([
+      { name: 'workhub', command: remote.node, args: [remote.mcpScript], env: { ELECTRON_RUN_AS_NODE: '1', WORKHUB_SESSION: 's1', WORKHUB_SESSION_TOKEN: 'st', WORKHUB_SOCKET: remote.socket } }
+    ])
+    const localEnv = { WORKHUB_SESSION: 's1', WORKHUB_SESSION_TOKEN: 'st', WORKHUB_SOCKET: '', WORKHUB_URL: loopback.url, WORKHUB_TOKEN: 't' }
+    expect(workhubMcpLaunch(localEnv, mcpLaunchTarget(undefined, local))[0]).toMatchObject({ command: local.node, args: [local.script] })
+    expect(mcpLaunchTarget(null, local)).toBe(local)
   })
 })

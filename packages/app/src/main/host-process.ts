@@ -6,9 +6,11 @@ import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 import { HOST_PROTOCOL_VERSION, NO_CAPABILITIES, type HostLaunch } from '@workhub/core'
 import {
+  HOST_INFO_METHOD,
   HostChannel,
   HostClient,
   HostHelloError,
+  hostInfoSchema,
   connectRemoteAgentRuntime,
   connectRemoteHistorySources,
   connectRemoteTranscriptReaders,
@@ -18,7 +20,7 @@ import {
 import { killProcessTree } from '@workhub/adapters/spawn-plan'
 import { answerRelayedControl, type ControlServe } from './host-control'
 import type { Logger } from './log-file'
-import type { SessionHost } from './hosts'
+import type { HostControlInfo, SessionHost } from './hosts'
 
 export const CHILD_HOST_ID = 'child'
 
@@ -162,12 +164,29 @@ export class HostProcess {
     ])
     const git = remoteGitRunner(client)
     const folders = remoteFolders(client)
+    const control = await this.controlInfo(client)
     return {
       id: this.options.id ?? CHILD_HOST_ID,
       services: { runtimes: { native, acp, terminal }, terminal, transcripts, history, git },
       git,
       exists: folders.exists,
-      stat: folders.stat
+      stat: folders.stat,
+      ...(control === undefined ? {} : { control })
+    }
+  }
+
+  /**
+   * How the host's sessions reach Workhub (`host.info`): its relay socket. Without one, a child on
+   * this computer (the default launch) leaves them on main's own endpoint, any other host gives none.
+   */
+  private async controlInfo(client: HostClient): Promise<HostControlInfo | null | undefined> {
+    const fallback = this.options.launch ? null : undefined
+    try {
+      const info = hostInfoSchema.parse(await client.request(HOST_INFO_METHOD))
+      return info.control ? { socket: info.control.socket, node: info.node, mcpScript: info.mcpScript } : fallback
+    } catch (err) {
+      this.options.log.warn(`host: no control endpoint for its sessions: ${message(err)}`)
+      return fallback
     }
   }
 

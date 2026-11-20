@@ -130,6 +130,37 @@ describe('SessionManager: services per host', () => {
   })
 })
 
+describe('SessionManager: control endpoint per host', () => {
+  it("hands each session its host's control info for its environment and Workhub's MCP server", async () => {
+    const remote = { ...services('on the other host'), control: { socket: '/run/wh/host-1.sock', node: '/opt/wh/node', mcpScript: '/opt/wh/bridge/workhub-mcp.mjs' } }
+    const local = services('on this computer')
+    const envFor = vi.fn((id: string, control: unknown) => ({ WORKHUB_SESSION: id, WORKHUB_SOCKET: control ? (control as { socket: string }).socket : '/app.sock' }))
+    const mcpFor = vi.fn(async () => [])
+    const manager = new SessionManager({
+      config: { current: async () => emptyConfig(), replaceSessionIdentity: async () => undefined } as unknown as ConfigurationService,
+      ...local,
+      hostFor: (target) => (target.profileId === 'wsl' ? remote : local),
+      sessionEnv: envFor,
+      sessionMcp: mcpFor,
+      emitEvent: () => {},
+      emitChanged: () => {},
+      emitReplay: () => {},
+      pollMs: 60_000
+    })
+    const here = await manager.start({ profileId: null, agentKey: 'claude', cwd: '/w/acme/api' })
+    const there = await manager.start({ profileId: 'wsl', agentKey: 'claude', cwd: '/w/acme/web' })
+    await flush()
+    expect(envFor.mock.calls).toEqual([
+      [here.id, undefined],
+      [there.id, remote.control]
+    ])
+    expect(mcpFor.mock.calls.map((c) => (c as unknown[])[2])).toEqual([undefined, remote.control])
+    expect(remote.native.started[0]!.env).toMatchObject({ WORKHUB_SESSION: there.id, WORKHUB_SOCKET: '/run/wh/host-1.sock' })
+    expect(local.native.started[0]!.env).toMatchObject({ WORKHUB_SESSION: here.id, WORKHUB_SOCKET: '/app.sock' })
+    await manager.stopAll()
+  })
+})
+
 describe('HostRegistry', () => {
   const execution = {} as ExecutionServices
 

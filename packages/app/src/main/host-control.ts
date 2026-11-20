@@ -5,7 +5,8 @@
 // folder only the user can open) stands where reaching the app's socket, or its loopback token on
 // Windows, does for a local session.
 import { CONTROL_REQUEST_EVENT, CONTROL_RESPOND_METHOD, HostRequestError, relayedControlRequestSchema, type HostClient, type RelayedControlResponse } from '@workhub/adapters/host'
-import type { ControlRequest, ControlResponse } from './control-server'
+import type { ControlEndpoint, ControlRequest, ControlResponse } from './control-server'
+import type { HostControlInfo } from './hosts'
 
 /** Serves one control request in main; the endpoint's deps are bound by the caller. */
 export type ControlServe = (req: ControlRequest) => Promise<ControlResponse>
@@ -50,4 +51,18 @@ async function answer(client: Pick<HostClient, 'request'>, rid: number, serve: C
     }
     log(`host: a control answer was not delivered: ${err instanceof Error ? err.message : String(err)}`)
   }
+}
+
+/**
+ * The endpoint a session gets, by its host's `control`: main's own (undefined: this computer), the
+ * host's relay socket while main can serve what it relays, or none (null, or main not up yet).
+ */
+export function sessionEndpoint(control: HostControlInfo | null | undefined, local: ControlEndpoint | null, relaying: boolean): ControlEndpoint | null {
+  if (control === undefined) return local
+  return control && relaying ? { socket: control.socket } : null
+}
+
+/** Where Workhub's MCP server runs for a session: on its host (the host's Node and bridge), else with the app's. */
+export function mcpLaunchTarget(control: HostControlInfo | null | undefined, local: { node: string; script: string }): { node: string; script: string } {
+  return control ? { node: control.node, script: control.mcpScript } : local
 }

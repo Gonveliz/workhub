@@ -1,8 +1,12 @@
 import { EventEmitter } from 'node:events'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { request } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentDefinition, AgentEvent, AgentEventListener, AgentRuntime, PromptResult, StartSessionRequest, StartedSession } from '@workhub/core'
-import { runHost, type HostedServices, type RunningHost } from '@workhub/adapters/host'
+import { runHost, type HostedServices, type RunHostOptions, type RunningHost } from '@workhub/adapters/host'
 import type { GitRunner } from '@workhub/adapters/git-review'
 import { CHILD_HOST_ID, HostProcess, type HostChild } from '../src/main/host-process'
 
@@ -58,10 +62,11 @@ class FakeChild extends EventEmitter implements HostChild {
     readonly args: string[],
     readonly env: NodeJS.ProcessEnv,
     readonly hosted = services(),
-    hostVersion = args[args.indexOf('--host-version') + 1]!
+    hostVersion = args[args.indexOf('--host-version') + 1]!,
+    host: Partial<RunHostOptions> = {}
   ) {
     super()
-    this.host = runHost({ input: this.stdin, output: this.stdout, hostVersion, services: hosted, platform: 'linux', home: '/users/ana', onExit: (code) => this.exit(code) })
+    this.host = runHost({ input: this.stdin, output: this.stdout, hostVersion, services: hosted, platform: 'linux', home: '/users/ana', onExit: (code) => this.exit(code), ...host })
   }
 
   kill(signal?: NodeJS.Signals | number): boolean {
@@ -135,7 +140,45 @@ describe('HostProcess', () => {
     // The terminal runtime is one, and a raw terminal reports no structured capabilities.
     expect(host.services.terminal).toBe(host.services.runtimes.terminal)
     expect(host.services.terminal.capabilities({ capabilities: { cost: true } } as unknown as AgentDefinition)).not.toHaveProperty('cost', true)
+    // A child without a relay socket leaves its sessions on main's own endpoint.
+    expect(host.control).toBeUndefined()
     hostProcess.stop()
+  })
+
+  it.skipIf(process.platform === 'win32')("relays the host socket's requests to main and reports where its sessions reach Workhub", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wh-hp-'))
+    const socket = join(dir, 'host.sock')
+    const served: { method: string; url: string; token: unknown; body?: string }[] = []
+    const hostProcess = new HostProcess({
+      id: 'wsl:Ubuntu',
+      launch: () => ({ command: 'wsl.exe', args: ['--host-version', VERSION], env: {} }),
+      hostVersion: VERSION,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      spawn: (_command, args, env) => new FakeChild(args, env, services(), VERSION, { control: { socketPath: socket }, node: '/opt/wh/node/bin/node', bridgeDir: '/opt/wh/bridge' }),
+      kill: (child) => child.kill('SIGTERM'),
+      serveControl: () => async (req) => {
+        served.push({ method: req.method, url: req.url, token: req.headers['x-workhub-token'], body: req.body })
+        return { status: 200, headers: { 'content-type': 'application/json' }, body: '{"ok":true,"from":"main"}' }
+      }
+    })
+    try {
+      const host = await hostProcess.connect()
+      expect(host.control).toEqual({ socket, node: '/opt/wh/node/bin/node', mcpScript: join('/opt/wh/bridge', 'workhub-mcp.mjs') })
+      const answer = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const req = request({ socketPath: socket, method: 'POST', path: '/v1/notify', headers: { 'x-workhub-token': 'st' } }, (res) => {
+          let text = ''
+          res.on('data', (c) => (text += c))
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body: text }))
+        })
+        req.on('error', reject)
+        req.end('{"title":"done"}')
+      })
+      expect(answer).toEqual({ status: 200, body: '{"ok":true,"from":"main"}' })
+      expect(served).toEqual([{ method: 'POST', url: '/v1/notify', token: 'st', body: '{"title":"done"}' }])
+    } finally {
+      hostProcess.stop()
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('sends what the child writes to stderr to the log', async () => {
@@ -247,6 +290,8 @@ describe('HostProcess with a launch of its own', () => {
     // Not run as Electron's Node: that variable belongs to the default launch only.
     expect(spawned[0]!.env).not.toHaveProperty('ELECTRON_RUN_AS_NODE')
     expect(await host.git('/w/acme/api', ['status'])).toMatchObject({ ok: true })
+    // A host started elsewhere without a relay socket gives its sessions no endpoint.
+    expect(host.control).toBeNull()
     hostProcess.stop()
   })
 
