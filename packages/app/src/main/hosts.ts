@@ -1,10 +1,10 @@
-// The hosts sessions run on. Every session runs on this computer today (the `local` host); a
-// profile that runs elsewhere (a WSL distribution, say) will get a host of its own, whose services
-// reach it through a HostClient, and `hostFor` will pick it from the profile.
+// The hosts sessions run on: this computer (the `local` host), and the hosts profiles name (a WSL
+// distribution, `wsl:<distro>`), whose services reach them through a HostClient. `hostFor` picks
+// one from the profile.
 import { existsSync } from 'node:fs'
 import type { GitRunner } from '@workhub/adapters/git-review'
 import { statPath, type HostFileInfo } from '@workhub/adapters/host'
-import type { AgentRuntime, SessionHistorySource, TranscriptReader } from '@workhub/core'
+import { hostIdOf, type AgentRuntime, type ProfileHost, type SessionHistorySource, type TranscriptReader } from '@workhub/core'
 
 export type { HostFileInfo }
 
@@ -70,12 +70,18 @@ export async function originUrl(git: GitRunner, folder: string): Promise<string 
   return r.ok ? r.stdout.trim() : null
 }
 
+/** The host a profile names (`profile.host`); undefined for an unknown profile or one that names none. */
+export type ProfileHostLookup = (profileId: string) => ProfileHost | undefined
+
 /** The known hosts, `local` always among them. */
 export class HostRegistry {
   private readonly hosts = new Map<HostId, SessionHost>()
   private preferred: HostId | null = null
 
-  constructor(readonly local: SessionHost) {
+  constructor(
+    readonly local: SessionHost,
+    private readonly profileHost: ProfileHostLookup = () => undefined
+  ) {
     if (local.id !== LOCAL_HOST_ID) throw new Error(`the local host must have the id "${LOCAL_HOST_ID}"`)
     this.hosts.set(local.id, local)
   }
@@ -91,15 +97,21 @@ export class HostRegistry {
   }
 
   /**
-   * Runs every profile on this host while it is registered (`WORKHUB_HOST=child`); null goes back
-   * to this computer. A stopgap until profiles name their own host.
+   * Runs the profiles that name no host on this one while it is registered: the development switch
+   * `WORKHUB_HOST=child`. Null goes back to this computer. A profile's own `host` always wins.
    */
   prefer(id: HostId | null): void {
     this.preferred = id
   }
 
-  /** The host a session or folder of this profile runs on: the preferred one, else this computer. */
-  hostFor(_target: HostTarget): SessionHost {
+  /**
+   * The host a session or folder of this profile runs on: the one the profile names, else the
+   * preferred one, else this computer. A named host that is not registered (not connected yet, or
+   * failed to start) falls back to this computer.
+   */
+  hostFor(target: HostTarget): SessionHost {
+    const named = target.profileId !== null ? this.profileHost(target.profileId) : undefined
+    if (named) return this.hosts.get(hostIdOf(named)) ?? this.local
     return (this.preferred !== null ? this.hosts.get(this.preferred) : undefined) ?? this.local
   }
 }

@@ -10,6 +10,7 @@ import {
   type AgentEventListener,
   type AgentRuntime,
   type ConfigurationService,
+  type ProfileHost,
   type SessionHistorySource,
   type StartSessionRequest,
   type TranscriptReader
@@ -154,6 +155,32 @@ describe('HostRegistry', () => {
 
     hosts.prefer(null)
     expect(hosts.hostFor({ profileId: 'any' })).toBe(hosts.local)
+  })
+
+  it("resolves a profile to the host it names while that host is registered, else to this computer", () => {
+    const named: Record<string, ProfileHost> = { linux: { kind: 'wsl', distro: 'Ubuntu' }, here: { kind: 'local' } }
+    const hosts = new HostRegistry(localHost(execution), (id) => named[id])
+    expect(hosts.hostFor({ profileId: 'linux' })).toBe(hosts.local)
+
+    const wsl = { ...localHost(execution), id: 'wsl:Ubuntu' }
+    hosts.register(wsl)
+    expect(hosts.hostFor({ profileId: 'linux' })).toBe(wsl)
+    expect(hosts.hostFor({ profileId: 'here' })).toBe(hosts.local)
+    expect(hosts.hostFor({ profileId: 'other' })).toBe(hosts.local)
+    expect(hosts.hostFor({ profileId: null })).toBe(hosts.local)
+  })
+
+  it('runs only the profiles that name no host on the preferred host', () => {
+    const named: Record<string, ProfileHost> = { linux: { kind: 'wsl', distro: 'Debian' }, here: { kind: 'local' } }
+    const hosts = new HostRegistry(localHost(execution), (id) => named[id])
+    const child = { ...localHost(execution), id: 'child' }
+    hosts.register(child)
+    hosts.prefer('child')
+    expect(hosts.hostFor({ profileId: 'unnamed' })).toBe(child)
+    expect(hosts.hostFor({ profileId: null })).toBe(child)
+    expect(hosts.hostFor({ profileId: 'here' })).toBe(hosts.local)
+    // Its distribution is not connected: this computer, not the preferred host.
+    expect(hosts.hostFor({ profileId: 'linux' })).toBe(hosts.local)
   })
 
   it('keeps the local host fixed', () => {

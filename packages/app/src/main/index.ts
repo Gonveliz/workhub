@@ -48,6 +48,8 @@ import {
   type Result,
   sessionIdentity,
   type SessionCeilings,
+  hostIdOf,
+  type ProfileHost,
   type WorkhubConfig
 } from '@workhub/core'
 import type { AccountUsage, ConfigSnapshot, HistorySearchOptions, HistorySearchResult, UsageAlert } from '../shared/api'
@@ -363,6 +365,7 @@ const send = broadcast.send
 /** Tells every window, and every paired device, that the config changed. */
 const configChanged = () => {
   broadcast.toWindowsAndDevices('config:changed')
+  void configuration.current().then(readProfileHosts)
 }
 // Every write tells every window (`config:changed`): a change in the Settings window shows in the main window.
 const configPath = join(dataDir, 'config.json')
@@ -580,11 +583,18 @@ const execution = composeExecutionServices({
   claudeTranscripts: transcriptReader.read
 })
 const { runtimes, terminal, history: historySources } = execution
-// The hosts sessions run on: only this computer for now (see hosts.ts).
-const hosts = new HostRegistry(localHost(execution))
-// WORKHUB_HOST=child: every session and folder check runs in a `workhub host` child process, over
-// its stdio, instead of in this process. A development switch for the host stack; per-profile
-// hosts (a WSL distribution) replace it later. Until it connects, and when it cannot, this computer.
+// The host each profile names (`profile.host`), read again on every config write: `hostFor` is
+// synchronous, so it reads this copy rather than the config.
+let profileHosts = new Map<string, ProfileHost>()
+function readProfileHosts(config: WorkhubConfig): void {
+  profileHosts = new Map(config.profiles.flatMap((p): [string, ProfileHost][] => (p.host ? [[p.id, p.host]] : [])))
+}
+// The hosts sessions run on: this computer, and the ones profiles name once they connect (see hosts.ts).
+const hosts = new HostRegistry(localHost(execution), (profileId) => profileHosts.get(profileId))
+void configuration.current().then(readProfileHosts)
+// WORKHUB_HOST=child: the sessions and folder checks of every profile that names no host run in a
+// `workhub host` child process, over its stdio, instead of in this process. A development switch
+// for the host stack. Until it connects, and when it cannot, this computer.
 const childHost =
   process.env['WORKHUB_HOST'] === 'child'
     ? new HostProcess({
@@ -782,7 +792,17 @@ const openSessions = new OpenSessions({
     return sessions.start(input, { restored: true, ...extra, ...(title ? { title } : {}) })
   },
   setMode: (id, mode) => sessions.setMode(id, mode),
-  folderExists: (path) => stat(path).then((s) => s.isDirectory(), () => false),
+  // A session of another host is checked there; while that host is not connected it is kept (it waits stopped, or its start reports the failure).
+  folderExists: (path, hostId) => {
+    if (!hostId) return stat(path).then((s) => s.isDirectory(), () => false)
+    const host = hosts.get(hostId)
+    return host ? host.stat(path).then((s) => s?.isDirectory === true, () => false) : Promise.resolve(true)
+  },
+  // The host the profile names, even while it is not connected: its folders are paths there.
+  hostOf: (view) => {
+    const named = view.profileId ? profileHosts.get(view.profileId) : undefined
+    return named ? hostIdOf(named) : hosts.hostFor({ profileId: view.profileId ?? null }).id
+  },
   enabled: async () => appOptions(await configuration.current()).reopenSessions,
   startAtLaunch: async () => appOptions(await configuration.current()).startSessionsAtLaunch,
   groups: async () => (await configuration.current()).sessionGroups,

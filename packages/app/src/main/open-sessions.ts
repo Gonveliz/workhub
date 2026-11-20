@@ -27,6 +27,8 @@ export interface SavedOpenSession {
   title?: string
   /** The worktree Workhub created for the session (its `cwd` is inside it), so closing it later can still offer to remove it. */
   worktree?: SessionWorktree
+  /** The host the session ran on (`wsl:<distro>`, say); absent: this computer. Its `cwd` is a path there. */
+  hostId?: string
 }
 
 export interface SavedOpenSessions {
@@ -48,8 +50,10 @@ export interface OpenSessionsDeps {
   /** Starts a stored session again (`SessionManager.start` with `restored`: it resumes only a conversation that still exists). */
   start(input: StartSessionInput, extra: { worktree?: SessionWorktree; dormant?: boolean; title?: string }): Promise<SessionView>
   setMode(id: string, mode: SessionMode): Promise<void>
-  /** Whether the session's folder is still there. */
-  folderExists(path: string): Promise<boolean>
+  /** Whether the session's folder is still there, on the host it ran on (absent: this computer). */
+  folderExists(path: string, hostId?: string): Promise<boolean>
+  /** The host a session runs on; sessions on this computer (`local`) are stored without one. */
+  hostOf?(view: SessionView): string
   /** Settings → General → "Reopen sessions on launch": the sessions come back to the sidebar, stopped. */
   enabled(): Promise<boolean>
   /** Settings → General: the sessions also start again at launch; unset or false, they wait stopped until opened. */
@@ -62,7 +66,7 @@ export interface OpenSessionsDeps {
 const MODES: readonly SessionMode[] = ['app', 'console', 'shell']
 
 /** What is stored for an open session; null for one that is not reopened (an AI reviewer). */
-export function savedSessionOf(view: SessionView, engine: 'app' | 'console' | undefined): SavedOpenSession | null {
+export function savedSessionOf(view: SessionView, engine: 'app' | 'console' | undefined, hostId?: string): SavedOpenSession | null {
   if (view.readOnly || !view.agentId) return null
   const identity = view.agentSessionId ?? view.identity ?? view.id
   return {
@@ -75,7 +79,8 @@ export function savedSessionOf(view: SessionView, engine: 'app' | 'console' | un
     ...(view.agentSessionId ? { agentSessionId: view.agentSessionId } : {}),
     ...(view.currentModelId ? { model: view.currentModelId } : {}),
     ...(view.agentTitle ? { title: view.agentTitle } : {}),
-    ...(view.worktree ? { worktree: view.worktree } : {})
+    ...(view.worktree ? { worktree: view.worktree } : {}),
+    ...(hostId && hostId !== 'local' ? { hostId } : {})
   }
 }
 
@@ -97,6 +102,7 @@ export function readSavedSessions(raw: unknown): SavedOpenSession[] {
     const agentSessionId = str(r['agentSessionId'])
     const model = str(r['model'])
     const title = str(r['title'])
+    const hostId = str(r['hostId'])
     const w = r['worktree'] && typeof r['worktree'] === 'object' ? (r['worktree'] as Record<string, unknown>) : undefined
     const worktree = w && str(w['repoRoot']) && str(w['path']) && str(w['branch']) ? { repoRoot: str(w['repoRoot'])!, path: str(w['path'])!, branch: str(w['branch'])! } : undefined
     out.push({
@@ -109,7 +115,8 @@ export function readSavedSessions(raw: unknown): SavedOpenSession[] {
       ...(agentSessionId ? { agentSessionId } : {}),
       ...(model ? { model } : {}),
       ...(title ? { title } : {}),
-      ...(worktree ? { worktree } : {})
+      ...(worktree ? { worktree } : {}),
+      ...(hostId && hostId !== 'local' ? { hostId } : {})
     })
   }
   return out
@@ -179,7 +186,7 @@ export class OpenSessions {
     const out: SavedOpenSession[] = []
     const live: boolean[] = []
     for (const v of this.deps.list()) {
-      const s = savedSessionOf(v, this.deps.engineOf(v.id))
+      const s = savedSessionOf(v, this.deps.engineOf(v.id), this.deps.hostOf?.(v))
       if (!s) continue
       const running = v.state !== 'stopped' && v.state !== 'error'
       const at = out.findIndex((o) => o.identity === s.identity)
@@ -203,7 +210,7 @@ export class OpenSessions {
     for (const s of restoreOrder(saved, await this.deps.groups())) {
       if (open.has(s.identity) || this.frozen) continue
       try {
-        if (!(await this.deps.folderExists(s.cwd))) continue
+        if (!(await this.deps.folderExists(s.cwd, s.hostId))) continue
         const view = await this.deps.start({
           profileId: s.profileId,
           agentKey: s.agentKey,
