@@ -343,6 +343,7 @@ const remoteHub = new RemoteHub({
     return profile ? (await profileWorkspaces(profile, homedir())).map((f) => f.path) : []
   },
   startMode: startModeOf,
+  firstPrompt: (id) => chatJournal.firstPrompt(id),
   log: diagnostics.log
 })
 /** The main window, the secondary windows and the guards every window gets (windows.ts). */
@@ -833,6 +834,7 @@ const openSessions = new OpenSessions({
   store: db.state<SavedOpenSessions>('open-sessions', 500),
   list: () => sessions.list(),
   engineOf: (id) => sessions.engineOf(id),
+  firstPrompt: (id) => chatJournal.firstPrompt(id),
   start: async (input, extra) => {
     // A session waiting stopped has no prompt loaded yet: its title comes from the stored one, else from History.
     let title = extra.title
@@ -840,7 +842,10 @@ const openSessions = new OpenSessions({
       const past = await namedHistory.get(60_000).catch(() => null)
       title = past?.entries.find((e) => e.agentSessionId === input.resumeAgentSessionId)?.title
     }
-    return sessions.start(input, { restored: true, ...extra, ...(title ? { title } : {}) })
+    const { firstPrompt, ...rest } = extra
+    const view = await sessions.start(input, { restored: true, ...rest, ...(title ? { title } : {}) })
+    if (firstPrompt) chatJournal.restoreFirstPrompt(view.id, firstPrompt)
+    return view
   },
   setMode: (id, mode) => sessions.setMode(id, mode),
   // A session of another host is checked there; while that host is not connected it is kept (it waits stopped, or its start reports the failure).

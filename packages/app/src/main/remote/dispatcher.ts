@@ -1,6 +1,8 @@
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import type { RemoteCapability, RemotePullRequestList, RemotePullRequestsPage } from '../../shared/remote-api'
 import { isUnattendedMode, type AgentEvent, type ConversationEntry, type EffectiveAgent, type Profile, type PullRequestItem, type SubagentConversation, type ToolResultView, type ToolView, type WorkhubConfig } from '@workhub/core'
+import type { MilestoneOpenTickets } from '@workhub/core'
+import type { PlannerView } from '../../shared/planner-api'
 import type { ConfigSnapshot, HistorySearchResult, SessionView, StartSessionInput } from '../../shared/api'
 import type { CodeHostLists } from '../../shared/codehost-api'
 import { pageOf, PAGE_BYTES, PageRequestError, readPageRequest, type PageRequest } from './paging'
@@ -36,6 +38,8 @@ export interface RemoteHubDeps {
    * agent offers. Null when the agent is unknown (the start then fails on its own).
    */
   startMode(input: StartSessionInput): Promise<RemoteStartMode | null>
+  /** What the user first asked in a session, already shortened, so a device titles a row the desktop's way without loading its chat. */
+  firstPrompt?(sessionId: string): string | undefined
   log?: { warn(line: string): void }
   /** The clock rate limits run on (tests pass their own). */
   now?: () => number
@@ -206,8 +210,8 @@ export class RemoteHub {
         this.deps.log?.warn(`remote: ${channel} from ${deviceId} failed: ${err instanceof Error ? err.message : String(err)}`)
         throw new RemoteRefused(REMOTE_GENERIC_ERROR)
       }
-      if (!paged || !source) return redactResult(channel, result)
-      return paged.page(redactResult(source, result))
+      if (!paged || !source) return redactResult(channel, result, (id) => this.deps.firstPrompt?.(id))
+      return paged.page(redactResult(source, result, (id) => this.deps.firstPrompt?.(id)))
     } finally {
       limits.inFlight--
     }
@@ -255,7 +259,7 @@ export class RemoteHub {
     for (const { device } of this.devices.values()) {
       if (!remoteAllows(REMOTE_EVENTS, channel, device.capabilities)) continue
       try {
-        device.emit(channel, redactEvent(channel, args))
+        device.emit(channel, redactEvent(channel, args, (id) => this.deps.firstPrompt?.(id)))
       } catch (err) {
         this.deps.log?.warn(`remote: event ${channel} to ${device.id} failed: ${err instanceof Error ? err.message : String(err)}`)
       }
@@ -457,8 +461,8 @@ function pullRequestsPage(lists: CodeHostLists, request: PageRequest, only?: Rem
 }
 
 /** Events that carry what a device has no use for, trimmed like the matching results. */
-function redactEvent(channel: string, args: unknown[]): unknown[] {
-  if (channel === 'session:changed' && args[0] && typeof args[0] === 'object') return [remoteSessionView(args[0] as SessionView), ...args.slice(1)]
+function redactEvent(channel: string, args: unknown[], firstPrompt?: (sessionId: string) => string | undefined): unknown[] {
+  if (channel === 'session:changed' && args[0] && typeof args[0] === 'object') return [remoteSessionView(args[0] as SessionView, firstPrompt), ...args.slice(1)]
   if (channel === 'session:event' && args[0] && typeof args[0] === 'object') return [remoteAgentEvent(args[0] as AgentEvent), ...args.slice(1)]
   // The snapshot holds every prompt and folder and may not fit a frame: the device only learns it changed and reads its page again.
   if (channel === 'automations:changed') return []
@@ -492,9 +496,12 @@ const COMMANDS_MAX = 300
  * their descriptions: a few dozen kilobytes each with many skills installed, which across a dozen
  * sessions no longer fit one relay frame. The device gets the names and a short description.
  */
-export function remoteSessionView(view: SessionView): SessionView {
+export function remoteSessionView(view: SessionView, firstPrompt?: (sessionId: string) => string | undefined): SessionView {
   if (!view || typeof view !== 'object') return view
   const out: SessionView = { ...view }
+  // What the sidebar names a session by when nothing else does; the device has not loaded its chat, so it cannot work it out. Already cut to a row's length.
+  const asked = typeof view.id === 'string' ? firstPrompt?.(view.id) : undefined
+  if (asked) out.firstPrompt = asked
   if (Array.isArray(view.commands)) {
     out.commands = view.commands.slice(0, COMMANDS_MAX).map((c) => ({
       name: c.name,
@@ -564,15 +571,45 @@ export function remoteSubagent(c: SubagentConversation): SubagentConversation {
 }
 
 /** Results that carry what a device has no use for, trimmed. */
-function redactResult(channel: string, result: unknown): unknown {
+function redactResult(channel: string, result: unknown, firstPrompt?: (sessionId: string) => string | undefined): unknown {
   if (channel === 'config:get' && result && typeof result === 'object') return remoteConfigSnapshot(result as ConfigSnapshot)
-  if (channel === 'sessions:list' && Array.isArray(result)) return (result as SessionView[]).map(remoteSessionView)
+  if (channel === 'sessions:list' && Array.isArray(result)) return (result as SessionView[]).map((v) => remoteSessionView(v, firstPrompt))
+  if (channel === 'planner:openTickets' && result && typeof result === 'object') return remoteOpenTickets(result as MilestoneOpenTickets)
+  if ((channel === 'planner:get' || channel === 'planner:refreshMilestones') && result && typeof result === 'object') return remotePlannerView(result as PlannerView)
   if (channel === 'config:effectiveAgents' && Array.isArray(result)) return (result as EffectiveAgent[]).map(remoteEffectiveAgent)
   if (channel === 'sessions:subagent' && result && typeof result === 'object') return remoteSubagent(result as SubagentConversation)
   if (channel === 'history:search' && result && typeof result === 'object') return remoteHistorySearch(result as HistorySearchResult)
   // The answer carries the whole config (connections, agents): the device learns only whether it worked.
   if (channel === 'automations:setEnabled') return { ok: (result as { ok?: unknown } | null)?.ok === true }
   return result
+}
+
+/** The open tickets of one milestone as a device gets them: long texts cut, and as few of the first (most worrying) tickets as fit well under the relay's frame. The counters stay whole. */
+export const OPEN_TICKETS_MAX_BYTES = PAGE_BYTES / 2
+export function remoteOpenTickets(open: MilestoneOpenTickets): MilestoneOpenTickets {
+  const { tickets, ...rest } = open
+  const kept: MilestoneOpenTickets['tickets'] = []
+  let size = bytesOf(rest) + 32
+  for (const t of tickets) {
+    const slim = { ...t, key: cutText(t.key, 100), title: cutText(t.title, 300), status: cutText(t.status, 100), ...(typeof t.assignee === 'string' ? { assignee: cutText(t.assignee, 100) } : {}) }
+    size += bytesOf(slim) + 1
+    if (size > OPEN_TICKETS_MAX_BYTES) break
+    kept.push(slim)
+  }
+  return { ...rest, tickets: kept }
+}
+
+/** The planner view as a device sees it: the counters of a counted milestone stay, the list of its open tickets does not (the phone shows none, and the answer has a size limit). */
+export function remotePlannerView(view: PlannerView): PlannerView {
+  return {
+    ...view,
+    milestones: view.milestones.map((row) => {
+      const open = row.counts?.open
+      if (!row.counts || !open) return row
+      const { tickets: _listed, ...counters } = open
+      return { ...row, counts: { ...row.counts, open: { ...counters, tickets: [] } } }
+    })
+  }
 }
 
 /**
