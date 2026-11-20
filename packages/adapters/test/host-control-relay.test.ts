@@ -149,8 +149,15 @@ describe.skipIf(process.platform === 'win32')('control relay', () => {
     expect(statSync(fromXdg.dir).mode & 0o777).toBe(0o700)
     const tmp = tempDir()
     const fallback = hostSocketDir({}, tmp)
+    dirs.push(fallback.dir)
     expect(fallback.created).toBe(fallback.dir)
-    expect(fallback.dir.startsWith(join(tmp, 'workhub-host-'))).toBe(true)
+    // A temp folder too long for a socket path (macOS's /var/folders/…) gives way to /tmp.
+    const roomy = Buffer.byteLength(join(tmp, 'workhub-host-XXXXXX', 'host-4294967295.sock')) <= 100
+    expect(fallback.dir.startsWith(join(roomy ? tmp : '/tmp', 'workhub-host-'))).toBe(true)
+    const long = join(tmp, 'x'.repeat(100))
+    const short = hostSocketDir({}, long)
+    dirs.push(short.dir)
+    expect(short.dir.startsWith(join('/tmp', 'workhub-host-'))).toBe(true)
     expect(statSync(fallback.dir).mode & 0o777).toBe(0o700)
   })
 })
