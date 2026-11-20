@@ -98,12 +98,12 @@ describe('WslHosts', () => {
     expect(created.map((c) => c.stopped)).toEqual([true, true])
   })
 
-  it('logs where the host was expected when it cannot connect, and leaves the profiles on this computer', async () => {
+  it('logs where the host was expected when it cannot connect, and that the sessions of its profiles cannot start', async () => {
     const { hosts, registered, log } = setup({ failConnect: ['wsl:Ubuntu'] })
     hosts.ensure([{ kind: 'wsl', distro: 'Ubuntu' }])
     await flush()
     expect(registered).toEqual([])
-    expect(log.error).toHaveBeenCalledWith('host wsl:Ubuntu: not available (the host is expected at /users/ana/.workhub/host/2.1.0): the host process exited (1); its profiles run on this computer')
+    expect(log.error).toHaveBeenCalledWith('host wsl:Ubuntu: not available (the host is expected at /users/ana/.workhub/host/2.1.0): the host process exited (1); the sessions of its profiles cannot start')
   })
 
   it('starts nothing when the install fails, and says why', async () => {
@@ -115,7 +115,7 @@ describe('WslHosts', () => {
     await flush()
     expect(created).toEqual([])
     expect(registered).toEqual([])
-    expect(log.error).toHaveBeenCalledWith('host wsl:Ubuntu: could not unpack the host into Ubuntu (exit 2: tar: Unexpected EOF); its profiles run on this computer')
+    expect(log.error).toHaveBeenCalledWith('host wsl:Ubuntu: could not unpack the host into Ubuntu (exit 2: tar: Unexpected EOF); the sessions of its profiles cannot start')
   })
 
   it('installs nothing in a distribution whose processor has no host build', async () => {
@@ -134,7 +134,7 @@ describe('WslHosts', () => {
     await flush()
     expect(created).toEqual([])
     expect(run).toHaveBeenCalledTimes(1)
-    expect(log.error).toHaveBeenCalledWith(expect.stringMatching(/^host wsl:Gone: could not read WSL distribution Gone: exit 1: There is no distribution .*; its profiles run on this computer$/))
+    expect(log.error).toHaveBeenCalledWith(expect.stringMatching(/^host wsl:Gone: could not read WSL distribution Gone: exit 1: There is no distribution .*; the sessions of its profiles cannot start$/))
   })
 
   it('starts nothing off Windows, and says so once', async () => {

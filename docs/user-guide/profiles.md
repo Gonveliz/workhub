@@ -167,9 +167,12 @@ not list sessions from inside WSL, reverting changes, worktrees per session, cre
 request from a repository in WSL, the Terminal and Shell views, agents other than Claude Code, usage
 scans and the setup check inside the distribution.
 
-**Troubleshooting.** Until Workhub connects in the distribution, or when it cannot, the profile's
-sessions run on this computer. The status line says why it failed and offers **Retry**, which tries
-again without restarting the app. **Help → Reveal Logs** opens the log; the lines that start with
+**Troubleshooting.** The profile's sessions never run on this computer in place of the
+distribution (their folders are Linux paths). Until Workhub connects there, a new session waits for
+it (up to five minutes), and the sessions reopened at launch are listed stopped, tagged
+**WSL: <distro>**, and start once it connects when **Settings → General → Start them when Workhub starts** is on. When it
+cannot connect, those sessions show **WSL host <distro> is not available** with the reason. The
+status line says why it failed and offers **Retry**, which tries again without restarting the app. **Help → Reveal Logs** opens the log; the lines that start with
 `host wsl:<distro>:` and `host install:` show each step (the download, the install folder, the
 connection, a missing control endpoint).
 

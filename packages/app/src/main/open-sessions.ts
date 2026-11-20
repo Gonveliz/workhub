@@ -219,7 +219,8 @@ export class OpenSessions {
           ...(s.agentSessionId ? { resumeAgentSessionId: s.agentSessionId } : { identity: s.identity }),
           ...(s.model ? { model: s.model } : {})
         }, { ...(s.worktree ? { worktree: s.worktree } : {}), ...(dormant ? { dormant: true, ...(s.title ? { title: s.title } : {}) } : {}) })
-        if (s.mode === 'shell' && !dormant) await this.deps.setMode(view.id, 'shell').catch((err: unknown) => this.deps.log?.('could not reopen the shell of a restored session', err))
+        // A session whose host is still connecting comes back stopped, and starts once it connects.
+        if (s.mode === 'shell' && !dormant && view.state !== 'stopped') await this.deps.setMode(view.id, 'shell').catch((err: unknown) => this.deps.log?.('could not reopen the shell of a restored session', err))
       } catch (err) {
         this.deps.log?.(`could not reopen session ${s.identity}`, err)
       }

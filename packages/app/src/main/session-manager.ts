@@ -149,6 +149,15 @@ export interface SessionServices {
   hostId?: string
 }
 
+/** The services of a host the session's profile names that has not connected yet. */
+export interface PendingServices {
+  hostId: string
+  /** The host's services once it connects; rejects with the reason it is not available. */
+  ready: Promise<SessionServices>
+}
+
+const isPending = (x: SessionServices | PendingServices): x is PendingServices => 'ready' in x
+
 export interface SessionManagerDeps extends SessionServices {
   /** How often the stuck-session check runs (tests shorten it). */
   stallCheckMs?: number
@@ -168,8 +177,10 @@ export interface SessionManagerDeps extends SessionServices {
   /**
    * The services of the host a session of this profile runs on, asked once per start. Without it
    * every session runs on the services given here (`runtimes`, `terminal`, `transcripts`, `history`).
+   * A host the profile names that has not connected yet is pending: a new session waits for it, a
+   * restored one is listed stopped under that host until it connects (never run on this computer).
    */
-  hostFor?: (target: HostTarget) => SessionServices
+  hostFor?: (target: HostTarget) => SessionServices | PendingServices
   emitEvent: (e: AgentEvent) => void
   emitChanged: (s: SessionView) => void
   /** A finished session left the list (an automation replaced it); the renderer drops it. */
@@ -274,11 +285,37 @@ export class SessionManager {
     }
   }
 
-  /** The services a session of this profile runs on. */
-  private servicesFor(profileId: string | null): SessionServices {
+  /** The services a session of this profile runs on, or the host it waits for. */
+  private servicesFor(profileId: string | null): SessionServices | PendingServices {
     const services = this.deps.hostFor?.({ profileId }) ?? this.local
-    this.watch(services)
+    if (!isPending(services)) this.watch(services)
     return services
+  }
+
+  /**
+   * A restored session listed stopped while its host connects: once the host is there it is bound
+   * to it (and `then` starts it, for "start sessions at launch"); when the host fails it shows the
+   * reason. Nothing happens to a session opened or closed meanwhile (its start waited by itself).
+   */
+  private bindWhenReady(id: string, pending: PendingServices, then?: () => Promise<unknown>): void {
+    const waiting = () => {
+      const s = this.sessions.get(id)
+      return s?.dormant && s.view.state === 'stopped' ? s : undefined
+    }
+    const fail = (err: unknown) => {
+      if (!waiting()) return
+      const error = err instanceof Error ? err.message : String(err)
+      this.deps.log?.(`session ${id}: ${error}`)
+      this.update(id, { state: 'error', error })
+    }
+    pending.ready.then((services) => {
+      const s = waiting()
+      if (!s) return
+      this.watch(services)
+      s.services = services
+      s.runtime = (s.agent.adapter === 'terminal' ? services.terminal : services.runtimes[s.agent.adapter]) ?? s.runtime
+      if (then) void then().catch(fail)
+    }, fail)
   }
 
   /** The terminal runtime behind a channel (`<id>:console` or `<id>:shell`): its session's host's. */
@@ -342,11 +379,20 @@ export class SessionManager {
     const { account } = choice
     // An account can run another build of the agent (its own command).
     const agent = accountAgent(choice.agent, account)
-    const services = this.servicesFor(owned.profileId)
+    const resolved = this.servicesFor(owned.profileId)
+    // A restored session whose host is still connecting is listed now, stopped, under that host (the
+    // runtimes here only describe it; it never starts on them). Any other session waits for the host.
+    const pending = isPending(resolved) && internal.restored ? resolved : undefined
+    const services = pending ? { ...this.local, hostId: pending.hostId } : isPending(resolved) ? await this.ready(resolved) : resolved
     const runtime = agent.adapter === 'terminal' ? services.terminal : services.runtimes[agent.adapter]
     // Checked before a worktree is made, so a session that cannot run leaves nothing behind.
     if (!runtime) throw new Error(`no runtime for adapter "${agent.adapter}"`)
     const placed = await this.placeInWorktree(owned, config, internal, services)
+    if (pending) {
+      const view = await this.launch(config, choice, agent, account, services, runtime, { ...owned, cwd: placed.cwd }, placed, { ...internal, dormant: true })
+      this.bindWhenReady(view.id, pending, internal.dormant ? undefined : () => this.start(asked, internal))
+      return view
+    }
     try {
       return await this.launch(config, choice, agent, account, services, runtime, { ...owned, cwd: placed.cwd }, placed, internal)
     } catch (err) {
@@ -369,6 +415,13 @@ export class SessionManager {
     ).catch(() => null)
     if (!report) return
     this.deps.emitEvent({ sessionId: s.view.id, type: 'notice', noticeId: `${s.view.id}:worktree`, kind: report.failed ? 'warning' : 'info', title: report.title, text: report.text, ...(report.failed ? { failed: true } : {}) })
+  }
+
+  /** The services of a host the session waits for, subscribed to. */
+  private async ready(pending: PendingServices): Promise<SessionServices> {
+    const services = await pending.ready
+    this.watch(services)
+    return services
   }
 
   /** A live session (starting, running or idle) that runs this agent session id or identity. */

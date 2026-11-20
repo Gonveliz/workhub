@@ -1,8 +1,9 @@
 // The hosts of the WSL distributions profiles name (`profile.host`): one `workhub host` per
 // distribution, started through `wsl.exe` on Windows the first time a profile names it, and
 // registered as `wsl:<distro>`. The host is installed into the distribution first when this version
-// is not there yet (wsl-host-install.ts). Until it connects, or when it cannot (no WSL, the install
-// failed), the sessions of those profiles run on this computer. Each step is reported as a
+// is not there yet (wsl-host-install.ts). Until it connects the sessions of those profiles wait for
+// it; when it cannot (no WSL, the install failed) they fail with the reason, never running on this
+// computer (hosts.ts). Each step is reported as a
 // HostStatusEvent (Settings shows it), and a host that failed can be tried again (`retry`).
 import { hostIdOf, nodeArchOfMachine, probeWslDistro, wslHostArgs, wslHostLaunch, type HostLaunch, type HostPayloadArch, type ProfileHost, type WslRun } from '@workhub/core'
 import type { Logger } from './log-file'
@@ -64,7 +65,7 @@ export class WslHosts {
     if (distros.length === 0 || this.stopped) return
     if (this.deps.platform !== 'win32') {
       for (const distro of distros) this.report(distro, { type: 'unavailable', detail: WSL_NOT_WINDOWS })
-      if (!this.warnedPlatform) this.deps.log.warn(`host: WSL hosts run only on Windows; the profiles of ${distros.join(', ')} run on this computer`)
+      if (!this.warnedPlatform) this.deps.log.warn(`host: WSL hosts run only on Windows; the sessions of the profiles of ${distros.join(', ')} cannot start`)
       this.warnedPlatform = true
       return
     }
@@ -107,7 +108,7 @@ export class WslHosts {
 
   private async start(distro: string): Promise<void> {
     const id = hostIdOf({ kind: 'wsl', distro })
-    const fallback = 'its profiles run on this computer'
+    const fallback = 'the sessions of its profiles cannot start'
     let launch: HostLaunch
     let dir: string
     this.report(distro, { type: 'connecting' })

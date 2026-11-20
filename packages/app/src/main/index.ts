@@ -89,7 +89,7 @@ import { RecentCall } from './recent-call'
 import { PrEventService, registerPrEventsIpc } from './pr-events-service'
 import { OutputCoalescer } from './output-coalescer'
 import { routeSessionEvent } from './terminal-routing'
-import { HostRegistry, localHost } from './hosts'
+import { HostRegistry, localHost, type SessionHost } from './hosts'
 import { mcpLaunchTarget, sessionEndpoint, type ControlServe } from './host-control'
 import { HostProcess } from './host-process'
 import { WslHosts } from './wsl-hosts'
@@ -623,7 +623,12 @@ const wslHosts = new WslHosts({
     }),
   register: (host) => hosts.register(host),
   log: diagnostics.log,
-  status: (id, event) => hostStatus.apply(id, event),
+  status: (id, event) => {
+    hostStatus.apply(id, event)
+    // Sessions waiting for the host fail with the reason it is not there, or keep waiting while it starts.
+    if (event.type === 'failed' || event.type === 'unavailable') hosts.failed(id, event.detail)
+    else if (event.type === 'connecting' || event.type === 'installing') hosts.starting(id)
+  },
   createProcess: (options) => new HostProcess({ ...options, log: diagnostics.log, serveControl: () => controlServe })
 })
 function readProfileHosts(config: WorkhubConfig): void {
@@ -780,9 +785,14 @@ const sessions = new SessionManager({
   terminal,
   transcripts: execution.transcripts,
   history: historySources,
+  // Sessions wait for the host their profile names; they never run on this computer in its place (hosts.ts).
   hostFor: (target) => {
-    const host = hosts.hostFor(target)
-    return { ...host.services, exists: host.exists, control: host.control, hostId: host.id }
+    const servicesOf = (host: SessionHost) => ({ ...host.services, exists: host.exists, control: host.control, hostId: host.id })
+    const host = hosts.sessionHostFor(target)
+    if (!('ready' in host)) return servicesOf(host)
+    const ready = host.ready.then(servicesOf)
+    ready.catch(() => undefined) // handled where the session waits, maybe after other awaits
+    return { hostId: host.id, ready }
   },
   onAgentOptions: (agentId, accountId, options) => agentOptions.record(agentId, accountId, options),
   emitEvent: (e) => {

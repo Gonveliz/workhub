@@ -17,8 +17,8 @@ import {
 } from '@workhub/core'
 import type { GitRunner } from '@workhub/adapters/git-review'
 import type { ExecutionServices } from '@workhub/adapters/host'
-import { HostRegistry, localHost, originUrl, type HostTarget } from '../src/main/hosts'
-import { SessionManager, type SessionServices } from '../src/main/session-manager'
+import { HostRegistry, localHost, originUrl, type HostTarget, type PendingHost } from '../src/main/hosts'
+import { SessionManager, type PendingServices, type SessionServices } from '../src/main/session-manager'
 
 /** A runtime that records what it was asked and lets the test emit events. */
 class FakeRuntime implements AgentRuntime {
@@ -69,7 +69,7 @@ function services(said: string): SessionServices & { native: FakeRuntime; termin
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
 
-function setup(hostFor?: (target: HostTarget) => SessionServices) {
+function setup(hostFor?: (target: HostTarget) => SessionServices | PendingServices) {
   const local = services('on this computer')
   const events: AgentEvent[] = []
   const manager = new SessionManager({
@@ -136,6 +136,103 @@ describe('SessionManager: services per host', () => {
     const here = await manager.start({ profileId: null, agentKey: 'claude', cwd: '/w/acme/api' })
     expect(there.hostId).toBe('wsl:Ubuntu')
     expect(here.hostId).toBeUndefined()
+    await manager.stopAll()
+  })
+})
+
+/** A WSL host that has not connected yet: `connect` or `fail` settles it. */
+function connecting(hostId = 'wsl:Ubuntu') {
+  let connect!: (s: SessionServices) => void
+  let fail!: (err: Error) => void
+  const ready = new Promise<SessionServices>((resolve, reject) => {
+    connect = resolve
+    fail = reject
+  })
+  ready.catch(() => undefined)
+  const pending: PendingServices = { hostId, ready }
+  return { pending, connect, fail }
+}
+
+describe('SessionManager: a host that has not connected yet', () => {
+  it('lists a session restored before its host connects under that host, and binds it to the host once it connects', async () => {
+    const wsl = { ...services('in WSL'), hostId: 'wsl:Ubuntu' }
+    const host = connecting()
+    const { manager, local } = setup((target) => (target.profileId === 'linux' ? host.pending : local))
+    const view = await manager.start({ profileId: 'linux', agentKey: 'claude', cwd: '/home/ana/acme', resumeAgentSessionId: 'abc' }, { restored: true, dormant: true })
+    // The tag shows at once; nothing runs anywhere while it waits.
+    expect(view).toMatchObject({ state: 'stopped', hostId: 'wsl:Ubuntu' })
+    host.connect(wsl)
+    await flush()
+    expect(local.native.started).toEqual([])
+    expect(wsl.native.started).toEqual([])
+    // Bound to the host: its past conversation is read there.
+    expect(await manager.history(view.id)).toEqual([{ kind: 'user', text: 'in WSL' }])
+    expect(local.claude.messages).not.toHaveBeenCalled()
+  })
+
+  it('starts a session restored at launch on its host once that host connects, never on this computer', async () => {
+    const wsl = { ...services('in WSL'), hostId: 'wsl:Ubuntu' }
+    const host = connecting()
+    let connected = false
+    const { manager, local } = setup((target) => (target.profileId === 'linux' ? (connected ? wsl : host.pending) : local))
+    const view = await manager.start({ profileId: 'linux', agentKey: 'claude', cwd: '/home/ana/acme', resumeAgentSessionId: 'abc' }, { restored: true })
+    expect(view).toMatchObject({ state: 'stopped', hostId: 'wsl:Ubuntu' })
+    connected = true
+    host.connect(wsl)
+    await vi.waitFor(() => expect(wsl.native.started.map((r) => r.agentSessionId)).toEqual(['abc']))
+    expect(local.native.started).toEqual([])
+    // The session that started replaced the one that waited.
+    expect(manager.list()).toEqual([expect.objectContaining({ state: 'ready', hostId: 'wsl:Ubuntu', agentSessionId: 'abc' })])
+    await manager.stopAll()
+  })
+
+  it('shows why a restored session cannot start when its host fails, and starts nothing on this computer', async () => {
+    const host = connecting()
+    const { manager, local } = setup((target) => (target.profileId === 'linux' ? host.pending : local))
+    const view = await manager.start({ profileId: 'linux', agentKey: 'claude', cwd: '/home/ana/acme', resumeAgentSessionId: 'abc' }, { restored: true })
+    host.fail(new Error('WSL host Ubuntu is not available: the host process exited (1)'))
+    await flush()
+    expect(manager.list()).toEqual([expect.objectContaining({ id: view.id, state: 'error', error: 'WSL host Ubuntu is not available: the host process exited (1)', hostId: 'wsl:Ubuntu' })])
+    expect(local.native.started).toEqual([])
+  })
+
+  it('makes a new session wait for its host, then runs it there', async () => {
+    const wsl = { ...services('in WSL'), hostId: 'wsl:Ubuntu' }
+    const host = connecting()
+    const { manager, local } = setup((target) => (target.profileId === 'linux' ? host.pending : local))
+    let started: { id: string; hostId?: string } | undefined
+    const starting = manager.start({ profileId: 'linux', agentKey: 'claude', cwd: '/home/ana/acme' }).then((v) => (started = v))
+    await flush()
+    expect(started).toBeUndefined()
+    expect(manager.list()).toEqual([])
+    host.connect(wsl)
+    await starting
+    await flush()
+    expect(started!.hostId).toBe('wsl:Ubuntu')
+    expect(wsl.native.started.map((r) => r.sessionId)).toEqual([started!.id])
+    expect(local.native.started).toEqual([])
+    await manager.stopAll()
+  })
+
+  it('refuses a new session whose host failed, with the reason', async () => {
+    const host = connecting()
+    const { manager, local } = setup((target) => (target.profileId === 'linux' ? host.pending : local))
+    const starting = manager.start({ profileId: 'linux', agentKey: 'claude', cwd: '/home/ana/acme' })
+    host.fail(new Error('WSL host Ubuntu is not available: WSL distributions are used only on Windows'))
+    await expect(starting).rejects.toThrow('WSL host Ubuntu is not available: WSL distributions are used only on Windows')
+    expect(manager.list()).toEqual([])
+    expect(local.native.started).toEqual([])
+  })
+
+  it('leaves the sessions of local profiles alone while another host connects', async () => {
+    const host = connecting()
+    const { manager, local } = setup((target) => (target.profileId === 'linux' ? host.pending : local))
+    const here = await manager.start({ profileId: null, agentKey: 'claude', cwd: '/w/acme/api' })
+    const restored = await manager.start({ profileId: 'mine', agentKey: 'claude', cwd: '/w/acme/web', resumeAgentSessionId: 'def' }, { restored: true })
+    await flush()
+    expect(local.native.started.map((r) => r.sessionId)).toEqual([here.id, restored.id])
+    expect(here.hostId).toBeUndefined()
+    expect(restored.hostId).toBeUndefined()
     await manager.stopAll()
   })
 })
@@ -222,6 +319,57 @@ describe('HostRegistry', () => {
     expect(hosts.hostFor({ profileId: 'here' })).toBe(hosts.local)
     // Its distribution is not connected: this computer, not the preferred host.
     expect(hosts.hostFor({ profileId: 'linux' })).toBe(hosts.local)
+  })
+
+  describe('sessionHostFor', () => {
+    const named: Record<string, ProfileHost> = { linux: { kind: 'wsl', distro: 'Ubuntu' }, here: { kind: 'local' } }
+    const pending = (x: unknown): PendingHost => {
+      expect(x).toHaveProperty('ready')
+      return x as PendingHost
+    }
+
+    it('waits for a named host that has not connected, and resolves to it once it registers', async () => {
+      const hosts = new HostRegistry(localHost(execution), (id) => named[id])
+      const waiting = pending(hosts.sessionHostFor({ profileId: 'linux' }))
+      expect(waiting.id).toBe('wsl:Ubuntu')
+      const wsl = { ...localHost(execution), id: 'wsl:Ubuntu' }
+      hosts.register(wsl)
+      await expect(waiting.ready).resolves.toBe(wsl)
+      expect(hosts.sessionHostFor({ profileId: 'linux' })).toBe(wsl)
+    })
+
+    it('rejects with the reason when the host fails, now and for later sessions until it starts again', async () => {
+      const hosts = new HostRegistry(localHost(execution), (id) => named[id])
+      const waiting = pending(hosts.sessionHostFor({ profileId: 'linux' }))
+      hosts.failed('wsl:Ubuntu', 'the host process exited (1)')
+      await expect(waiting.ready).rejects.toThrow('WSL host Ubuntu is not available: the host process exited (1)')
+      await expect(pending(hosts.sessionHostFor({ profileId: 'linux' })).ready).rejects.toThrow('the host process exited (1)')
+      // Retried: sessions wait again.
+      hosts.starting('wsl:Ubuntu')
+      const again = pending(hosts.sessionHostFor({ profileId: 'linux' }))
+      const wsl = { ...localHost(execution), id: 'wsl:Ubuntu' }
+      hosts.register(wsl)
+      await expect(again.ready).resolves.toBe(wsl)
+    })
+
+    it('gives up on a host that does not connect in time', async () => {
+      vi.useFakeTimers()
+      try {
+        const hosts = new HostRegistry(localHost(execution), (id) => named[id])
+        const waiting = pending(hosts.sessionHostFor({ profileId: 'linux' }, 30_000))
+        vi.advanceTimersByTime(30_000)
+        await expect(waiting.ready).rejects.toThrow('WSL host Ubuntu is not available: it did not connect within 30 s')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('never waits for profiles that name this computer or no host', () => {
+      const hosts = new HostRegistry(localHost(execution), (id) => named[id])
+      expect(hosts.sessionHostFor({ profileId: 'here' })).toBe(hosts.local)
+      expect(hosts.sessionHostFor({ profileId: 'other' })).toBe(hosts.local)
+      expect(hosts.sessionHostFor({ profileId: null })).toBe(hosts.local)
+    })
   })
 
   it('keeps the local host fixed', () => {
