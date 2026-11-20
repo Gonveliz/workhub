@@ -87,6 +87,7 @@ import { RecentCall } from './recent-call'
 import { PrEventService, registerPrEventsIpc } from './pr-events-service'
 import { OutputCoalescer } from './output-coalescer'
 import { routeSessionEvent } from './terminal-routing'
+import { HostRegistry, localHost } from './hosts'
 import { SessionDriver } from './session-driver'
 import { OwnerStarts } from './owner-starts'
 import { resolveChoice, SessionManager, ticketPrefixes } from './session-manager'
@@ -577,6 +578,8 @@ const execution = composeExecutionServices({
   claudeTranscripts: transcriptReader.read
 })
 const { runtimes, terminal, history: historySources } = execution
+// The hosts sessions run on: only this computer for now (see hosts.ts).
+const hosts = new HostRegistry(localHost(execution))
 // Models and modes each agent offers before a session starts (Kiro: its listing commands; Claude Code:
 // what it reports when a session starts, read without a prompt; others: their last session).
 const agentOptions = new AgentOptionsService({
@@ -695,6 +698,7 @@ const sessions = new SessionManager({
   terminal,
   transcripts: execution.transcripts,
   history: historySources,
+  hostFor: (target) => hosts.hostFor(target).services,
   onAgentOptions: (agentId, accountId, options) => agentOptions.record(agentId, accountId, options),
   emitEvent: (e) => {
     if (e.type === 'monitor' && e.snapshot.cost?.currency === 'USD') recordSessionCost(e.sessionId, e.snapshot.cost.amount)

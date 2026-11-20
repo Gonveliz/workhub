@@ -51,6 +51,7 @@ import { JOURNAL_MAX_ENTRIES } from './chat-journal'
 import { ConsoleActivity } from './console-activity'
 import { NO_CONTROL_ENV } from './control-server'
 import { pathInsideFolder } from './reveal'
+import type { HostTarget } from './hosts'
 import { SendGate } from './send-gate'
 import { StallWatch } from './stall-watch'
 import { translate, type MessageKey } from '../renderer/i18n/translate'
@@ -83,6 +84,8 @@ interface ManagedSession {
   env: Record<string, string>
   /** MCP servers Workhub hands the session (its own, when it is on); empty for a reviewer. */
   mcp: McpServerLaunch[]
+  /** The services of the host the session runs on, picked when it started. */
+  services: SessionServices
   runtime: AgentRuntime
   engine: Engine
   /** Set while the session hands over from one engine to the other. */
@@ -130,7 +133,17 @@ const STALL_CHECK_MS = 15_000
 
 const CHAT_EVENTS: ReadonlySet<AgentEvent['type']> = new Set(['message', 'tool', 'permission', 'permissionCancelled', 'notice', 'exit'])
 
-export interface SessionManagerDeps {
+/** What a session runs on: the agent runtimes, transcript readers and past sessions of its host. */
+export interface SessionServices {
+  runtimes: Partial<Record<AgentAdapterKind, AgentRuntime>>
+  /** Runs consoles and shells. */
+  terminal: AgentRuntime
+  transcripts: TranscriptReader[]
+  /** Past sessions per agent id (Claude), to replay a resumed session in the app. */
+  history: Partial<Record<string, SessionHistorySource>>
+}
+
+export interface SessionManagerDeps extends SessionServices {
   /** How often the stuck-session check runs (tests shorten it). */
   stallCheckMs?: number
   config: ConfigurationService
@@ -146,12 +159,11 @@ export interface SessionManagerDeps {
   sessionEnv?: (sessionId: string) => Record<string, string>
   /** MCP servers a session gets on top of the agent's own (Workhub's), from its environment. Never for a reviewer. */
   sessionMcp?: (env: Record<string, string>, agent: AgentDefinition) => Promise<McpServerLaunch[]>
-  runtimes: Partial<Record<AgentAdapterKind, AgentRuntime>>
-  /** Runs consoles and shells. */
-  terminal: AgentRuntime
-  transcripts: TranscriptReader[]
-  /** Past sessions per agent id (Claude), to replay a resumed session in the app. */
-  history: Partial<Record<string, SessionHistorySource>>
+  /**
+   * The services of the host a session of this profile runs on, asked once per start. Without it
+   * every session runs on the services given here (`runtimes`, `terminal`, `transcripts`, `history`).
+   */
+  hostFor?: (target: HostTarget) => SessionServices
   emitEvent: (e: AgentEvent) => void
   emitChanged: (s: SessionView) => void
   /** A finished session left the list (an automation replaced it); the renderer drops it. */
@@ -233,14 +245,39 @@ export class SessionManager {
   private polling = false
   /** The last size each terminal channel reported, so a terminal started later starts at that size. */
   private readonly sizes = new Map<string, { cols: number; rows: number }>()
+  /** The services given in the deps: every session's, unless `hostFor` picks others. */
+  private readonly local: SessionServices
+  /** Every runtime whose events reach `onEvent`, of whatever host; each is subscribed once. */
+  private readonly subscribed = new Set<AgentRuntime>()
 
   constructor(private readonly deps: SessionManagerDeps) {
-    const runtimes = new Set([...Object.values(deps.runtimes), deps.terminal])
-    for (const runtime of runtimes) runtime?.subscribe((e) => this.onEvent(e))
+    this.local = { runtimes: deps.runtimes, terminal: deps.terminal, transcripts: deps.transcripts, history: deps.history }
+    this.watch(this.local)
     this.timer = setInterval(() => void this.pollTranscripts(), deps.pollMs ?? 3000)
     this.timer.unref?.()
     this.stallTimer = setInterval(() => void this.checkStalls().catch(() => undefined), deps.stallCheckMs ?? STALL_CHECK_MS)
     this.stallTimer.unref?.()
+  }
+
+  /** Subscribes to the runtimes of a host's services not heard from yet. */
+  private watch(services: SessionServices): void {
+    for (const runtime of [...Object.values(services.runtimes), services.terminal]) {
+      if (!runtime || this.subscribed.has(runtime)) continue
+      this.subscribed.add(runtime)
+      runtime.subscribe((e) => this.onEvent(e))
+    }
+  }
+
+  /** The services a session of this profile runs on. */
+  private servicesFor(profileId: string | null): SessionServices {
+    const services = this.deps.hostFor?.({ profileId }) ?? this.local
+    this.watch(services)
+    return services
+  }
+
+  /** The terminal runtime behind a channel (`<id>:console` or `<id>:shell`): its session's host's. */
+  private terminalOf(channelId: string): AgentRuntime {
+    return this.sessions.get(channelId.split(':')[0]!)?.services.terminal ?? this.local.terminal
   }
 
   list(): SessionView[] {
@@ -260,7 +297,7 @@ export class SessionManager {
     this.sends.withdraw(id)
     // The agent may have exited on its own, which `stop()` never saw: its Shell and console
     // terminals would keep running with no session left to show them.
-    if (stopTerminals) this.stopTerminals(id)
+    if (stopTerminals) this.stopTerminals(s)
     const reader = this.reader(s)
     if (reader && s.view.agentSessionId) reader.forget(s.view.agentSessionId)
     this.deps.emitRemoved?.(id)
@@ -268,9 +305,9 @@ export class SessionManager {
   }
 
   /** Stops the session's shell and console terminal channels, whatever its state (best effort). */
-  private stopTerminals(id: string): void {
+  private stopTerminals(s: ManagedSession): void {
     for (const channel of ['shell', 'console'] as const) {
-      void (async () => this.deps.terminal.stop(terminalChannel(id, channel)))().catch(() => undefined)
+      void (async () => s.services.terminal.stop(terminalChannel(s.view.id, channel)))().catch(() => undefined)
     }
   }
 
@@ -299,12 +336,13 @@ export class SessionManager {
     const { account } = choice
     // An account can run another build of the agent (its own command).
     const agent = accountAgent(choice.agent, account)
-    const runtime = agent.adapter === 'terminal' ? this.deps.terminal : this.deps.runtimes[agent.adapter]
+    const services = this.servicesFor(owned.profileId)
+    const runtime = agent.adapter === 'terminal' ? services.terminal : services.runtimes[agent.adapter]
     // Checked before a worktree is made, so a session that cannot run leaves nothing behind.
     if (!runtime) throw new Error(`no runtime for adapter "${agent.adapter}"`)
     const placed = await this.placeInWorktree(owned, config, internal)
     try {
-      return await this.launch(config, choice, agent, account, runtime, { ...owned, cwd: placed.cwd }, placed, internal)
+      return await this.launch(config, choice, agent, account, services, runtime, { ...owned, cwd: placed.cwd }, placed, internal)
     } catch (err) {
       // A worktree made for this session goes when the session cannot start (the environment failed).
       if (placed.worktree && !internal.worktree) await this.deps.worktrees?.remove(placed.worktree.repoRoot, placed.worktree.path, { force: true }).catch(() => undefined)
@@ -343,6 +381,7 @@ export class SessionManager {
     choice: EffectiveAgent,
     agent: AgentDefinition,
     account: AgentAccount | null,
+    services: SessionServices,
     runtime: AgentRuntime,
     input: StartSessionInput,
     placed: PlacedSession,
@@ -409,6 +448,7 @@ export class SessionManager {
       account,
       env,
       mcp,
+      services,
       runtime,
       engine,
       switching: false,
@@ -550,7 +590,7 @@ export class SessionManager {
     const key = s.view.identity ?? s.view.agentSessionId ?? s.view.id
     const stored = this.deps.names ? this.deps.names.set(key, name) : cleanSessionName(name)
     this.update(id, { name: stored })
-    const source = this.deps.history[s.agent.accountsOf ?? s.agent.id]
+    const source = s.services.history[s.agent.accountsOf ?? s.agent.id]
     if (stored && source?.rename && s.view.agentSessionId) {
       void source.rename(s.view.agentSessionId, s.view.cwd, stored, s.account?.configDir).catch(() => undefined)
     }
@@ -609,7 +649,7 @@ export class SessionManager {
     const s = this.require(id)
     this.sends.withdraw(id)
     if (s.engine === 'app') await s.runtime.cancel(id)
-    else await this.deps.terminal.cancel(terminalChannel(id, 'console'))
+    else await s.services.terminal.cancel(terminalChannel(id, 'console'))
   }
 
   async stop(id: string): Promise<void> {
@@ -619,8 +659,8 @@ export class SessionManager {
     s.switching = true
     try {
       await Promise.all([
-        s.engine === 'app' ? s.runtime.stop(id) : this.deps.terminal.stop(terminalChannel(id, 'console')),
-        this.deps.terminal.stop(terminalChannel(id, 'shell'))
+        s.engine === 'app' ? s.runtime.stop(id) : s.services.terminal.stop(terminalChannel(id, 'console')),
+        s.services.terminal.stop(terminalChannel(id, 'shell'))
       ])
     } finally {
       // Marked stopped even when a runtime failed to stop: the session must not stay "switching".
@@ -684,7 +724,7 @@ export class SessionManager {
     const live = s.view.state !== 'stopped' && s.view.state !== 'error'
     s.switching = true
     try {
-      if (live) await (s.engine === 'app' ? s.runtime.stop(id) : this.deps.terminal.stop(terminalChannel(id, 'console')))
+      if (live) await (s.engine === 'app' ? s.runtime.stop(id) : s.services.terminal.stop(terminalChannel(id, 'console')))
       s.engine = engine
       s.openPermissions.clear()
       s.console.reset()
@@ -788,7 +828,8 @@ export class SessionManager {
 
   /** Raw input for a session's terminal channel (`<id>:console` or `<id>:shell`). */
   write(channelId: string, data: string): void {
-    if (isTerminalControl(this.deps.terminal)) this.deps.terminal.write(channelId, data)
+    const terminal = this.terminalOf(channelId)
+    if (isTerminalControl(terminal)) terminal.write(channelId, data)
     const [id, channel] = channelId.split(':')
     const s = channel === 'console' ? this.sessions.get(id!) : undefined
     if (s) {
@@ -804,7 +845,8 @@ export class SessionManager {
   resize(channelId: string, cols: number, rows: number): void {
     if (!(cols > 0 && rows > 0)) return
     this.sizes.set(channelId, { cols, rows })
-    if (isTerminalControl(this.deps.terminal)) this.deps.terminal.resize(channelId, cols, rows)
+    const terminal = this.terminalOf(channelId)
+    if (isTerminalControl(terminal)) terminal.resize(channelId, cols, rows)
   }
 
   async stopAll(): Promise<void> {
@@ -812,8 +854,7 @@ export class SessionManager {
     clearInterval(this.stallTimer)
     for (const s of this.sessions.values()) this.clearPending(s)
     for (const s of this.sessions.values()) s.switching = true
-    const runtimes = new Set([...Object.values(this.deps.runtimes), this.deps.terminal])
-    await Promise.all([...runtimes].map((r) => r?.stopAll()))
+    await Promise.all([...this.subscribed].map((r) => r.stopAll()))
   }
 
   private async startApp(s: ManagedSession, opts: { resume: boolean; model?: string; effort?: string; modeId?: string; cols?: number; rows?: number }): Promise<void> {
@@ -911,7 +952,7 @@ export class SessionManager {
     const size = this.sizes.get(channel)
     s.console.reset()
     s.consoleStartedAt = Date.now()
-    const started = await this.deps.terminal.start({
+    const started = await s.services.terminal.start({
       sessionId: channel,
       agent,
       account: s.account,
@@ -927,7 +968,7 @@ export class SessionManager {
   private async startShell(s: ManagedSession): Promise<void> {
     const channel = terminalChannel(s.view.id, 'shell')
     const size = this.sizes.get(channel) ?? this.sizes.get(terminalChannel(s.view.id, 'console'))
-    await this.deps.terminal.start({ sessionId: channel, agent: SHELL, account: null, cwd: s.view.cwd, env: s.env, cols: size?.cols ?? 100, rows: size?.rows ?? 30 })
+    await s.services.terminal.start({ sessionId: channel, agent: SHELL, account: null, cwd: s.view.cwd, env: s.env, cols: size?.cols ?? 100, rows: size?.rows ?? 30 })
     this.update(s.view.id, { shellRunning: true })
   }
 
@@ -938,7 +979,7 @@ export class SessionManager {
   }
 
   private reader(s: ManagedSession): TranscriptReader | undefined {
-    return s.agent.transcript ? this.deps.transcripts.find((r) => r.id === s.agent.transcript) : undefined
+    return s.agent.transcript ? s.services.transcripts.find((r) => r.id === s.agent.transcript) : undefined
   }
 
   /**
@@ -948,7 +989,7 @@ export class SessionManager {
    * renderer replaces what it showed with the full conversation, the console's turns included.
    */
   private async startChat(s: ManagedSession, opts: { resume: boolean; model?: string; effort?: string; modeId?: string; cols?: number; rows?: number }): Promise<void> {
-    const source = this.deps.history[s.agent.accountsOf ?? s.agent.id]
+    const source = s.services.history[s.agent.accountsOf ?? s.agent.id]
     if (!opts.resume || !source || !s.view.agentSessionId) return this.startApp(s, opts)
     const held: NonNullable<ManagedSession['held']> = { events: [] }
     s.held = held
@@ -979,7 +1020,7 @@ export class SessionManager {
   /** The stored conversation of an open session: empty when it has none yet or it cannot be read. */
   async history(id: string): Promise<HistoryMessage[]> {
     const s = this.sessions.get(id)
-    const source = s ? this.deps.history[s.agent.accountsOf ?? s.agent.id] : undefined
+    const source = s ? s.services.history[s.agent.accountsOf ?? s.agent.id] : undefined
     if (!s || !source || !s.view.agentSessionId) return []
     return this.readHistory(source, s.view.agentSessionId, s)
   }
