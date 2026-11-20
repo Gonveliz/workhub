@@ -1,10 +1,10 @@
-// A `workhub host` in a child process of the app (WORKHUB_HOST=child): the app's own executable
-// run as Node on the bundled host entry, its execution services reached over the child's stdio.
-// The same entry runs inside WSL later; only the launcher differs.
+// A `workhub host` in a child process of the app, its execution services reached over the child's
+// stdio. By default the app's own executable runs as Node on the bundled host entry
+// (WORKHUB_HOST=child); a `launch` starts it some other way (`wsl.exe` into a distribution).
 import { spawn as nodeSpawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
-import { HOST_PROTOCOL_VERSION, NO_CAPABILITIES } from '@workhub/core'
+import { HOST_PROTOCOL_VERSION, NO_CAPABILITIES, type HostLaunch } from '@workhub/core'
 import {
   HostChannel,
   HostClient,
@@ -35,10 +35,17 @@ export interface HostChild {
 export type HostSpawn = (command: string, args: string[], env: NodeJS.ProcessEnv) => HostChild
 
 export interface HostProcessOptions {
-  /** The bundled host entry (out/main/host.js). */
-  entry: string
-  /** Arguments after `--stdio` and the version (bridge folder, PATH folders). */
+  /** The id the host is known by (`HostRegistry`); `child` by default. */
+  id?: string
+  /** The bundled host entry (out/main/host.js), run by the default launch. */
+  entry?: string
+  /** Arguments after `--stdio` and the version (bridge folder, PATH folders), for the default launch. */
   args?: string[]
+  /**
+   * How the host is started, asked again at each restart. Its `env` is set over `env` (or the
+   * app's environment). By default `execPath` runs `entry` as Node (ELECTRON_RUN_AS_NODE).
+   */
+  launch?: () => HostLaunch
   /** The host build this app expects; the child is told to say it, and refused when it does not. */
   hostVersion: string
   log: Pick<Logger, 'info' | 'warn' | 'error'>
@@ -93,9 +100,8 @@ export class HostProcess {
 
   private async launch(): Promise<SessionHost> {
     const { options } = this
-    const args = [options.entry, '--stdio', '--host-version', options.hostVersion, ...(options.args ?? [])]
-    const env = { ...(options.env ?? process.env), ELECTRON_RUN_AS_NODE: '1' }
-    const child = (options.spawn ?? defaultSpawn)(options.execPath ?? process.execPath, args, env)
+    const { command, args, env } = (options.launch ?? (() => this.nodeLaunch()))()
+    const child = (options.spawn ?? defaultSpawn)(command, args, { ...(options.env ?? process.env), ...env })
     this.child = child
     // The host writes its diagnostics to stderr: they go to the app's log.
     createInterface({ input: child.stderr }).on('line', (line) => options.log.info(`host: ${line}`))
@@ -129,6 +135,17 @@ export class HostProcess {
     }
   }
 
+  /** The entry, run as Node by the app's own executable (or `execPath`). */
+  private nodeLaunch(): HostLaunch {
+    const { options } = this
+    if (!options.entry) throw new Error('a host process needs an entry or a launch')
+    return {
+      command: options.execPath ?? process.execPath,
+      args: [options.entry, '--stdio', '--host-version', options.hostVersion, ...(options.args ?? [])],
+      env: { ELECTRON_RUN_AS_NODE: '1' }
+    }
+  }
+
   private async build(client: HostClient): Promise<SessionHost> {
     const onError = (err: unknown) => this.options.log.warn(`host: ${message(err)}`)
     const [native, acp, terminal, transcripts, history] = await Promise.all([
@@ -142,7 +159,7 @@ export class HostProcess {
     const git = remoteGitRunner(client)
     const folders = remoteFolders(client)
     return {
-      id: CHILD_HOST_ID,
+      id: this.options.id ?? CHILD_HOST_ID,
       services: { runtimes: { native, acp, terminal }, terminal, transcripts, history, git },
       git,
       exists: folders.exists,

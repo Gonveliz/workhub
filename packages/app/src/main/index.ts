@@ -22,7 +22,7 @@ import { GitWorktrees } from '@workhub/adapters/git-worktree'
 import { AutomationRunLog, BackgroundRuns, BACKUP_FOLDER, backupDatabase, DB_FILE, describeImport, importLegacyJson, listBackups, SessionRecords, SqliteFlowMaps, SqliteHistoryIndex, SqlitePrEventStore, Timelines, TurnIngest, repoProjects, WorkhubDb, type ProjectResolver } from '@workhub/adapters/sqlite-store'
 import { DemoCalendarSource, IcsCalendarSource } from '@workhub/adapters/calendar-ics'
 import { OpenCodeTranscriptReader } from '@workhub/adapters/transcript-opencode'
-import { composeExecutionServices } from '@workhub/adapters/host'
+import { composeExecutionServices, wslRunner } from '@workhub/adapters/host'
 import {
   alertRulesOf,
   appOptions,
@@ -91,6 +91,7 @@ import { OutputCoalescer } from './output-coalescer'
 import { routeSessionEvent } from './terminal-routing'
 import { HostRegistry, localHost } from './hosts'
 import { HostProcess } from './host-process'
+import { WslHosts } from './wsl-hosts'
 import { SessionDriver } from './session-driver'
 import { OwnerStarts } from './owner-starts'
 import { resolveChoice, SessionManager, ticketPrefixes } from './session-manager'
@@ -586,11 +587,21 @@ const { runtimes, terminal, history: historySources } = execution
 // The host each profile names (`profile.host`), read again on every config write: `hostFor` is
 // synchronous, so it reads this copy rather than the config.
 let profileHosts = new Map<string, ProfileHost>()
-function readProfileHosts(config: WorkhubConfig): void {
-  profileHosts = new Map(config.profiles.flatMap((p): [string, ProfileHost][] => (p.host ? [[p.id, p.host]] : [])))
-}
 // The hosts sessions run on: this computer, and the ones profiles name once they connect (see hosts.ts).
 const hosts = new HostRegistry(localHost(execution), (profileId) => profileHosts.get(profileId))
+// A profile that names a WSL distribution starts its host there (Windows only), once per distribution.
+const wslHosts = new WslHosts({
+  platform: process.platform,
+  hostVersion: app.getVersion(),
+  run: wslRunner(),
+  register: (host) => hosts.register(host),
+  log: diagnostics.log,
+  createProcess: (options) => new HostProcess({ ...options, log: diagnostics.log })
+})
+function readProfileHosts(config: WorkhubConfig): void {
+  profileHosts = new Map(config.profiles.flatMap((p): [string, ProfileHost][] => (p.host ? [[p.id, p.host]] : [])))
+  wslHosts.ensure(profileHosts.values())
+}
 void configuration.current().then(readProfileHosts)
 // WORKHUB_HOST=child: the sessions and folder checks of every profile that names no host run in a
 // `workhub host` child process, over its stdio, instead of in this process. A development switch
@@ -1854,6 +1865,7 @@ app.on('will-quit', (event) => {
   transcriptReader.close()
   // Sessions were stopped in before-quit; the host process goes with the app.
   childHost?.stop()
+  wslHosts.stop()
   if (dbClosed) return
   event.preventDefault()
   const closeDb = () => {

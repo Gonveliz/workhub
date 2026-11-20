@@ -224,3 +224,34 @@ describe('HostProcess', () => {
     expect(children).toHaveLength(1)
   })
 })
+
+describe('HostProcess with a launch of its own', () => {
+  it('spawns the command and arguments it is given, its variables over the environment, under its id', async () => {
+    const spawned: { command: string; args: string[]; env: NodeJS.ProcessEnv }[] = []
+    const launch = vi.fn(() => ({ command: 'wsl.exe', args: ['-d', 'Ubuntu', '--cd', '~', '-e', '/users/ana/node', '/users/ana/host.js', '--stdio', '--host-version', VERSION], env: { WSLENV: '' } }))
+    const hostProcess = new HostProcess({
+      id: 'wsl:Ubuntu',
+      launch,
+      hostVersion: VERSION,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      env: { PATH: '/usr/bin', WSLENV: 'TOKEN/u' },
+      spawn: (command, args, env) => {
+        spawned.push({ command, args, env })
+        return new FakeChild(args, env)
+      },
+      kill: (child) => child.kill('SIGTERM')
+    })
+    const host = await hostProcess.connect()
+    expect(host.id).toBe('wsl:Ubuntu')
+    expect(spawned).toEqual([{ command: 'wsl.exe', args: launch.mock.results[0]!.value.args, env: { PATH: '/usr/bin', WSLENV: '' } }])
+    // Not run as Electron's Node: that variable belongs to the default launch only.
+    expect(spawned[0]!.env).not.toHaveProperty('ELECTRON_RUN_AS_NODE')
+    expect(await host.git('/w/acme/api', ['status'])).toMatchObject({ ok: true })
+    hostProcess.stop()
+  })
+
+  it('refuses to start with neither an entry nor a launch', async () => {
+    const hostProcess = new HostProcess({ hostVersion: VERSION, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, spawn: () => { throw new Error('not spawned') } })
+    await expect(hostProcess.connect()).rejects.toThrow(/an entry or a launch/)
+  })
+})
