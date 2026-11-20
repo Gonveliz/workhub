@@ -255,6 +255,31 @@ describe('opening a file of the review', () => {
   })
 })
 
+describe('opening a reviewed file', () => {
+  it("looks at the file on the session's host before opening it", async () => {
+    const handlers = new Map<string, (...args: any[]) => unknown>()
+    const ipc: IpcRegistrar = { handle: (c, l) => void handlers.set(c, l), on: () => undefined }
+    const service = { filePath: (_s: string, root: string, path: string) => `${root}/${path}` } as unknown as LocalReviewService
+    const opened: string[] = []
+    const shown: string[] = []
+    const asked: [string, string][] = []
+    const hostOf = (sessionId: string) => ({
+      stat: async (path: string) => {
+        asked.push([sessionId, path])
+        return path.endsWith('.md') ? { size: 1, mtimeMs: 1, mode: 0o644, isFile: true, isDirectory: false } : path.endsWith('/tool') ? { size: 1, mtimeMs: 1, mode: 0o755, isFile: true, isDirectory: false } : null
+      }
+    })
+    registerLocalReviewIpc(ipc, service, { openWindow: () => undefined, openPath: async (p) => (opened.push(p), ''), showItemInFolder: (p) => void shown.push(p), hostOf })
+    const open = (path: string) => handlers.get('localReview:openFile')!({}, 's1', '/w/acme', path)
+    expect(await open('notes.md')).toBe(true)
+    expect(await open('tool')).toBe(true)
+    expect(await open('gone.ts')).toBe(false)
+    expect(asked).toEqual([['s1', '/w/acme/notes.md'], ['s1', '/w/acme/tool'], ['s1', '/w/acme/gone.ts']])
+    expect(opened).toEqual(['/w/acme/notes.md'])
+    expect(shown).toEqual(process.platform === 'win32' ? [] : ['/w/acme/tool'])
+  })
+})
+
 describe('changes the session made outside the review', () => {
   const repo = (root: string, files = 1) => ({ root, name: root.split('/').pop()!, branch: 'main', base: 'main', files: Array.from({ length: files }, (_, i) => ({ path: `f${i}.ts`, status: 'modified', additions: 1, deletions: 0 })) })
   const touched = (root: string, files: number, additions: number, deletions: number) => ({ name: root.split('/').pop()!, root, branch: 'feat/x', files, additions, deletions })

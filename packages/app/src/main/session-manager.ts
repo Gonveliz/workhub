@@ -141,6 +141,8 @@ export interface SessionServices {
   transcripts: TranscriptReader[]
   /** Past sessions per agent id (Claude), to replay a resumed session in the app. */
   history: Partial<Record<string, SessionHistorySource>>
+  /** Whether a path exists where the host's folders live; this computer's disk when not given. */
+  exists?: (path: string) => Promise<boolean>
 }
 
 export interface SessionManagerDeps extends SessionServices {
@@ -251,7 +253,7 @@ export class SessionManager {
   private readonly subscribed = new Set<AgentRuntime>()
 
   constructor(private readonly deps: SessionManagerDeps) {
-    this.local = { runtimes: deps.runtimes, terminal: deps.terminal, transcripts: deps.transcripts, history: deps.history }
+    this.local = { runtimes: deps.runtimes, terminal: deps.terminal, transcripts: deps.transcripts, history: deps.history, ...(deps.exists ? { exists: deps.exists } : {}) }
     this.watch(this.local)
     this.timer = setInterval(() => void this.pollTranscripts(), deps.pollMs ?? 3000)
     this.timer.unref?.()
@@ -340,7 +342,7 @@ export class SessionManager {
     const runtime = agent.adapter === 'terminal' ? services.terminal : services.runtimes[agent.adapter]
     // Checked before a worktree is made, so a session that cannot run leaves nothing behind.
     if (!runtime) throw new Error(`no runtime for adapter "${agent.adapter}"`)
-    const placed = await this.placeInWorktree(owned, config, internal)
+    const placed = await this.placeInWorktree(owned, config, internal, services)
     try {
       return await this.launch(config, choice, agent, account, services, runtime, { ...owned, cwd: placed.cwd }, placed, internal)
     } catch (err) {
@@ -519,7 +521,7 @@ export class SessionManager {
    * one (never for a reviewer, a reopened or a resumed session), else the folder asked for. The
    * folder's place inside the repository is kept (`repo/src` starts in `<worktree>/src`).
    */
-  private async placeInWorktree(input: StartSessionInput, config: WorkhubConfig, internal: { restored?: boolean; worktree?: SessionWorktree }): Promise<PlacedSession> {
+  private async placeInWorktree(input: StartSessionInput, config: WorkhubConfig, internal: { restored?: boolean; worktree?: SessionWorktree }, services: SessionServices): Promise<PlacedSession> {
     if (internal.worktree) return { cwd: input.cwd, worktree: internal.worktree }
     const asked = input.worktree
     const worktrees = this.deps.worktrees
@@ -535,11 +537,12 @@ export class SessionManager {
     const branch = worktreeBranch(settings, asked.branch, randomUUID().slice(0, 8))
     const folder = (profile && containingFolder(repoRoot, profile, home)?.path) ?? dirname(repoRoot)
     const path = join(worktreesLocation(settings, { folder, repo: repoRoot }, home), worktreeFolderName(repoRoot, branch))
-    if (existsSync(path)) throw new Error(`${path} already exists: pick another branch name`)
+    const exists = services.exists ?? (async (p: string) => existsSync(p))
+    if (await exists(path)) throw new Error(`${path} already exists: pick another branch name`)
     await worktrees.create(repoRoot, { path, branch, base: settings.baseRef })
     const inside = relative(repoRoot, input.cwd)
     const cwd = inside && !inside.startsWith('..') && !isAbsolute(inside) ? join(path, inside) : path
-    return { cwd: existsSync(cwd) ? cwd : path, worktree: { repoRoot, path, branch }, created: { setupCommand: worktreeSetupCommand(profile, repoRoot, home) } }
+    return { cwd: (await exists(cwd)) ? cwd : path, worktree: { repoRoot, path, branch }, created: { setupCommand: worktreeSetupCommand(profile, repoRoot, home) } }
   }
 
   /**

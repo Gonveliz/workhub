@@ -5,12 +5,13 @@
  * queued and retried every few seconds, like the PR events and the Slack wake-ups; it is dropped
  * when the session ends or stays busy past `PENDING_TTL_MS`.
  */
-import { realpath, stat } from 'node:fs/promises'
+import { realpath } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { LocalChanges, LocalReverter } from '@workhub/adapters/git-review'
 import { onlySessionFiles, validRevertTarget, type HistoryMessage, type LocalRevertAnswer, type LocalRevertRequest, type LocalReviewDelivery, type LocalReviewFiles, type LocalReviewScope, type PullRequestItem, type RepoChanges, type ReviewComment } from '@workhub/core'
 import type { SessionView } from '../shared/api'
 import type { LocalReviewElsewhere, LocalReviewLoad, LocalReviewSession } from '../shared/local-review-api'
+import { localStat, type HostFolders } from './hosts'
 import type { IpcRegistrar } from './ipc-guard'
 
 export const PENDING_TTL_MS = 12 * 3600_000
@@ -347,6 +348,8 @@ export interface LocalReviewIpcDeps {
   openPath(path: string): Promise<string>
   /** Shows a file in its folder: used instead of `openPath` for anything that could run (`opensAsProgram`). */
   showItemInFolder(path: string): void
+  /** The host a session's folders live on, to look at a file before opening it; this computer when not given. */
+  hostOf?: (sessionId: string) => Pick<HostFolders, 'stat'>
 }
 
 export function registerLocalReviewIpc(ipc: IpcRegistrar, service: LocalReviewService, deps: LocalReviewIpcDeps): void {
@@ -366,9 +369,10 @@ export function registerLocalReviewIpc(ipc: IpcRegistrar, service: LocalReviewSe
   ipc.handle('localReview:openFile', async (_e, sessionId: string, repoRoot: string, path: string) => {
     const full = service.filePath(String(sessionId), String(repoRoot), String(path))
     if (!full) return false
-    const info = await stat(full).catch(() => null)
+    const host = deps.hostOf?.(String(sessionId))
+    const info = await (host ? host.stat(full) : localStat(full))
     if (!info) return false
-    if (opensAsProgram(full, { isDirectory: info.isDirectory(), mode: info.mode })) {
+    if (opensAsProgram(full, { isDirectory: info.isDirectory, mode: info.mode })) {
       deps.showItemInFolder(full)
       return true
     }

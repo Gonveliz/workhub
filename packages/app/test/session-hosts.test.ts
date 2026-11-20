@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import {
   emptyConfig,
@@ -11,8 +14,9 @@ import {
   type StartSessionRequest,
   type TranscriptReader
 } from '@workhub/core'
+import type { GitRunner } from '@workhub/adapters/git-review'
 import type { ExecutionServices } from '@workhub/adapters/host'
-import { HostRegistry, localHost, type HostTarget } from '../src/main/hosts'
+import { HostRegistry, localHost, originUrl, type HostTarget } from '../src/main/hosts'
 import { SessionManager, type SessionServices } from '../src/main/session-manager'
 
 /** A runtime that records what it was asked and lets the test emit events. */
@@ -130,7 +134,7 @@ describe('HostRegistry', () => {
 
   it('resolves every profile to the local host for now', () => {
     const hosts = new HostRegistry(localHost(execution))
-    hosts.register({ id: 'wsl:dev', services: execution })
+    hosts.register({ ...localHost(execution), id: 'wsl:dev' })
     expect(hosts.hostFor({ profileId: 'any' })).toBe(hosts.local)
     expect(hosts.hostFor({ profileId: null }).id).toBe('local')
     expect(hosts.get('wsl:dev')?.id).toBe('wsl:dev')
@@ -139,6 +143,30 @@ describe('HostRegistry', () => {
   it('keeps the local host fixed', () => {
     const hosts = new HostRegistry(localHost(execution))
     expect(() => hosts.register(localHost(execution))).toThrow()
-    expect(() => new HostRegistry({ id: 'other', services: execution })).toThrow()
+    expect(() => new HostRegistry({ ...localHost(execution), id: 'other' })).toThrow()
+  })
+})
+
+describe('the local host folder facade', () => {
+  it("runs the composition's git and looks at this computer's disk", async () => {
+    const git: GitRunner = vi.fn(async () => ({ ok: true, stdout: 'x', stderr: '' }))
+    const host = localHost({ git } as unknown as ExecutionServices)
+    await host.git('/w/acme', ['status'])
+    expect(git).toHaveBeenCalledWith('/w/acme', ['status'])
+    const dir = mkdtempSync(join(tmpdir(), 'workhub-host-'))
+    const file = join(dir, 'a.txt')
+    writeFileSync(file, 'hello')
+    expect(await host.exists(file)).toBe(true)
+    expect(await host.exists(join(dir, 'missing'))).toBe(false)
+    expect(await host.stat(file)).toMatchObject({ size: 5, isFile: true, isDirectory: false })
+    expect(await host.stat(dir)).toMatchObject({ isFile: false, isDirectory: true })
+    expect(await host.stat(join(dir, 'missing'))).toBeNull()
+  })
+
+  it("reads a folder's origin through the host's git", async () => {
+    const git: GitRunner = vi.fn(async (cwd: string) => (cwd === '/w/acme' ? { ok: true, stdout: 'git@github.com:acme/api.git\n', stderr: '' } : { ok: false, stdout: '', stderr: 'not a git repository' }))
+    expect(await originUrl(git, '/w/acme')).toBe('git@github.com:acme/api.git')
+    expect(await originUrl(git, '/w/notes')).toBeNull()
+    expect(git).toHaveBeenCalledWith('/w/acme', ['remote', 'get-url', 'origin'], { timeoutMs: 10_000 })
   })
 })

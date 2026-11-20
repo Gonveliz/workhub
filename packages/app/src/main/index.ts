@@ -376,7 +376,8 @@ let sessionsWanted = false
 // WORKHUB_DEMO_CODEHOST=1 reads synthetic pull requests instead of a real host (screenshots, demos).
 // The demo moves on one step at a time (`prEvents.demoAdvance`) so pull request events can be seen.
 let demoPrStep = 0
-const codeHost = new CodeHostService(() => configuration.current(), { demo: process.env['WORKHUB_DEMO_CODEHOST'] === '1', demoStep: () => demoPrStep, onListsChanged: () => scheduleTray() })
+// `hosts` is built further down, with the execution services; nothing reads a profile's remotes before then.
+const codeHost = new CodeHostService(() => configuration.current(), { demo: process.env['WORKHUB_DEMO_CODEHOST'] === '1', demoStep: () => demoPrStep, onListsChanged: () => scheduleTray(), hostFor: (target) => hosts.hostFor(target) })
 const prEvents = new PrEventService({
   source: codeHost,
   store: new SqlitePrEventStore(db),
@@ -393,7 +394,7 @@ if (firstInstance) flowHistory.prune()
 const flowMaps = new SqliteFlowMaps(db)
 const health = new HealthService({ configuration, secrets, demo: process.env['WORKHUB_DEMO_HEALTH'] === '1', flowMaps, flowHistory })
 // WORKHUB_DEMO_TICKETS=1 serves synthetic tickets, so the UI can be shown without credentials.
-const ticketService = new TicketService(configuration, secrets, process.env['WORKHUB_DEMO_TICKETS'] === '1', undefined, scenario ?? undefined)
+const ticketService = new TicketService(configuration, secrets, process.env['WORKHUB_DEMO_TICKETS'] === '1', undefined, scenario ?? undefined, undefined, (target) => hosts.hostFor(target))
 // WORKHUB_DEMO_CALENDAR=1 serves synthetic meetings around now, so Plan can be shown without a calendar address.
 const calendar = new CalendarService({ configuration, secrets, source: new IcsCalendarSource(), demo: process.env['WORKHUB_DEMO_CALENDAR'] === '1' ? new DemoCalendarSource(Date.now, scenario ? productCalendarEvents : undefined) : null })
 
@@ -698,7 +699,10 @@ const sessions = new SessionManager({
   terminal,
   transcripts: execution.transcripts,
   history: historySources,
-  hostFor: (target) => hosts.hostFor(target).services,
+  hostFor: (target) => {
+    const host = hosts.hostFor(target)
+    return { ...host.services, exists: host.exists }
+  },
   onAgentOptions: (agentId, accountId, options) => agentOptions.record(agentId, accountId, options),
   emitEvent: (e) => {
     if (e.type === 'monitor' && e.snapshot.cost?.currency === 'USD') recordSessionCost(e.sessionId, e.snapshot.cost.amount)
@@ -1400,7 +1404,12 @@ function registerIpc(): void {
   })
   registerAiReviewIpc(ipc, aiReview)
   registerAgentReviewIpc(ipc, agentReview, reviewLoopWindows((hash, title) => createAuxWindow(hash, title, REVIEW_LOOP_WINDOW_SIZE)))
-  registerLocalReviewIpc(ipc, localReview, { openWindow: openLocalReviewWindow, openPath: (path) => shell.openPath(path), showItemInFolder: (path) => shell.showItemInFolder(path) })
+  registerLocalReviewIpc(ipc, localReview, {
+    openWindow: openLocalReviewWindow,
+    openPath: (path) => shell.openPath(path),
+    showItemInFolder: (path) => shell.showItemInFolder(path),
+    hostOf: (sessionId) => hosts.hostFor({ profileId: sessions.list().find((v) => v.id === sessionId)?.profileId ?? null })
+  })
   registerFileViewerIpc(ipc, {
     createWindow: (hash, title) => createAuxWindow(hash, title, FILE_WINDOW_SIZE),
     home: homedir(),
