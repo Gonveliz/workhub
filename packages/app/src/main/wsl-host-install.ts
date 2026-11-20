@@ -23,6 +23,7 @@ import {
 } from '@workhub/core'
 import type { WslRunWithInput } from '@workhub/adapters/host'
 import type { Logger } from './log-file'
+import type { HostInstallProgress } from '../shared/hosts-api'
 
 export interface WslHostInstallOptions {
   distro: string
@@ -45,6 +46,8 @@ export interface WslHostInstallOptions {
   /** The GitHub repository releases are published to (`owner/name`). */
   repo: string
   log: Pick<Logger, 'info' | 'warn' | 'error'>
+  /** Each step of an install (not called when the host is already there): download bytes, checksum, unpacking. */
+  onProgress?: (progress: HostInstallProgress) => void
 }
 
 export interface InstalledWslHost {
@@ -91,6 +94,7 @@ export async function ensureWslHost(options: WslHostInstallOptions): Promise<Ins
 
   const started = Date.now()
   const archive = await obtainPayload(options)
+  options.onProgress?.({ phase: 'unpacking' })
   log.info(`host install: unpacking ${hostPayloadName(version, arch)} into ${distro} at ${payload.dir}`)
   const staging = `${payload.root}/${HOST_PAYLOAD_STAGING_PREFIX}${version}-${randomBytes(4).toString('hex')}`
   const discard = () => run(['-d', distro, '-e', 'rm', '-rf', '--', staging]).catch(() => undefined)
@@ -134,6 +138,7 @@ async function obtainPayload(options: WslHostInstallOptions): Promise<string> {
     if (!existsSync(file)) throw new WslHostInstallError(`the host payload ${file} (WORKHUB_HOST_PAYLOAD) does not exist`)
     const sumFile = `${file}.sha256`
     if (existsSync(sumFile)) {
+      options.onProgress?.({ phase: 'verifying' })
       const expected = payloadChecksum(await readFile(sumFile, 'utf8'), basename(file))
       if (!expected) throw new WslHostInstallError(`${sumFile} holds no SHA-256 for ${basename(file)}`)
       if ((await sha256OfFile(file)) !== expected) throw new WslHostInstallError(`${file} does not match its SHA-256 (${sumFile})`)
@@ -148,6 +153,7 @@ async function obtainPayload(options: WslHostInstallOptions): Promise<string> {
   const cached = join(folder, name)
   const cachedSum = `${cached}.sha256`
   if (existsSync(cached) && existsSync(cachedSum)) {
+    options.onProgress?.({ phase: 'verifying' })
     const expected = payloadChecksum(await readFile(cachedSum, 'utf8'), name)
     if (expected && (await sha256OfFile(cached)) === expected) return cached
   }
@@ -164,12 +170,14 @@ async function obtainPayload(options: WslHostInstallOptions): Promise<string> {
   await mkdir(folder, { recursive: true })
   const partial = `${cached}.partial`
   const hash = createHash('sha256')
+  const progress = downloadProgress(res, options.onProgress)
   try {
     await pipeline(
       Readable.fromWeb(res.body as WebReadableStream<Uint8Array>),
       async function* (source: AsyncIterable<Buffer>) {
         for await (const chunk of source) {
           hash.update(chunk)
+          progress(chunk.length)
           yield chunk
         }
       },
@@ -179,6 +187,7 @@ async function obtainPayload(options: WslHostInstallOptions): Promise<string> {
     await rm(partial, { force: true })
     throw new WslHostInstallError(`the download of ${name} failed: ${err instanceof Error ? err.message : String(err)}`)
   }
+  options.onProgress?.({ phase: 'verifying' })
   if (hash.digest('hex') !== expected) {
     await rm(partial, { force: true })
     throw new WslHostInstallError(`${name} does not match its published SHA-256`)
@@ -190,4 +199,21 @@ async function obtainPayload(options: WslHostInstallOptions): Promise<string> {
     if (entry !== version) await rm(join(options.cacheDir, entry), { recursive: true, force: true })
   }
   return cached
+}
+
+/** Bytes are reported at the start, then each time another 1 % (or 4 MiB, without a size) has arrived. */
+function downloadProgress(res: Response, onProgress: WslHostInstallOptions['onProgress']): (bytes: number) => void {
+  const length = Number(res.headers.get('content-length'))
+  const total = Number.isFinite(length) && length > 0 ? length : undefined
+  const step = total ? Math.max(1, Math.floor(total / 100)) : 4 * 1024 * 1024
+  let received = 0
+  let reported = 0
+  const report = () => onProgress?.({ phase: 'downloading', received, ...(total ? { total } : {}) })
+  report()
+  return (bytes) => {
+    received += bytes
+    if (received - reported < step && received !== total) return
+    reported = received
+    report()
+  }
 }

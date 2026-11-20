@@ -1,13 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import { wslHostPayload, type HostLaunch, type WslRun } from '@workhub/core'
 import type { SessionHost } from '../src/main/hosts'
-import { WSL_HELLO_TIMEOUT_MS, WslHosts, wslDistrosOf, type WslHostInstall, type WslHostsDeps } from '../src/main/wsl-hosts'
+import { HostStatusBoard } from '../src/main/host-status'
+import { WSL_HELLO_TIMEOUT_MS, WSL_NOT_WINDOWS, WslHosts, wslDistrosOf, type WslHostInstall, type WslHostsDeps } from '../src/main/wsl-hosts'
+import type { HostProcessOptions } from '../src/main/host-process'
 
 const flush = async () => {
   for (let i = 0; i < 10; i++) await new Promise<void>((r) => setImmediate(r))
 }
 
-function setup(over: Partial<WslHostsDeps> & { failConnect?: string[]; homes?: Record<string, string>; machine?: string } = {}) {
+function setup(over: Partial<WslHostsDeps> & { failConnect?: string[]; homes?: Record<string, string>; machine?: string; control?: null } = {}) {
   const homes = over.homes ?? { Ubuntu: '/users/ana', Debian: '/users/ana' }
   const run: WslRun = vi.fn(async (args: string[]) => {
     const home = homes[args[1]!]
@@ -15,6 +17,8 @@ function setup(over: Partial<WslHostsDeps> & { failConnect?: string[]; homes?: R
   })
   const install = vi.fn<WslHostInstall>(async ({ home }) => wslHostPayload(home, '2.1.0'))
   const created: { id?: string; launch: HostLaunch; stopped: boolean; helloTimeoutMs?: number }[] = []
+  const lifecycles: Pick<HostProcessOptions, 'onRestart' | 'onLost'>[] = []
+  const board = new HostStatusBoard()
   const registered: SessionHost[] = []
   const log = { info: vi.fn<(m: string) => void>(), warn: vi.fn<(m: string) => void>(), error: vi.fn<(m: string) => void>() }
   const hosts = new WslHosts({
@@ -24,13 +28,15 @@ function setup(over: Partial<WslHostsDeps> & { failConnect?: string[]; homes?: R
     install,
     register: (h) => registered.push(h),
     log,
+    status: (id, event) => board.apply(id, event),
     createProcess: (options) => {
       const entry = { id: options.id, launch: options.launch!(), stopped: false, helloTimeoutMs: options.helloTimeoutMs }
       created.push(entry)
+      lifecycles.push({ onRestart: options.onRestart, onLost: options.onLost })
       return {
         connect: async () => {
           if (over.failConnect?.includes(options.id!)) throw new Error('the host process exited (1)')
-          return { id: options.id! } as SessionHost
+          return { id: options.id!, ...(over.control === null ? { control: null } : {}) } as SessionHost
         },
         stop: () => {
           entry.stopped = true
@@ -39,7 +45,7 @@ function setup(over: Partial<WslHostsDeps> & { failConnect?: string[]; homes?: R
     },
     ...over
   })
-  return { hosts, run, install, created, registered, log }
+  return { hosts, run, install, created, registered, log, board, lifecycles }
 }
 
 describe('WslHosts', () => {
@@ -81,7 +87,7 @@ describe('WslHosts', () => {
         }
       }
     ])
-    expect(install).toHaveBeenCalledWith({ distro: 'Ubuntu', home: '/users/ana', arch: 'x64' })
+    expect(install).toHaveBeenCalledWith({ distro: 'Ubuntu', home: '/users/ana', arch: 'x64', onProgress: expect.any(Function) })
     expect(registered.map((h) => h.id)).toEqual(['wsl:Ubuntu'])
     expect(log.info).toHaveBeenCalledWith(expect.stringContaining('host wsl:Ubuntu: connected'))
 
@@ -139,5 +145,62 @@ describe('WslHosts', () => {
     expect(created).toEqual([])
     expect(run).not.toHaveBeenCalled()
     expect(log.warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports connecting, the install steps and connected, and warns about a host without a control endpoint', async () => {
+    const seen: string[] = []
+    const install = vi.fn<WslHostInstall>(async ({ home, onProgress }) => {
+      onProgress({ phase: 'downloading', received: 0, total: 100 })
+      onProgress({ phase: 'unpacking' })
+      return wslHostPayload(home, '2.1.0')
+    })
+    const { hosts, board, log } = setup({ install, control: null, status: (id, e) => seen.push(`${id} ${e.type}`) })
+    hosts.ensure([{ kind: 'wsl', distro: 'Ubuntu' }])
+    await flush()
+    expect(seen).toEqual(['wsl:Ubuntu connecting', 'wsl:Ubuntu installing', 'wsl:Ubuntu installing', 'wsl:Ubuntu connecting', 'wsl:Ubuntu connected'])
+    expect(board.get('wsl:Ubuntu')).toBeUndefined()
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('without a control endpoint'))
+  })
+
+  it('reports a failure with its reason, and retries a failed distribution on request only', async () => {
+    const { hosts, board, created, registered } = setup({ failConnect: ['wsl:Ubuntu'] })
+    hosts.ensure([{ kind: 'wsl', distro: 'Ubuntu' }])
+    await flush()
+    expect(board.get('wsl:Ubuntu')).toEqual({ id: 'wsl:Ubuntu', kind: 'wsl', state: 'failed', detail: 'the host process exited (1)' })
+    expect(created.map((c) => c.stopped)).toEqual([true])
+    expect(hosts.retry('wsl:Debian')).toBe(false)
+    expect(hosts.retry('local')).toBe(false)
+
+    expect(hosts.retry('wsl:Ubuntu')).toBe(true)
+    // Already trying: a second retry is refused until it fails again.
+    expect(hosts.retry('wsl:Ubuntu')).toBe(false)
+    await flush()
+    expect(created).toHaveLength(2)
+    expect(board.get('wsl:Ubuntu')?.state).toBe('failed')
+    expect(registered).toEqual([])
+  })
+
+  it('follows a connected host that is lost, restarted or given up on', async () => {
+    const { hosts, board, lifecycles } = setup()
+    hosts.ensure([{ kind: 'wsl', distro: 'Ubuntu' }])
+    await flush()
+    expect(board.get('wsl:Ubuntu')).toEqual({ id: 'wsl:Ubuntu', kind: 'wsl', state: 'connected' })
+    const { onLost, onRestart } = lifecycles[0]!
+    onLost!('the host process exited (1)', true)
+    expect(board.get('wsl:Ubuntu')).toMatchObject({ state: 'connecting', detail: 'the host process exited (1)' })
+    expect(hosts.retry('wsl:Ubuntu')).toBe(false)
+    onRestart!({ id: 'wsl:Ubuntu' } as SessionHost)
+    expect(board.get('wsl:Ubuntu')).toEqual({ id: 'wsl:Ubuntu', kind: 'wsl', state: 'connected' })
+    onLost!('incompatible host', false)
+    expect(board.get('wsl:Ubuntu')).toMatchObject({ state: 'failed', detail: 'incompatible host' })
+    expect(hosts.retry('wsl:Ubuntu')).toBe(true)
+    hosts.stop()
+  })
+
+  it('reports the distributions as unavailable off Windows, and never retries them', async () => {
+    const { hosts, board } = setup({ platform: 'linux' })
+    hosts.ensure([{ kind: 'wsl', distro: 'Ubuntu' }])
+    expect(board.get('wsl:Ubuntu')).toEqual({ id: 'wsl:Ubuntu', kind: 'wsl', state: 'unavailable', detail: WSL_NOT_WINDOWS })
+    expect(hosts.retry('wsl:Ubuntu')).toBe(false)
   })
 })

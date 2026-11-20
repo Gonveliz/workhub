@@ -18,6 +18,7 @@ import type { MenuCommand } from './windows-api'
 import type { RemoteStatusView } from './remote-api'
 import type { SignInEvent } from './sign-in-api'
 import type { InstallQueueSnapshot } from './setup-api'
+import type { HostStatus } from './hosts-api'
 
 /** What carries `hub` calls to the main process: request/response, one-way, and main's events. */
 export interface HubTransport {
@@ -326,6 +327,12 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       openSettings: (tab) => send('setup:openSettings', tab),
       completeWelcome: () => invoke('setup:completeWelcome'),
       folders: () => invoke('setup:folders')
+    },
+    hosts: {
+      wslDistros: () => invoke('hosts:wslDistros'),
+      status: () => invoke('hosts:status'),
+      retry: (id) => invoke('hosts:retry', id),
+      onStatus: (cb) => subscribe<[HostStatus[]]>('hosts:statusChanged', cb)
     },
     signIn: (tool, accountId) => invoke('signIn:open', tool, accountId ?? null),
     signInPane: {

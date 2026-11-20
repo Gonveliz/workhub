@@ -54,6 +54,8 @@ export interface HostProcessOptions {
   log: Pick<Logger, 'info' | 'warn' | 'error'>
   /** A host that connected after a restart; sessions started from now on run on it. */
   onRestart?: (host: SessionHost) => void
+  /** A host that had connected went away: `restarting` when it is started again, false once given up on. */
+  onLost?: (reason: string, restarting: boolean) => void
   /** The Node the entry runs on; the app's own executable (as Node) by default. */
   execPath?: string
   env?: NodeJS.ProcessEnv
@@ -134,7 +136,11 @@ export class HostProcess {
       await client.ready
       return await this.build(client)
     } catch (err) {
-      if (err instanceof HostHelloError && err.reason !== 'timeout' && err.reason !== 'closed') this.gaveUp = true
+      if (err instanceof HostHelloError && err.reason !== 'timeout' && err.reason !== 'closed') {
+        this.gaveUp = true
+        // A restart that cannot be used: no further one follows.
+        if (this.supervising) options.onLost?.(message(err), false)
+      }
       options.log.error(`host: could not connect: ${message(err)}`)
       onLost('the connection failed')
       throw err
@@ -197,11 +203,16 @@ export class HostProcess {
   private lost(child: HostChild, client: HostClient, reason: string): void {
     client.close()
     this.end(child)
-    if (this.stopped || !this.supervising || this.gaveUp || this.restartTimer) return
+    if (this.stopped || !this.supervising || this.restartTimer) return
+    if (this.gaveUp) {
+      this.options.onLost?.(reason, false)
+      return
+    }
     const { initialMs, maxMs } = this.options.backoff ?? DEFAULT_BACKOFF
     const delay = Math.min(initialMs * 2 ** this.failures, maxMs)
     this.failures++
     this.options.log.warn(`host: ${reason}; restarting in ${delay} ms`)
+    this.options.onLost?.(reason, true)
     this.restartTimer = setTimeout(() => {
       this.restartTimer = undefined
       if (this.stopped || this.gaveUp) return

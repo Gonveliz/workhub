@@ -4,6 +4,7 @@ import type { ChatJournal } from './chat-journal'
 import type { BackgroundSpend, ChromeProfile, GroupChoice, SessionWorktree, SignInTool, WorktreeStatus } from '@workhub/core'
 import type { NotificationKind, TrayApi, TrayRoute } from './tray-api'
 import type { ProfileEnvApi, SetupApi, SystemNotificationsApi } from './setup-api'
+import type { HostsApi } from './hosts-api'
 import type { SignInPaneApi } from './sign-in-api'
 import type { AgentToolsApi } from './agent-tools-api'
 import type {
@@ -624,6 +625,8 @@ export interface HubApi {
   menu: MenuApi
   settings: SettingsWindowApi
   setup: SetupApi
+  /** Where a profile's sessions run: WSL distributions and the status of each host (Settings → Profiles; never offered to paired devices). */
+  hosts: HostsApi
   /**
    * Opens the sign-in window for a tool of the fixed list (`SIGN_IN_TOOLS`), with a Claude
    * account's config folder when `accountId` names one. Main runs the tool's own command; false

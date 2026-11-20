@@ -149,6 +149,25 @@ describe('ensureWslHost', () => {
     expect(again.state.unpacked).toEqual(PAYLOAD)
   })
 
+  it('reports the download bytes, the checksum and the unpacking, and nothing when the host is there', async () => {
+    const d = distro()
+    const fetch = vi.fn(async (url: string) =>
+      url.endsWith('.sha256') ? new Response(`${sha(PAYLOAD)}  ${NAME}\n`) : new Response(new Uint8Array(PAYLOAD), { headers: { 'content-length': String(PAYLOAD.length) } })
+    )
+    const onProgress = vi.fn()
+    await ensureWslHost(options(d, { fetch, onProgress }))
+    expect(onProgress.mock.calls.map((c) => c[0])).toEqual([
+      { phase: 'downloading', received: 0, total: PAYLOAD.length },
+      { phase: 'downloading', received: PAYLOAD.length, total: PAYLOAD.length },
+      { phase: 'verifying' },
+      { phase: 'unpacking' }
+    ])
+
+    const ready = vi.fn()
+    await ensureWslHost(options(distro({ ready: true }), { onProgress: ready }))
+    expect(ready).not.toHaveBeenCalled()
+  })
+
   it('refuses a download that does not match its published checksum and marks nothing ready', async () => {
     const d = distro()
     const cacheDir = tempDir()

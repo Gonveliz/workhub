@@ -92,8 +92,9 @@ function setup(overrides: { hostVersion?: string } = {}) {
   const children: FakeChild[] = []
   const log = { info: vi.fn<(m: string) => void>(), warn: vi.fn<(m: string) => void>(), error: vi.fn<(m: string) => void>() }
   const onRestart = vi.fn()
-  /** Set to make every child started from now on die at once. */
-  const behavior = { crashOnStart: false }
+  const onLost = vi.fn()
+  /** Set to make every child started from now on die at once, or say another version. */
+  const behavior: { crashOnStart: boolean; hostVersion?: string } = { crashOnStart: false }
   const hostProcess = new HostProcess({
     entry: '/w/acme/out/main/host.js',
     execPath: '/w/acme/workhub',
@@ -101,10 +102,11 @@ function setup(overrides: { hostVersion?: string } = {}) {
     hostVersion: VERSION,
     log,
     onRestart,
+    onLost,
     env: { PATH: '/usr/bin' },
     spawn: (command, args, env) => {
       expect(command).toBe('/w/acme/workhub')
-      const child = new FakeChild(args, env, services(), overrides.hostVersion)
+      const child = new FakeChild(args, env, services(), behavior.hostVersion ?? overrides.hostVersion)
       children.push(child)
       if (behavior.crashOnStart) child.crash()
       return child
@@ -112,7 +114,7 @@ function setup(overrides: { hostVersion?: string } = {}) {
     kill: (child) => child.kill('SIGTERM'),
     backoff: { initialMs: 1_000, maxMs: 4_000 }
   })
-  return { hostProcess, children, log, onRestart, behavior }
+  return { hostProcess, children, log, onRestart, onLost, behavior }
 }
 
 afterEach(() => {
@@ -200,7 +202,7 @@ describe('HostProcess', () => {
 
   it('restarts a host that went away, with a growing delay, and hands the new host over', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    const { hostProcess, children, log, onRestart } = setup()
+    const { hostProcess, children, log, onRestart, onLost } = setup()
     const first = await hostProcess.connect()
     const events: AgentEvent[] = []
     first.services.runtimes.native.subscribe((e) => events.push(e))
@@ -211,6 +213,7 @@ describe('HostProcess', () => {
     // The live session is left in error by its runtime proxy.
     expect(events.at(-1)).toMatchObject({ sessionId: 's1', type: 'state', state: 'error' })
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('restarting in 1000 ms'))
+    expect(onLost).toHaveBeenCalledWith('the host process exited (1)', true)
     expect(children).toHaveLength(1)
 
     await vi.advanceTimersByTimeAsync(999)
@@ -250,6 +253,22 @@ describe('HostProcess', () => {
       expect(children).toHaveLength(before + 1)
     }
     expect(onRestart).not.toHaveBeenCalled()
+    hostProcess.stop()
+  })
+
+  it('says when a lost host is given up on (a restart that cannot be used)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { hostProcess, children, onLost, behavior } = setup()
+    await hostProcess.connect()
+    behavior.hostVersion = '1.9.0'
+    children[0]!.crash()
+    await settle()
+    await vi.advanceTimersByTimeAsync(1_000)
+    await settle()
+    expect(onLost.mock.calls[0]).toEqual(['the host process exited (1)', true])
+    expect(onLost.mock.lastCall).toEqual([expect.stringContaining('incompatible host'), false])
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(children).toHaveLength(2)
     hostProcess.stop()
   })
 

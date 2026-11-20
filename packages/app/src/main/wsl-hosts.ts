@@ -2,17 +2,20 @@
 // distribution, started through `wsl.exe` on Windows the first time a profile names it, and
 // registered as `wsl:<distro>`. The host is installed into the distribution first when this version
 // is not there yet (wsl-host-install.ts). Until it connects, or when it cannot (no WSL, the install
-// failed), the sessions of those profiles run on this computer.
+// failed), the sessions of those profiles run on this computer. Each step is reported as a
+// HostStatusEvent (Settings shows it), and a host that failed can be tried again (`retry`).
 import { hostIdOf, nodeArchOfMachine, probeWslDistro, wslHostArgs, wslHostLaunch, type HostLaunch, type HostPayloadArch, type ProfileHost, type WslRun } from '@workhub/core'
 import type { Logger } from './log-file'
 import type { SessionHost } from './hosts'
 import type { HostProcessOptions } from './host-process'
+import type { HostStatusEvent } from './host-status'
+import type { HostInstallProgress } from '../shared/hosts-api'
 
 /** How long a host in WSL gets to say hello: a stopped distribution boots first, which can take a while. */
 export const WSL_HELLO_TIMEOUT_MS = 60_000
 
 /** Where the host of this version is installed in a distribution (installing it when it is not). */
-export type WslHostInstall = (target: { distro: string; home: string; arch: HostPayloadArch }) => Promise<{ dir: string; nodePath: string; entry: string }>
+export type WslHostInstall = (target: { distro: string; home: string; arch: HostPayloadArch; onProgress: (progress: HostInstallProgress) => void }) => Promise<{ dir: string; nodePath: string; entry: string }>
 
 /** The parts of a HostProcess this uses (faked in tests). */
 export interface WslHostProcess {
@@ -29,8 +32,13 @@ export interface WslHostsDeps {
   register(host: SessionHost): void
   log: Pick<Logger, 'info' | 'warn' | 'error'>
   /** A HostProcess with these options. */
-  createProcess(options: Pick<HostProcessOptions, 'id' | 'launch' | 'hostVersion' | 'onRestart' | 'helloTimeoutMs'>): WslHostProcess
+  createProcess(options: Pick<HostProcessOptions, 'id' | 'launch' | 'hostVersion' | 'onRestart' | 'onLost' | 'helloTimeoutMs'>): WslHostProcess
+  /** Where each host is (`wsl:<distro>`), for Settings. */
+  status?: (id: string, event: HostStatusEvent) => void
 }
+
+/** The `status` detail of a WSL host off Windows. */
+export const WSL_NOT_WINDOWS = 'WSL distributions are used only on Windows'
 
 /** The distributions these hosts name, once each, in order. */
 export function wslDistrosOf(hosts: Iterable<ProfileHost | undefined>): string[] {
@@ -42,7 +50,9 @@ export function wslDistrosOf(hosts: Iterable<ProfileHost | undefined>): string[]
 export class WslHosts {
   /** Distributions already asked for (started, starting or failed): each is tried once per run of the app. */
   private readonly asked = new Set<string>()
-  private readonly processes: WslHostProcess[] = []
+  /** Distributions whose host failed (could not be read, installed or connected, or was given up on): `retry` starts them again. */
+  private readonly failed = new Set<string>()
+  private readonly processes = new Map<string, WslHostProcess>()
   private warnedPlatform = false
   private stopped = false
 
@@ -53,6 +63,7 @@ export class WslHosts {
     const distros = wslDistrosOf(hosts).filter((d) => !this.asked.has(d))
     if (distros.length === 0 || this.stopped) return
     if (this.deps.platform !== 'win32') {
+      for (const distro of distros) this.report(distro, { type: 'unavailable', detail: WSL_NOT_WINDOWS })
       if (!this.warnedPlatform) this.deps.log.warn(`host: WSL hosts run only on Windows; the profiles of ${distros.join(', ')} run on this computer`)
       this.warnedPlatform = true
       return
@@ -63,10 +74,35 @@ export class WslHosts {
     }
   }
 
+  /**
+   * Starts the host of a distribution that failed again (`wsl:<distro>`), installing it first when
+   * it is not there; false for any other id (unknown, starting, connected, or off Windows).
+   */
+  retry(id: string): boolean {
+    const distro = id.startsWith('wsl:') ? id.slice(4) : ''
+    if (this.stopped || this.deps.platform !== 'win32' || !this.failed.has(distro)) return false
+    this.failed.delete(distro)
+    this.processes.get(distro)?.stop()
+    this.processes.delete(distro)
+    this.deps.log.info(`host ${id}: trying again`)
+    void this.start(distro)
+    return true
+  }
+
   /** Ends every host process (the app quits). */
   stop(): void {
     this.stopped = true
-    for (const p of this.processes.splice(0)) p.stop()
+    for (const p of this.processes.values()) p.stop()
+    this.processes.clear()
+  }
+
+  private report(distro: string, event: HostStatusEvent): void {
+    this.deps.status?.(hostIdOf({ kind: 'wsl', distro }), event)
+  }
+
+  private fail(distro: string, detail: string): void {
+    this.failed.add(distro)
+    this.report(distro, { type: 'failed', detail })
   }
 
   private async start(distro: string): Promise<void> {
@@ -74,33 +110,49 @@ export class WslHosts {
     const fallback = 'its profiles run on this computer'
     let launch: HostLaunch
     let dir: string
+    this.report(distro, { type: 'connecting' })
     try {
       const info = await probeWslDistro(this.deps.run, distro)
       const arch = nodeArchOfMachine(info.arch)
       if (!arch) throw new Error(`no host is built for its processor (${info.arch})`)
-      const payload = await this.deps.install({ distro, home: info.home, arch })
+      const payload = await this.deps.install({ distro, home: info.home, arch, onProgress: (progress) => this.report(distro, { type: 'installing', progress }) })
       dir = payload.dir
       launch = wslHostLaunch({ distro, nodePath: payload.nodePath, entry: payload.entry, hostVersion: this.deps.hostVersion, args: wslHostArgs(payload.dir, arch) })
     } catch (err) {
       this.deps.log.error(`host ${id}: ${message(err)}; ${fallback}`)
+      this.fail(distro, message(err))
       return
     }
     if (this.stopped) return
+    // An install is over: the host starts (a cold distribution can take a while to say hello).
+    this.report(distro, { type: 'connecting' })
     const hostProcess = this.deps.createProcess({
       id,
       hostVersion: this.deps.hostVersion,
       launch: () => launch,
-      onRestart: (host) => this.deps.register(host),
+      onRestart: (host) => {
+        this.deps.register(host)
+        this.report(distro, { type: 'connected', control: host.control !== null })
+      },
+      onLost: (reason, restarting) => {
+        if (restarting) this.report(distro, { type: 'lost', reason, restarting })
+        else this.fail(distro, reason)
+      },
       helloTimeoutMs: WSL_HELLO_TIMEOUT_MS
     })
-    this.processes.push(hostProcess)
+    this.processes.set(distro, hostProcess)
     try {
       const host = await hostProcess.connect()
       if (this.stopped) return
       this.deps.register(host)
+      this.report(distro, { type: 'connected', control: host.control !== null })
+      if (host.control === null) this.deps.log.warn(`host ${id}: connected without a control endpoint; its sessions cannot reach Workhub's MCP server`)
       this.deps.log.info(`host ${id}: connected; its profiles' sessions run in ${distro}`)
     } catch (err) {
       this.deps.log.error(`host ${id}: not available (the host is expected at ${dir}): ${message(err)}; ${fallback}`)
+      if (this.processes.get(distro) === hostProcess) this.processes.delete(distro)
+      hostProcess.stop()
+      this.fail(distro, message(err))
     }
   }
 }

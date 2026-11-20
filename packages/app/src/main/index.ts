@@ -94,6 +94,8 @@ import { mcpLaunchTarget, sessionEndpoint, type ControlServe } from './host-cont
 import { HostProcess } from './host-process'
 import { WslHosts } from './wsl-hosts'
 import { ensureWslHost } from './wsl-host-install'
+import { HostStatusBoard } from './host-status'
+import { registerHostsIpc } from './ipc/hosts'
 import { SessionDriver } from './session-driver'
 import { OwnerStarts } from './owner-starts'
 import { resolveChoice, SessionManager, ticketPrefixes } from './session-manager'
@@ -596,16 +598,19 @@ const hosts = new HostRegistry(localHost(execution), (profileId) => profileHosts
 let controlServe: ControlServe | null = null
 // A profile that names a WSL distribution starts its host there (Windows only), once per distribution,
 // installing it first: from the release of this version, or from WORKHUB_HOST_PAYLOAD (a local
-// workhub-host-<version>-linux-<arch>.tar.gz, offline or for a development build).
+// workhub-host-<version>-linux-<arch>.tar.gz, offline or for a development build). Each host's
+// status goes to every window (Settings → Profiles shows it).
+const hostStatus = new HostStatusBoard((list) => broadcast.toWindows('hosts:statusChanged', list))
 const wslHosts = new WslHosts({
   platform: process.platform,
   hostVersion: app.getVersion(),
   run: wslRunner(),
-  install: ({ distro, home, arch }) =>
+  install: ({ distro, home, arch, onProgress }) =>
     ensureWslHost({
       distro,
       home,
       arch,
+      onProgress,
       version: app.getVersion(),
       // Moving and removing a payload folder (hundreds of MB) can take longer than a listing.
       run: wslRunner({ timeoutMs: 120_000 }),
@@ -618,6 +623,7 @@ const wslHosts = new WslHosts({
     }),
   register: (host) => hosts.register(host),
   log: diagnostics.log,
+  status: (id, event) => hostStatus.apply(id, event),
   createProcess: (options) => new HostProcess({ ...options, log: diagnostics.log, serveControl: () => controlServe })
 })
 function readProfileHosts(config: WorkhubConfig): void {
@@ -1365,6 +1371,7 @@ function registerIpc(): void {
     }
   })
   registerSignInIpc(ipc, signIn)
+  registerHostsIpc(ipc, { platform: process.platform, run: wslRunner(), statuses: () => hostStatus.list(), retry: (id) => wslHosts.retry(id) })
   registerSetupIpc(ipc, {
     setup,
     installs: {
