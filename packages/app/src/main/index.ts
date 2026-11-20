@@ -88,6 +88,7 @@ import { PrEventService, registerPrEventsIpc } from './pr-events-service'
 import { OutputCoalescer } from './output-coalescer'
 import { routeSessionEvent } from './terminal-routing'
 import { HostRegistry, localHost } from './hosts'
+import { HostProcess } from './host-process'
 import { SessionDriver } from './session-driver'
 import { OwnerStarts } from './owner-starts'
 import { resolveChoice, SessionManager, ticketPrefixes } from './session-manager'
@@ -581,6 +582,35 @@ const execution = composeExecutionServices({
 const { runtimes, terminal, history: historySources } = execution
 // The hosts sessions run on: only this computer for now (see hosts.ts).
 const hosts = new HostRegistry(localHost(execution))
+// WORKHUB_HOST=child: every session and folder check runs in a `workhub host` child process, over
+// its stdio, instead of in this process. A development switch for the host stack; per-profile
+// hosts (a WSL distribution) replace it later. Until it connects, and when it cannot, this computer.
+const childHost =
+  process.env['WORKHUB_HOST'] === 'child'
+    ? new HostProcess({
+        entry: join(__dirname, 'host.js'),
+        hostVersion: app.getVersion(),
+        args: [
+          '--bridge-dir',
+          bridgeDir,
+          ...fallbackPath.flatMap((p) => ['--fallback-path', p]),
+          ...extraPath.flatMap((p) => ['--extra-path', p]),
+          ...(kiroDir ? ['--kiro-dir', kiroDir] : [])
+        ],
+        log: diagnostics.log,
+        onRestart: (host) => hosts.register(host)
+      })
+    : null
+if (childHost) {
+  childHost.connect().then(
+    (host) => {
+      hosts.register(host)
+      hosts.prefer(host.id)
+      diagnostics.log.info('host: sessions run in the child host process')
+    },
+    (err: unknown) => diagnostics.log.error(`host: the child host is not available, sessions run in this process: ${err instanceof Error ? err.message : String(err)}`)
+  )
+}
 // Models and modes each agent offers before a session starts (Kiro: its listing commands; Claude Code:
 // what it reports when a session starts, read without a prompt; others: their last session).
 const agentOptions = new AgentOptionsService({
@@ -1802,6 +1832,8 @@ let dbClosed = false
 app.on('will-quit', (event) => {
   historyIndexer.stop()
   transcriptReader.close()
+  // Sessions were stopped in before-quit; the host process goes with the app.
+  childHost?.stop()
   if (dbClosed) return
   event.preventDefault()
   const closeDb = () => {

@@ -1,0 +1,194 @@
+// A `workhub host` in a child process of the app (WORKHUB_HOST=child): the app's own executable
+// run as Node on the bundled host entry, its execution services reached over the child's stdio.
+// The same entry runs inside WSL later; only the launcher differs.
+import { spawn as nodeSpawn } from 'node:child_process'
+import { createInterface } from 'node:readline'
+import type { Readable, Writable } from 'node:stream'
+import { HOST_PROTOCOL_VERSION, NO_CAPABILITIES } from '@workhub/core'
+import {
+  HostChannel,
+  HostClient,
+  HostHelloError,
+  connectRemoteAgentRuntime,
+  connectRemoteHistorySources,
+  connectRemoteTranscriptReaders,
+  remoteFolders,
+  remoteGitRunner
+} from '@workhub/adapters/host'
+import { killProcessTree } from '@workhub/adapters/spawn-plan'
+import type { Logger } from './log-file'
+import type { SessionHost } from './hosts'
+
+export const CHILD_HOST_ID = 'child'
+
+/** The parts of a ChildProcess HostProcess uses (faked in tests). */
+export interface HostChild {
+  readonly pid?: number
+  readonly stdin: Writable
+  readonly stdout: Readable
+  readonly stderr: Readable
+  kill(signal?: NodeJS.Signals | number): boolean
+  once(event: 'exit', listener: (code: number | null, signal: NodeJS.Signals | null) => void): unknown
+  once(event: 'error', listener: (err: Error) => void): unknown
+}
+
+export type HostSpawn = (command: string, args: string[], env: NodeJS.ProcessEnv) => HostChild
+
+export interface HostProcessOptions {
+  /** The bundled host entry (out/main/host.js). */
+  entry: string
+  /** Arguments after `--stdio` and the version (bridge folder, PATH folders). */
+  args?: string[]
+  /** The host build this app expects; the child is told to say it, and refused when it does not. */
+  hostVersion: string
+  log: Pick<Logger, 'info' | 'warn' | 'error'>
+  /** A host that connected after a restart; sessions started from now on run on it. */
+  onRestart?: (host: SessionHost) => void
+  /** The Node the entry runs on; the app's own executable (as Node) by default. */
+  execPath?: string
+  env?: NodeJS.ProcessEnv
+  spawn?: HostSpawn
+  /** Ends a child; its process tree by default. */
+  kill?: (child: HostChild) => void
+  /** Delay before the first restart, doubled after each failed one up to `maxMs`. */
+  backoff?: { initialMs: number; maxMs: number }
+  helloTimeoutMs?: number
+}
+
+const DEFAULT_BACKOFF = { initialMs: 1_000, maxMs: 60_000 }
+
+const defaultSpawn: HostSpawn = (command, args, env) => nodeSpawn(command, args, { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+
+const message = (err: unknown): string => (err instanceof Error ? err.message : String(err))
+
+/** Starts the child, keeps it running (restarting it with backoff when it goes away) and stops it. */
+export class HostProcess {
+  private child: HostChild | undefined
+  private client: HostClient | undefined
+  private restartTimer: ReturnType<typeof setTimeout> | undefined
+  private failures = 0
+  /** Set once a first host connected: from then on a lost host is restarted. */
+  private supervising = false
+  private gaveUp = false
+  private stopped = false
+  /** Children that exited or were signalled: never signalled again (an exited one's pid may be reused). */
+  private readonly ended = new WeakSet<HostChild>()
+
+  constructor(private readonly options: HostProcessOptions) {}
+
+  /** Starts the child and resolves with its host once the hello and the service listing are done. */
+  async connect(): Promise<SessionHost> {
+    const host = await this.launch()
+    this.supervising = true
+    return host
+  }
+
+  /** Ends the child for good (the app quits); no restart follows. */
+  stop(): void {
+    this.stopped = true
+    if (this.restartTimer) clearTimeout(this.restartTimer)
+    this.restartTimer = undefined
+    this.end()
+  }
+
+  private async launch(): Promise<SessionHost> {
+    const { options } = this
+    const args = [options.entry, '--stdio', '--host-version', options.hostVersion, ...(options.args ?? [])]
+    const env = { ...(options.env ?? process.env), ELECTRON_RUN_AS_NODE: '1' }
+    const child = (options.spawn ?? defaultSpawn)(options.execPath ?? process.execPath, args, env)
+    this.child = child
+    // The host writes its diagnostics to stderr: they go to the app's log.
+    createInterface({ input: child.stderr }).on('line', (line) => options.log.info(`host: ${line}`))
+    const channel = new HostChannel(child.stdout, child.stdin, { onNotice: (n) => options.log.warn(`host: malformed line (${n.reason})`) })
+    const client = new HostClient(channel, {
+      expected: { protocol: HOST_PROTOCOL_VERSION, hostVersion: options.hostVersion },
+      helloTimeoutMs: options.helloTimeoutMs,
+      onNotice: (n) => options.log.warn(`host: unexpected ${n.kind}`)
+    })
+    this.client = client
+    let lost = false
+    const onLost = (reason: string) => {
+      if (lost) return
+      lost = true
+      this.lost(child, client, reason)
+    }
+    child.once('exit', (code, signal) => {
+      this.ended.add(child)
+      onLost(`the host process exited (${signal ?? code})`)
+    })
+    child.once('error', (err) => onLost(`the host process failed: ${err.message}`))
+    client.onClose(onLost)
+    try {
+      await client.ready
+      return await this.build(client)
+    } catch (err) {
+      if (err instanceof HostHelloError && err.reason !== 'timeout' && err.reason !== 'closed') this.gaveUp = true
+      options.log.error(`host: could not connect: ${message(err)}`)
+      onLost('the connection failed')
+      throw err
+    }
+  }
+
+  private async build(client: HostClient): Promise<SessionHost> {
+    const onError = (err: unknown) => this.options.log.warn(`host: ${message(err)}`)
+    const [native, acp, terminal, transcripts, history] = await Promise.all([
+      connectRemoteAgentRuntime(client, 'native', { onError }),
+      connectRemoteAgentRuntime(client, 'acp', { onError }),
+      // A raw terminal reports nothing structured, whatever the agent could do in app mode.
+      connectRemoteAgentRuntime(client, 'terminal', { capabilities: () => ({ ...NO_CAPABILITIES }), onError }),
+      connectRemoteTranscriptReaders(client, { timeoutMs: 60_000, onError }),
+      connectRemoteHistorySources(client, { timeoutMs: 120_000 })
+    ])
+    const git = remoteGitRunner(client)
+    const folders = remoteFolders(client)
+    return {
+      id: CHILD_HOST_ID,
+      services: { runtimes: { native, acp, terminal }, terminal, transcripts, history, git },
+      git,
+      exists: folders.exists,
+      stat: folders.stat
+    }
+  }
+
+  /**
+   * The child or its channel went away. Sessions still live on it get an error from their runtime
+   * proxy; the child is ended if it is still there, and started again once the first host was up.
+   */
+  private lost(child: HostChild, client: HostClient, reason: string): void {
+    client.close()
+    this.end(child)
+    if (this.stopped || !this.supervising || this.gaveUp || this.restartTimer) return
+    const { initialMs, maxMs } = this.options.backoff ?? DEFAULT_BACKOFF
+    const delay = Math.min(initialMs * 2 ** this.failures, maxMs)
+    this.failures++
+    this.options.log.warn(`host: ${reason}; restarting in ${delay} ms`)
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = undefined
+      if (this.stopped || this.gaveUp) return
+      this.launch().then(
+        (host) => {
+          this.failures = 0
+          this.options.log.info('host: restarted')
+          this.options.onRestart?.(host)
+        },
+        () => {} // logged in launch; its own loss schedules the next attempt
+      )
+    }, delay)
+  }
+
+  private end(child: HostChild | undefined = this.child): void {
+    if (!child) return
+    if (child === this.child) {
+      this.client?.close()
+      this.child = undefined
+      this.client = undefined
+    }
+    if (this.ended.has(child)) return
+    this.ended.add(child)
+    try {
+      ;(this.options.kill ?? ((c: HostChild) => killProcessTree(c, 'SIGTERM')))(child)
+    } catch (err) {
+      this.options.log.warn(`host: could not end the host process: ${message(err)}`)
+    }
+  }
+}
