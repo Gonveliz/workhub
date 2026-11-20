@@ -113,7 +113,7 @@ export function buildHub(transport: HubTransport, platform: Platform): HubApi {
       revealFolder: (path) => invoke('history:revealFolder', path)
     },
     agents: {
-      availability: () => invoke('agents:availability'),
+      availability: (profileId?: string | null) => invoke('agents:availability', profileId ?? null),
       options: (agentKey, refresh) => invoke('agents:options', agentKey, refresh)
     },
     usage: {

@@ -204,3 +204,23 @@ describe('WslHosts', () => {
     expect(hosts.retry('wsl:Ubuntu')).toBe(false)
   })
 })
+
+describe('WslHosts.toolProbe', () => {
+  it('has no probe until the host of the distribution is installed, then runs the setup checks inside it', async () => {
+    const { hosts, run } = setup()
+    expect(hosts.toolProbe('Ubuntu')).toBeNull()
+    hosts.ensure([{ kind: 'wsl', distro: 'Ubuntu' }])
+    await flush()
+    const probe = hosts.toolProbe('Ubuntu')!
+    const runs = vi.mocked(run)
+    runs.mockImplementation(async (args) => (args.includes('git') ? { code: 1, stdout: '', stderr: 'execvpe(git) failed: No such file or directory' } : { code: 0, stdout: '2.1.0 (Claude Code)\n' }))
+    expect(await probe('claude')).toEqual({ result: 'ok', output: '2.1.0 (Claude Code)' })
+    expect(runs.mock.calls.at(-1)![0]).toEqual(['-d', 'Ubuntu', '-e', '/users/ana/.workhub/host/2.1.0/bridge/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude', '--version'])
+    await probe('auth')
+    expect(runs.mock.calls.at(-1)![0].slice(-2)).toEqual(['auth', 'status'])
+    expect(await probe('git')).toEqual({ result: 'notFound', output: 'execvpe(git) failed: No such file or directory' })
+    expect(runs.mock.calls.at(-1)![0]).toEqual(['-d', 'Ubuntu', '-e', 'git', '--version'])
+    runs.mockImplementation(async () => ({ code: -1, stdout: '' }))
+    expect((await probe('git')).result).toBe('timeout')
+  })
+})

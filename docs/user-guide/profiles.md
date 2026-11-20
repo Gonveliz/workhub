@@ -159,13 +159,19 @@ saved with the profile; the control is not shown on macOS or Linux.
   for a WSL profile.
 - **Sessions** of the profile run in the distribution. The session's title tooltip and its **More**
   menu say **WSL: <distro>**.
+- **New session** lists the agents the distribution can run: Claude Code (the one Workhub installs
+  there), tagged **starting in WSL** until Workhub connects; the other agents and shells are tagged
+  **not available in WSL yet** and cannot be started for that profile.
+- The **setup check** (**Help → Setup Check…**) checks Claude Code, its sign-in and git inside the
+  distribution while the active profile runs in WSL; their rows are named **(WSL: <distro>)** and
+  show **Waiting** until Workhub connects there. It never offers a Windows install for them.
 
 What works so far: Claude Code sessions (chat, the transcript, resuming a session), the changes a
 session made (read only), and Workhub's MCP server and control endpoint for those sessions, reached
 through a socket of the Workhub process inside the distribution. Not yet: the History screen does
 not list sessions from inside WSL, reverting changes, worktrees per session, creating a pull
-request from a repository in WSL, the Terminal and Shell views, agents other than Claude Code, usage
-scans and the setup check inside the distribution.
+request from a repository in WSL, the Terminal and Shell views, agents other than Claude Code, and
+usage scans.
 
 **Troubleshooting.** The profile's sessions never run on this computer in place of the
 distribution (their folders are Linux paths). Until Workhub connects there, a new session waits for

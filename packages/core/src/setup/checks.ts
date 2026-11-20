@@ -26,7 +26,8 @@ export type SetupItemId =
   | 'health'
   | 'usage'
   | 'agentSkills'
-export type SetupStatus = 'ok' | 'warning' | 'missing'
+/** `pending`: not checked yet, and not a problem (the WSL host a profile runs on has not connected). */
+export type SetupStatus = 'ok' | 'warning' | 'missing' | 'pending'
 
 /**
  * What fixes an item: a Settings tab, a page to read (`admin`: the official install needs
@@ -151,6 +152,22 @@ export function gitItem(p: Probe, context?: InstallContext | string): SetupItem 
   if (p.result === 'ok') return item('git', 'ok', 'version', { version: /\d+\.\d+(?:\.\d+)?/.exec(p.output)?.[0] ?? firstLine(p.output) })
   if (p.result === 'timeout') return item('git', 'warning', 'timeout', { command: 'git --version' })
   return item('git', 'missing', 'gitMissing', {}, { fix: installFix('git', context) })
+}
+
+/**
+ * Claude Code, its sign-in and git as found inside the WSL distribution `host` the active profile
+ * runs in (`claude --version` of the host's bundled Claude Code, `claude auth status`, `git
+ * --version`), or pending while that host has not connected (`probes` null). No row carries a fix:
+ * every fix the check knows installs or signs in on this computer.
+ */
+export function hostToolItems(host: string, probes: { claude: Probe; auth: Probe; git: Probe } | null): SetupItem[] {
+  const inHost = (i: SetupItem): SetupItem => {
+    const { fix: _fix, ...rest } = i
+    return { ...rest, params: { ...i.params, host }, ...(i.kind === 'claudeSignIn' && i.code === 'notSignedIn' ? { code: 'hostNotSignedIn' } : {}) }
+  }
+  const signInId = `claudeSignIn:wsl:${host}`
+  if (!probes) return [item('claudeCode', 'pending', 'hostPending', { host }), { ...item('claudeSignIn', 'pending', 'hostPending', { host, name: 'Claude' }), id: signInId }, item('git', 'pending', 'hostPending', { host })]
+  return [inHost(claudeCodeItem(probes.claude)), inHost(claudeSignInItem(signInId, 'Claude', probes.auth, null)), inHost(gitItem(probes.git))]
 }
 
 /**

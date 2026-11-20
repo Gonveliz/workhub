@@ -5,7 +5,7 @@
 // it; when it cannot (no WSL, the install failed) they fail with the reason, never running on this
 // computer (hosts.ts). Each step is reported as a
 // HostStatusEvent (Settings shows it), and a host that failed can be tried again (`retry`).
-import { hostIdOf, nodeArchOfMachine, probeWslDistro, wslHostArgs, wslHostLaunch, type HostLaunch, type HostPayloadArch, type ProfileHost, type WslRun } from '@workhub/core'
+import { hostIdOf, joinFlavorPath, nodeArchOfMachine, probeWslDistro, wslHostArgs, wslHostLaunch, type HostLaunch, type HostPayloadArch, type Probe, type ProfileHost, type WslRun } from '@workhub/core'
 import type { Logger } from './log-file'
 import type { SessionHost } from './hosts'
 import type { HostProcessOptions } from './host-process'
@@ -54,6 +54,8 @@ export class WslHosts {
   /** Distributions whose host failed (could not be read, installed or connected, or was given up on): `retry` starts them again. */
   private readonly failed = new Set<string>()
   private readonly processes = new Map<string, WslHostProcess>()
+  /** Where each distribution's host is installed, once it is. */
+  private readonly payloads = new Map<string, { dir: string; arch: HostPayloadArch }>()
   private warnedPlatform = false
   private stopped = false
 
@@ -90,6 +92,28 @@ export class WslHosts {
     return true
   }
 
+  /**
+   * Runs the setup check's commands inside a distribution (read-only): the host's own Claude Code
+   * (`claude` is its `--version`, `auth` its `auth status`) and `git --version`. Null until the host
+   * of that distribution is installed.
+   */
+  toolProbe(distro: string): ((tool: 'claude' | 'auth' | 'git') => Promise<Probe>) | null {
+    const payload = this.payloads.get(distro)
+    if (!payload) return null
+    const claude = joinFlavorPath('posix', payload.dir, 'bridge', 'node_modules', '@anthropic-ai', `claude-agent-sdk-linux-${payload.arch}`, 'claude')
+    return async (tool) => {
+      const command = tool === 'git' ? ['git', '--version'] : [claude, ...(tool === 'auth' ? ['auth', 'status'] : ['--version'])]
+      const r = await this.deps.run(['-d', distro, '-e', ...command])
+      const output = (r.stdout || r.stderr || '').trim()
+      if (r.code === 0) return { result: 'ok', output }
+      // wsl.exe -e reports a command the distribution does not have as execvpe(...) failed.
+      if (/execvpe|No such file or directory|not found/i.test(output)) return { result: 'notFound', output }
+      // The runner ends a run that took too long with -1 (and nothing printed).
+      if (r.code === -1 && !output) return { result: 'timeout', output }
+      return { result: 'failed', output }
+    }
+  }
+
   /** Ends every host process (the app quits). */
   stop(): void {
     this.stopped = true
@@ -118,6 +142,7 @@ export class WslHosts {
       if (!arch) throw new Error(`no host is built for its processor (${info.arch})`)
       const payload = await this.deps.install({ distro, home: info.home, arch, onProgress: (progress) => this.report(distro, { type: 'installing', progress }) })
       dir = payload.dir
+      this.payloads.set(distro, { dir, arch })
       launch = wslHostLaunch({ distro, nodePath: payload.nodePath, entry: payload.entry, hostVersion: this.deps.hostVersion, args: wslHostArgs(payload.dir, arch) })
     } catch (err) {
       this.deps.log.error(`host ${id}: ${message(err)}; ${fallback}`)

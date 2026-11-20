@@ -629,6 +629,8 @@ const wslHosts = new WslHosts({
     // Sessions waiting for the host fail with the reason it is not there, or keep waiting while it starts.
     if (event.type === 'failed' || event.type === 'unavailable') hosts.failed(id, event.detail)
     else if (event.type === 'connecting' || event.type === 'installing') hosts.starting(id)
+    // The setup check waits for this host to check a WSL profile's tools: it reads them again now.
+    if (event.type === 'connected') broadcast.toWindows('setup:changed')
   },
   createProcess: (options) => new HostProcess({ ...options, log: diagnostics.log, serveControl: () => controlServe })
 })
@@ -1254,8 +1256,18 @@ const installs = new InstallQueue({
   emit: (snapshot) => broadcast.toWindows('setup:installProgress', snapshot),
   afterEach: refreshCliPath
 })
+/** The WSL distribution a profile runs in, and whether its host has connected; null for a profile on this computer. */
+function wslHostOf(config: WorkhubConfig, profileId: string | null | undefined): { distro: string; connected: boolean } | null {
+  const host = profileId ? config.profiles.find((p) => p.id === profileId)?.host : undefined
+  return host?.kind === 'wsl' ? { distro: host.distro, connected: hosts.get(hostIdOf(host)) !== undefined } : null
+}
 const setup = new SetupService({
   arch: process.arch,
+  // The active profile runs in WSL: Claude Code and git are checked there, once its host is up.
+  profileHost: (config) => {
+    const wsl = wslHostOf(config, config.activeProfileId)
+    return wsl ? { distro: wsl.distro, probe: wsl.connected ? wslHosts.toolProbe(wsl.distro) : null } : null
+  },
   config: () => configuration.current(),
   hasSecret: (ref) => secrets.has(ref),
   path: setupPath,
@@ -1371,6 +1383,7 @@ function registerIpc(): void {
   registerUsageIpc(ipc, {
     configuration,
     extraPath,
+    wslHost: wslHostOf,
     agentPath: () => [sessionPath() ?? process.env['PATH'] ?? '', ...fallbackPath].filter(Boolean).join(delimiter),
     agentOptions,
     usage,
