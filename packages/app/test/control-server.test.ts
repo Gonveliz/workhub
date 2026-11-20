@@ -81,6 +81,26 @@ describe('control endpoint', () => {
     }
   })
 
+  it('answers a failure inside a route with a fixed message, and logs what failed', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wh-ctl-'))
+    dirs.push(dir)
+    const logged: string[] = []
+    const socket = controlSocketPath(dir)
+    const server = await startControlServer(socket, {
+      auth: testAuth(['s1']),
+      log: (m) => void logged.push(m),
+      openReview: () => {
+        throw new Error('<img src=x onerror=alert(1)>')
+      }
+    })
+    try {
+      expect(await call(socket, 'POST', '/v1/sessions/s1/review', {})).toEqual({ status: 500, json: { ok: false, error: 'internal error' } })
+      expect(logged.some((m) => m.includes('<img src=x onerror=alert(1)>'))).toBe(true)
+    } finally {
+      server?.close()
+    }
+  })
+
   it('checks the repos of a review request', () => {
     const dir = (p: string) => p.startsWith('/ok')
     expect(parseReviewBody(undefined, dir)).toEqual([])
@@ -138,8 +158,10 @@ describe('serveControl (plain requests)', () => {
 
   it('refuses a body that is not JSON or passed the cap', async () => {
     const deps = { auth: testAuth(), openReview: () => ({ ok: true as const }) }
-    const bad = await serveControl(deps, { method: 'POST', url: '/v1/sessions/s1/review', headers: { 'x-workhub-token': 't-s1' }, body: '{nope' })
+    const bad = await serveControl(deps, { method: 'POST', url: '/v1/sessions/s1/review', headers: { 'x-workhub-token': 't-s1' }, body: '<script>nope' })
     expect(bad.status).toBe(400)
+    // The parser's message quotes the body: it is not sent back.
+    expect(JSON.parse(bad.body)).toEqual({ ok: false, error: 'the body is not valid JSON' })
     const big = await serveControl(deps, { method: 'POST', url: '/v1/sessions/s1/review', headers: { 'x-workhub-token': 't-s1' }, bodyTooLarge: true })
     expect(big.status).toBe(400)
     expect(JSON.parse(big.body)).toEqual({ ok: false, error: 'body too large' })

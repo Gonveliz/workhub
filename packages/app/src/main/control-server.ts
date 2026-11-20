@@ -281,6 +281,15 @@ export interface ControlResponse {
 const json = (status: number, body: unknown): ControlResponse => ({ status, headers: { ...JSON_HEADERS }, body: JSON.stringify(body) })
 const fromReply = (r: ControlReply): ControlResponse => json(r.status, r.body)
 
+/**
+ * The answer to a request whose route failed: a fixed message (what failed can carry the request's
+ * own text, which is never echoed back); the detail goes to the log.
+ */
+function failed(deps: Pick<ControlDeps, 'log'>, res: ServerResponse, e: unknown): void {
+  deps.log?.(`control endpoint: a request failed: ${e instanceof Error ? e.message : String(e)}`)
+  send(res, json(500, { ok: false, error: 'internal error' }))
+}
+
 function send(res: ServerResponse, r: ControlResponse): void {
   res.writeHead(r.status, r.headers)
   res.end(r.body)
@@ -308,8 +317,9 @@ function readBody(req: ControlRequest, caller: ControlCaller): { ok: true; body:
   let body: unknown
   try {
     body = text ? JSON.parse(text) : undefined
-  } catch (e) {
-    return { ok: false, status: 400, error: e instanceof Error ? e.message : 'bad body' }
+  } catch {
+    // The parser's message quotes the body: never sent back.
+    return { ok: false, status: 400, error: 'the body is not valid JSON' }
   }
   return bindBody(body, caller)
 }
@@ -504,7 +514,7 @@ export async function startControlServer(socketPath: string, deps: ControlDeps):
     }
   }
   const server = createServer((req, res) => {
-    handleControl(deps, req, res).catch((e: unknown) => send(res, json(500, { ok: false, error: e instanceof Error ? e.message : String(e) })))
+    handleControl(deps, req, res).catch((e: unknown) => failed(deps, res, e))
   })
   return new Promise((resolve) => {
     server.once('error', (e) => {
@@ -532,7 +542,7 @@ export async function startControlServer(socketPath: string, deps: ControlDeps):
 export function startLoopbackControlServer(token: string, deps: ControlDeps): Promise<{ server: Server; url: string } | null> {
   const server = createServer((req, res) => {
     if (req.headers.origin !== undefined || !hasControlToken(req, token)) return send(res, json(401, { ok: false, error: 'missing or wrong token: send Authorization: Bearer $WORKHUB_TOKEN' }))
-    handleControl(deps, req, res).catch((e: unknown) => send(res, json(500, { ok: false, error: e instanceof Error ? e.message : String(e) })))
+    handleControl(deps, req, res).catch((e: unknown) => failed(deps, res, e))
   })
   return new Promise((resolve) => {
     server.once('error', (e) => {
