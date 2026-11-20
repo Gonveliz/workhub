@@ -48,6 +48,7 @@ import { settingsV2En } from './settingsV2.en'
 import { settingsAccountsEn } from './settingsAccounts.en'
 import { notificationsAlertsEn } from './notificationsAlerts.en'
 import { profileAgentsEn } from './profileAgents.en'
+import { profileHostEn } from './profileHost.en'
 import { settingsAgentsEn } from './settingsAgents.en'
 import { settingsConnectionsEn } from './settingsConnections.en'
 /**
@@ -519,6 +520,7 @@ export const en = {
   ...settingsAccountsEn,
   ...notificationsAlertsEn,
   ...profileAgentsEn,
+  ...profileHostEn,
   ...settingsAgentsEn,
   ...settingsConnectionsEn,
   ...remoteEn,

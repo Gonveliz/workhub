@@ -128,6 +128,16 @@ describe('SessionManager: services per host', () => {
     await manager.stopAll()
     expect([local.native.stoppedAll, local.terminal.stoppedAll, remote.native.stoppedAll, remote.terminal.stoppedAll]).toEqual([1, 1, 1, 1])
   })
+
+  it("names the session's host in its view, except this computer", async () => {
+    const wsl = { ...services('in WSL'), hostId: 'wsl:Ubuntu' }
+    const { manager, local } = setup((target) => (target.profileId === 'acme' ? wsl : { ...local, hostId: 'local' }))
+    const there = await manager.start({ profileId: 'acme', agentKey: 'claude', cwd: '/w/acme/web' })
+    const here = await manager.start({ profileId: null, agentKey: 'claude', cwd: '/w/acme/api' })
+    expect(there.hostId).toBe('wsl:Ubuntu')
+    expect(here.hostId).toBeUndefined()
+    await manager.stopAll()
+  })
 })
 
 describe('SessionManager: control endpoint per host', () => {

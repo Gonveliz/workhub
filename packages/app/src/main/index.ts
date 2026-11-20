@@ -782,7 +782,7 @@ const sessions = new SessionManager({
   history: historySources,
   hostFor: (target) => {
     const host = hosts.hostFor(target)
-    return { ...host.services, exists: host.exists, control: host.control }
+    return { ...host.services, exists: host.exists, control: host.control, hostId: host.id }
   },
   onAgentOptions: (agentId, accountId, options) => agentOptions.record(agentId, accountId, options),
   emitEvent: (e) => {

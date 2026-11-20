@@ -49,6 +49,7 @@ import { settingsV2Es } from './settingsV2.es'
 import { settingsAccountsEs } from './settingsAccounts.es'
 import { notificationsAlertsEs } from './notificationsAlerts.es'
 import { profileAgentsEs } from './profileAgents.es'
+import { profileHostEs } from './profileHost.es'
 import { settingsAgentsEs } from './settingsAgents.es'
 import { settingsConnectionsEs } from './settingsConnections.es'
 
@@ -518,6 +519,7 @@ export const es: Record<keyof typeof en, string> = {
   ...settingsAccountsEs,
   ...notificationsAlertsEs,
   ...profileAgentsEs,
+  ...profileHostEs,
   ...settingsAgentsEs,
   ...settingsConnectionsEs,
   ...remoteEs,

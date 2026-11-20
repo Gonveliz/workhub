@@ -126,6 +126,8 @@ export interface PendingPermission {
 /** A session as the renderer sees it. */
 export interface SessionView extends Session {
   label: string
+  /** The host the session runs on (`wsl:<distro>`); absent on this computer. */
+  hostId?: string
   /** The worktree Workhub created for this session; closing it can remove it. */
   worktree?: SessionWorktree
   /** The name the user gave the session (Rename…, `/rename`), kept across restarts; else it shows its agent's name. */

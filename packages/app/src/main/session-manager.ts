@@ -145,6 +145,8 @@ export interface SessionServices {
   exists?: (path: string) => Promise<boolean>
   /** How sessions here reach Workhub (`SessionHost.control`): undefined for main's own endpoint, null for none. */
   control?: HostControlInfo | null
+  /** The id of the host (`wsl:<distro>`); undefined or `local` for this computer. */
+  hostId?: string
 }
 
 export interface SessionManagerDeps extends SessionServices {
@@ -442,6 +444,7 @@ export class SessionManager {
       modeControl: canSetSessionMode(runtime),
       ...(input.readOnly ? { readOnly: true } : {}),
       ...(placed.worktree ? { worktree: placed.worktree } : {}),
+      ...(services.hostId && services.hostId !== 'local' ? { hostId: services.hostId } : {}),
       ...(internal.origin ? { origin: internal.origin } : {}),
       ...(input.resumeAgentSessionId || input.identity ? { resumed: true } : {}),
       pendingPermissions: []
