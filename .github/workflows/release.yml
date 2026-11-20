@@ -103,7 +103,8 @@ jobs:
           retention-days: 7
 
   # The Linux host payload the app installs into a WSL distribution on first use
-  # (scripts/stage-host.mjs): one archive per arch, built on a Linux runner of that arch because
+  # (scripts/stage-host.mjs): one archive per arch, built on an Ubuntu 22.04 runner of that arch (node-pty's
+  # pty.node links the runner's glibc, so an older runner keeps 22.04+ distros working) because
   # node-pty is native and not cross-built. arm64 uses GitHub's arm64 runner; it may not fail the
   # release (continue-on-error), so a missing arm64 payload only leaves arm64 distributions without one.
   host-payload:
@@ -115,8 +116,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: x64, runner: ubuntu-latest }
-          - { arch: arm64, runner: ubuntu-24.04-arm }
+          - { arch: x64, runner: ubuntu-22.04 }
+          - { arch: arm64, runner: ubuntu-22.04-arm }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
