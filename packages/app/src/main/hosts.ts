@@ -2,9 +2,11 @@
 // profile that runs elsewhere (a WSL distribution, say) will get a host of its own, whose services
 // reach it through a HostClient, and `hostFor` will pick it from the profile.
 import { existsSync } from 'node:fs'
-import { stat } from 'node:fs/promises'
 import type { GitRunner } from '@workhub/adapters/git-review'
-import type { ExecutionServices } from '@workhub/adapters/host'
+import { statPath, type HostFileInfo } from '@workhub/adapters/host'
+import type { AgentRuntime, SessionHistorySource, TranscriptReader } from '@workhub/core'
+
+export type { HostFileInfo }
 
 export type HostId = 'local' | (string & {})
 
@@ -14,15 +16,6 @@ export const LOCAL_HOST_ID = 'local'
 /** What a host is picked by: the profile a session (or a folder) belongs to. */
 export interface HostTarget {
   profileId: string | null
-}
-
-/** What `stat` tells of a path on a host. */
-export interface HostFileInfo {
-  size: number
-  mtimeMs: number
-  mode: number
-  isFile: boolean
-  isDirectory: boolean
 }
 
 /** The folder operations the app runs on a session's or profile's folders, where those folders live. */
@@ -35,23 +28,33 @@ export interface HostFolders {
   stat(path: string): Promise<HostFileInfo | null>
 }
 
+/**
+ * What sessions run on, as ports: built in this process (ExecutionServices is one), or reached
+ * through a HostClient (the remote proxies).
+ */
+export interface HostServices {
+  runtimes: { native: AgentRuntime; acp: AgentRuntime; terminal: AgentRuntime }
+  /** The runtime of consoles and shells (the same as `runtimes.terminal`). */
+  terminal: AgentRuntime
+  transcripts: TranscriptReader[]
+  history: Partial<Record<string, SessionHistorySource>>
+  git: GitRunner
+}
+
 /** A place sessions run: its agent runtimes, transcript readers, past sessions, and its folders. */
 export interface SessionHost extends HostFolders {
   id: HostId
-  services: ExecutionServices
+  services: HostServices
 }
 
 /** Picks the host of a session or folder. */
 export type HostResolver = (target: HostTarget) => SessionHost
 
 /** `stat` on this computer's disk. */
-export async function localStat(path: string): Promise<HostFileInfo | null> {
-  const info = await stat(path).catch(() => null)
-  return info && { size: info.size, mtimeMs: info.mtimeMs, mode: info.mode, isFile: info.isFile(), isDirectory: info.isDirectory() }
-}
+export const localStat: (path: string) => Promise<HostFileInfo | null> = statPath
 
 /** The host of this computer, over services built in this process. */
-export function localHost(services: ExecutionServices): SessionHost {
+export function localHost(services: HostServices): SessionHost {
   return {
     id: LOCAL_HOST_ID,
     services,
@@ -70,6 +73,7 @@ export async function originUrl(git: GitRunner, folder: string): Promise<string 
 /** The known hosts, `local` always among them. */
 export class HostRegistry {
   private readonly hosts = new Map<HostId, SessionHost>()
+  private preferred: HostId | null = null
 
   constructor(readonly local: SessionHost) {
     if (local.id !== LOCAL_HOST_ID) throw new Error(`the local host must have the id "${LOCAL_HOST_ID}"`)
@@ -86,8 +90,16 @@ export class HostRegistry {
     return this.hosts.get(id)
   }
 
-  /** The host a session or folder of this profile runs on: this computer, until profiles can name another. */
+  /**
+   * Runs every profile on this host while it is registered (`WORKHUB_HOST=child`); null goes back
+   * to this computer. A stopgap until profiles name their own host.
+   */
+  prefer(id: HostId | null): void {
+    this.preferred = id
+  }
+
+  /** The host a session or folder of this profile runs on: the preferred one, else this computer. */
   hostFor(_target: HostTarget): SessionHost {
-    return this.local
+    return (this.preferred !== null ? this.hosts.get(this.preferred) : undefined) ?? this.local
   }
 }

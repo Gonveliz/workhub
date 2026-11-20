@@ -140,6 +140,22 @@ describe('HostRegistry', () => {
     expect(hosts.get('wsl:dev')?.id).toBe('wsl:dev')
   })
 
+  it('resolves every profile to the preferred host while it is registered, its latest instance', () => {
+    const hosts = new HostRegistry(localHost(execution))
+    hosts.prefer('child')
+    expect(hosts.hostFor({ profileId: 'any' })).toBe(hosts.local)
+
+    const first = { ...localHost(execution), id: 'child' }
+    hosts.register(first)
+    expect(hosts.hostFor({ profileId: 'any' })).toBe(first)
+    const restarted = { ...localHost(execution), id: 'child' }
+    hosts.register(restarted)
+    expect(hosts.hostFor({ profileId: null })).toBe(restarted)
+
+    hosts.prefer(null)
+    expect(hosts.hostFor({ profileId: 'any' })).toBe(hosts.local)
+  })
+
   it('keeps the local host fixed', () => {
     const hosts = new HostRegistry(localHost(execution))
     expect(() => hosts.register(localHost(execution))).toThrow()
