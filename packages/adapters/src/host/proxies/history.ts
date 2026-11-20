@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { HistoryEntry, HistoryListOptions, HistoryMessage, HistoryMessagesOptions, SessionHistorySource } from '@workhub/core'
 import type { HostClient } from '../client'
 import { HostHandlerError, type HostHandlers } from '../server'
+import { joinChunks, ResultChunks, type ResultChunksOptions } from './chunks'
 import { objectLike, parseParams, parseResult } from './shared'
 
 type HistoryAccount = Parameters<SessionHistorySource['list']>[0]
@@ -24,8 +25,15 @@ const entriesResult = z.array(objectLike<HistoryEntry>())
 const messagesResult = z.array(objectLike<HistoryMessage>())
 const idsResult = z.array(z.string())
 
-/** Host side: `history.*` for these sources, keyed like SessionManager's `history` (agent id). */
-export function historySourceHandlers(sources: Partial<Record<string, SessionHistorySource>>): HostHandlers {
+/** Where the rest of a long session's messages is asked for (see chunks.ts). */
+export const HISTORY_NEXT_METHOD = 'history.next'
+
+/**
+ * Host side: `history.*` for these sources, keyed like SessionManager's `history` (agent id). A
+ * session's messages larger than a line go in pieces (`history.next`).
+ */
+export function historySourceHandlers(sources: Partial<Record<string, SessionHistorySource>>, chunkOptions?: ResultChunksOptions): HostHandlers {
+  const chunks = new ResultChunks(HISTORY_NEXT_METHOD, chunkOptions)
   const pick = (id: string, method: string): SessionHistorySource => {
     const source = Object.hasOwn(sources, id) ? sources[id] : undefined
     if (!source) throw new HostHandlerError('bad_params', `${method}: no history source "${id}"`)
@@ -48,8 +56,9 @@ export function historySourceHandlers(sources: Partial<Record<string, SessionHis
     },
     'history.messages': async (params) => {
       const p = parseParams(messagesParams, params, 'history.messages')
-      return pick(p.source, 'history.messages').messages(p.agentSessionId, p.cwd, p.configDir, p.options)
+      return chunks.wrap(await pick(p.source, 'history.messages').messages(p.agentSessionId, p.cwd, p.configDir, p.options))
     },
+    ...chunks.handlers,
     'history.rename': async (params) => {
       const p = parseParams(renameParams, params, 'history.rename')
       const source = pick(p.source, 'history.rename')
@@ -70,8 +79,10 @@ function remoteSource(client: HostClient, id: string, has: { sessionIds: boolean
   const source: SessionHistorySource = {
     list: async (account: HistoryAccount, opts?: HistoryListOptions) =>
       parseResult(entriesResult, await call('history.list', { account, ...(opts ? { options: opts } : {}) }), 'history.list'),
-    messages: async (agentSessionId: string, cwd: string, configDir?: string, opts?: HistoryMessagesOptions) =>
-      parseResult(messagesResult, await call('history.messages', { agentSessionId, cwd, configDir, ...(opts ? { options: opts } : {}) }), 'history.messages')
+    messages: async (agentSessionId: string, cwd: string, configDir?: string, opts?: HistoryMessagesOptions) => {
+      const answer = await call('history.messages', { agentSessionId, cwd, configDir, ...(opts ? { options: opts } : {}) })
+      return parseResult(messagesResult, await joinChunks(client, answer, 'history.messages', HISTORY_NEXT_METHOD, options.timeoutMs), 'history.messages')
+    }
   }
   // The optional methods exist only when the host's source has them: callers test for them.
   if (has.sessionIds) {

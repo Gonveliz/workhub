@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { SessionMonitorSnapshot, SubagentConversation, TranscriptQuery, TranscriptReader } from '@workhub/core'
 import type { HostClient } from '../client'
 import { HostHandlerError, type HostHandlers } from '../server'
+import { joinChunks, ResultChunks, type ResultChunksOptions } from './chunks'
 import { objectLike, parseParams, parseResult } from './shared'
 
 const transcriptQuery = z.looseObject({
@@ -20,8 +21,15 @@ const describeResult = z.array(z.object({ id: z.string(), subagent: z.boolean() 
 const snapshotResult = objectLike<SessionMonitorSnapshot>().nullable()
 const conversationResult = objectLike<SubagentConversation>().nullable()
 
-/** Host side: `transcripts.*` for these readers, picked per call by `reader` (their `id`). */
-export function transcriptReaderHandlers(readers: readonly TranscriptReader[]): HostHandlers {
+/** Where the rest of a large snapshot or sub-agent conversation is asked for (see chunks.ts). */
+export const TRANSCRIPTS_NEXT_METHOD = 'transcripts.next'
+
+/**
+ * Host side: `transcripts.*` for these readers, picked per call by `reader` (their `id`). A snapshot
+ * or sub-agent conversation larger than a line goes in pieces (`transcripts.next`).
+ */
+export function transcriptReaderHandlers(readers: readonly TranscriptReader[], chunkOptions?: ResultChunksOptions): HostHandlers {
+  const chunks = new ResultChunks(TRANSCRIPTS_NEXT_METHOD, chunkOptions)
   const byId = new Map(readers.map((r) => [r.id, r]))
   const pick = (id: string, method: string): TranscriptReader => {
     const reader = byId.get(id)
@@ -32,7 +40,7 @@ export function transcriptReaderHandlers(readers: readonly TranscriptReader[]): 
     'transcripts.describe': () => readers.map((r) => ({ id: r.id, subagent: typeof r.subagent === 'function' })),
     'transcripts.read': async (params) => {
       const p = parseParams(readParams, params, 'transcripts.read')
-      return (await pick(p.reader, 'transcripts.read').read(p.query as TranscriptQuery)) ?? null
+      return chunks.wrap((await pick(p.reader, 'transcripts.read').read(p.query as TranscriptQuery)) ?? null)
     },
     'transcripts.exists': async (params) => {
       const p = parseParams(readParams, params, 'transcripts.exists')
@@ -47,8 +55,9 @@ export function transcriptReaderHandlers(readers: readonly TranscriptReader[]): 
       const p = parseParams(subagentParams, params, 'transcripts.subagent')
       const reader = pick(p.reader, 'transcripts.subagent')
       if (!reader.subagent) throw new HostHandlerError('bad_params', `transcripts.subagent: reader "${p.reader}" has no subagents`)
-      return (await reader.subagent(p.query as TranscriptQuery, p.subagentId)) ?? null
-    }
+      return chunks.wrap((await reader.subagent(p.query as TranscriptQuery, p.subagentId)) ?? null)
+    },
+    ...chunks.handlers
   }
 }
 
@@ -71,12 +80,12 @@ class RemoteTranscriptReader implements TranscriptReader {
     // Only when the host's reader has it: callers test `reader.subagent` before using it.
     if (hasSubagents) {
       this.subagent = async (query, subagentId) =>
-        parseResult(conversationResult, await this.call('transcripts.subagent', { query, subagentId }), 'transcripts.subagent')
+        parseResult(conversationResult, await this.joined('transcripts.subagent', { query, subagentId }), 'transcripts.subagent')
     }
   }
 
   async read(query: TranscriptQuery): Promise<SessionMonitorSnapshot | null> {
-    return parseResult(snapshotResult, await this.call('transcripts.read', { query }), 'transcripts.read')
+    return parseResult(snapshotResult, await this.joined('transcripts.read', { query }), 'transcripts.read')
   }
 
   async exists(query: TranscriptQuery): Promise<boolean> {
@@ -85,6 +94,11 @@ class RemoteTranscriptReader implements TranscriptReader {
 
   forget(agentSessionId: string): void {
     this.call('transcripts.forget', { agentSessionId }).catch((err: unknown) => this.options.onError?.(err))
+  }
+
+  /** A result the host may send in pieces (see chunks.ts). */
+  private async joined(method: string, params: Record<string, unknown>): Promise<unknown> {
+    return joinChunks(this.client, await this.call(method, params), method, TRANSCRIPTS_NEXT_METHOD, this.options.timeoutMs)
   }
 
   private call(method: string, params: Record<string, unknown>): Promise<unknown> {

@@ -503,6 +503,11 @@ The pieces underneath:
   side: a map of handlers that run concurrently, and only an error's code and message cross the
   wire. When the channel closes, every pending request fails with `closed` and the abort signal of
   each running handler fires.
+- **Large results** (`adapters/src/host/proxies/chunks.ts`): a past session's messages, a
+  transcript snapshot or a sub-agent conversation can be larger than a line. The host then answers
+  with the first piece of the result's JSON (at most 512 KB once encoded) and a cursor, and the app
+  asks `history.next` or `transcripts.next` for the rest before parsing it; a result that fits is
+  sent whole. The host keeps up to 16 unfinished results for 2 minutes each.
 - **Paths** (`core/src/host/paths.ts`): join, normalize, dirname and basename for an explicit flavor
   (`posix` or `win32`), because the Windows app handles the distro's POSIX paths and `core` cannot
   use `node:path`. Also the translation between `\\wsl.localhost\<distro>\...` (or `\\wsl$\...`) and
