@@ -18,7 +18,7 @@ vi.mock('../src/renderer/components/atoms', async (importOriginal) => {
 })
 
 import { TooltipProvider } from '../src/renderer/components/atoms'
-import { folderForHost, hostChoices, hostOfOptionValue, hostOptionValue, withProfileHost } from '../src/renderer/lib/profileHost'
+import { folderForHost, folderPickError, hostChoices, shownFolderError, hostOfOptionValue, hostOptionValue, withProfileHost } from '../src/renderer/lib/profileHost'
 import { ProfileHostField, ProfileHostPicker, type ProfileHostPickerProps } from '../src/renderer/screens/settings/ProfileHostField'
 import { FoldersField, withOwnFields } from '../src/renderer/screens/settings/ProfileSections'
 
@@ -103,6 +103,17 @@ describe('folders of a WSL profile', () => {
     ;(control('profile-folder-add').onClick as () => void)()
     await new Promise((r) => setTimeout(r, 0))
     expect(onChange).not.toHaveBeenCalled()
+  })
+})
+
+describe('a folder picker error', () => {
+  it('shows only while the folders and the host are the ones it was raised for', () => {
+    const error = folderPickError('Pick a folder inside Ubuntu.', ['/srv/old'], UBUNTU)
+    expect(shownFolderError(error, ['/srv/old'], UBUNTU)).toBe('Pick a folder inside Ubuntu.')
+    // A valid folder was added (here, or by another picker of the form), or the host changed: it is stale.
+    expect(shownFolderError(error, ['/srv/old', '/srv/acme'], UBUNTU)).toBeNull()
+    expect(shownFolderError(error, ['/srv/old'], undefined)).toBeNull()
+    expect(shownFolderError(null, ['/srv/old'], UBUNTU)).toBeNull()
   })
 })
 

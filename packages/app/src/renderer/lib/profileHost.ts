@@ -57,3 +57,24 @@ export function folderForHost(host: ProfileHost | undefined, picked: string): Ho
   if (isAbsoluteFlavorPath('posix', picked)) return { ok: true, path: picked }
   return { ok: false, error: 'profileHost.folderNotWsl', params: { distro: host.distro } }
 }
+
+/** A folder picker's refusal, with the folders and host it was raised for. */
+export interface FolderPickError {
+  message: string
+  key: string
+}
+
+const folderPickKey = (folders: readonly string[] | undefined, host: ProfileHost | undefined): string => JSON.stringify([hostOptionValue(host), folders ?? []])
+
+/** A picker's refusal of a folder, for the profile's folders and host at that moment. */
+export function folderPickError(message: string, folders: readonly string[] | undefined, host: ProfileHost | undefined): FolderPickError {
+  return { message, key: folderPickKey(folders, host) }
+}
+
+/**
+ * The refusal to show: none once the profile's folders or its host changed since (a valid folder
+ * was added, by this picker or another one of the form, or the host was switched).
+ */
+export function shownFolderError(error: FolderPickError | null, folders: readonly string[] | undefined, host: ProfileHost | undefined): string | null {
+  return error && error.key === folderPickKey(folders, host) ? error.message : null
+}

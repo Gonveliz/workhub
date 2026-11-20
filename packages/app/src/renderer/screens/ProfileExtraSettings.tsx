@@ -7,7 +7,7 @@ import { Field, HelpTip, SwitchRow } from '../components/molecules'
 import { useI18n } from '../i18n/I18nProvider'
 import { cn } from '../lib/cn'
 import { PROFILE_SYMBOLS, PROFILE_SYMBOL_IDS } from '../lib/profileSymbols'
-import { folderForHost } from '../lib/profileHost'
+import { folderForHost, folderPickError, shownFolderError, type FolderPickError } from '../lib/profileHost'
 import { abbreviateFolder } from '../lib/sessionHeader'
 import { envDirty } from '../lib/unsavedChanges'
 
@@ -464,7 +464,9 @@ const PICK_OTHER = '__other__'
 /** Where "New session" starts without asking: one of the profile's folders, another one, or (empty) the first folder. */
 export function DefaultFolderField({ form, onChange }: { form: Profile; onChange: (defaultFolder: string | undefined) => void }) {
   const { t } = useI18n()
-  const [error, setError] = useState<string | null>(null)
+  const [refusal, setRefusal] = useState<FolderPickError | null>(null)
+  // A refusal goes away with the next choice, or once the profile's folders or host changed.
+  const error = shownFolderError(refusal, form.folders, form.host)
   const folders = (form.folders ?? []).map((f) => f.trim()).filter(Boolean)
   const current = form.defaultFolder?.trim() || ''
   const options = [
@@ -479,14 +481,14 @@ export function DefaultFolderField({ form, onChange }: { form: Profile; onChange
         aria-label={t('settings.defaultFolder')}
         value={current}
         onChange={(v) => {
-          setError(null)
+          setRefusal(null)
           if (v !== PICK_OTHER) return onChange(v || undefined)
           void window.hub.pickFolder().then((picked) => {
             if (!picked) return
             // A WSL profile keeps the folder's Linux path, and refuses a Windows folder.
             const folder = folderForHost(form.host, picked)
             if (folder.ok) onChange(folder.path)
-            else setError(t(folder.error, folder.params))
+            else setRefusal(folderPickError(t(folder.error, folder.params), form.folders, form.host))
           })
         }}
         options={options}

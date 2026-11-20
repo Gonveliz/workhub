@@ -7,7 +7,7 @@ import { DeleteButton, useUnsavedForm } from '../../components/organisms/Unsaved
 import { useI18n } from '../../i18n/I18nProvider'
 import { profileFieldErrors } from '../../lib/configIssues'
 import { addProfileFolder, removeProfileFolder } from '../../lib/profileFolders'
-import { folderForHost, withProfileHost } from '../../lib/profileHost'
+import { folderForHost, folderPickError, shownFolderError, withProfileHost, type FolderPickError } from '../../lib/profileHost'
 import { abbreviateFolder } from '../../lib/sessionHeader'
 import { isDirty, type SaveOutcome } from '../../lib/unsavedChanges'
 import { ProfileColorField } from '../ProfileColorField'
@@ -229,12 +229,15 @@ export function ProfileEditor({ snap, run, profileId, copyOf, tab, tabBar, child
 export function FoldersField({ folders, host, onChange }: { folders: string[] | undefined; host?: ProfileHost; onChange: (folders: string[] | undefined) => void }) {
   const { t } = useI18n()
   const list = folders ?? []
-  const [error, setError] = useState<string | null>(null)
+  const [refusal, setRefusal] = useState<FolderPickError | null>(null)
+  // A refusal goes away with the next pick, or once the folders or the host changed (a valid folder added).
+  const error = shownFolderError(refusal, folders, host)
   const add = async () => {
+    setRefusal(null)
     const picked = await window.hub.pickFolder()
     if (!picked) return
     const folder = folderForHost(host, picked)
-    setError(folder.ok ? null : t(folder.error, folder.params))
+    setRefusal(folder.ok ? null : folderPickError(t(folder.error, folder.params), folders, host))
     if (folder.ok) onChange(addProfileFolder(folders, folder.path))
   }
   return (
