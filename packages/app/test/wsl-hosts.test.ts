@@ -15,6 +15,13 @@ function setup(over: Partial<WslHostsDeps> & { failConnect?: string[]; homes?: R
     const home = homes[args[1]!]
     return home ? { code: 0, stdout: `${over.machine ?? 'x86_64'}\n${home}` } : { code: 1, stdout: '', stderr: 'There is no distribution with the supplied name.' }
   })
+  // A run with a timeout, each one the same fake: the timeouts asked for are kept.
+  const timeouts: number[] = []
+  const runner = vi.fn((timeoutMs: number) => {
+    timeouts.push(timeoutMs)
+    const timed: WslRun = (args) => run(args)
+    return timed
+  })
   const install = vi.fn<WslHostInstall>(async ({ home }) => wslHostPayload(home, '2.1.0'))
   const created: { id?: string; launch: HostLaunch; stopped: boolean; helloTimeoutMs?: number }[] = []
   const lifecycles: Pick<HostProcessOptions, 'onRestart' | 'onLost'>[] = []
@@ -25,6 +32,7 @@ function setup(over: Partial<WslHostsDeps> & { failConnect?: string[]; homes?: R
     platform: 'win32',
     hostVersion: '2.1.0',
     run,
+    runner,
     install,
     register: (h) => registered.push(h),
     log,
@@ -45,7 +53,7 @@ function setup(over: Partial<WslHostsDeps> & { failConnect?: string[]; homes?: R
     },
     ...over
   })
-  return { hosts, run, install, created, registered, log, board, lifecycles }
+  return { hosts, run, runner, timeouts, install, created, registered, log, board, lifecycles }
 }
 
 describe('WslHosts', () => {
@@ -87,7 +95,7 @@ describe('WslHosts', () => {
         }
       }
     ])
-    expect(install).toHaveBeenCalledWith({ distro: 'Ubuntu', home: '/users/ana', arch: 'x64', onProgress: expect.any(Function) })
+    expect(install).toHaveBeenCalledWith({ distro: 'Ubuntu', home: '/users/ana', arch: 'x64', run: expect.any(Function), onProgress: expect.any(Function) })
     expect(registered.map((h) => h.id)).toEqual(['wsl:Ubuntu'])
     expect(log.info).toHaveBeenCalledWith(expect.stringContaining('host wsl:Ubuntu: connected'))
 
@@ -96,6 +104,18 @@ describe('WslHosts', () => {
     expect(registered.map((h) => h.id)).toEqual(['wsl:Ubuntu', 'wsl:Debian'])
     hosts.stop()
     expect(created.map((c) => c.stopped)).toEqual([true, true])
+  })
+
+  it('gives the first calls into a distribution (the probe and the install) as long as a cold start takes', async () => {
+    const { hosts, runner, timeouts, install } = setup()
+    hosts.ensure([{ kind: 'wsl', distro: 'Ubuntu' }])
+    await flush()
+    // The probe is the first wsl.exe call: a stopped distribution boots during it.
+    expect(timeouts.length).toBeGreaterThan(0)
+    for (const t of timeouts) expect(t).toBeGreaterThanOrEqual(WSL_HELLO_TIMEOUT_MS)
+    // The install's own first check runs with such a runner too.
+    const target = install.mock.calls[0]![0]
+    expect(target.run).toBe(vi.mocked(runner).mock.results.at(-1)!.value)
   })
 
   it('logs where the host was expected when it cannot connect, and that the sessions of its profiles cannot start', async () => {

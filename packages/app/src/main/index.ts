@@ -606,15 +606,16 @@ const wslHosts = new WslHosts({
   platform: process.platform,
   hostVersion: app.getVersion(),
   run: wslRunner(),
-  install: ({ distro, home, arch, onProgress }) =>
+  runner: (timeoutMs) => wslRunner({ timeoutMs }),
+  install: ({ distro, home, arch, run, onProgress }) =>
     ensureWslHost({
       distro,
       home,
       arch,
       onProgress,
       version: app.getVersion(),
-      // Moving and removing a payload folder (hundreds of MB) can take longer than a listing.
-      run: wslRunner({ timeoutMs: 120_000 }),
+      // As long as a cold start (its first check), or moving and removing a payload folder (hundreds of MB), takes.
+      run,
       runWithInput: wslInputRunner(),
       fetch: (url) => net.fetch(url),
       payloadFile: process.env['WORKHUB_HOST_PAYLOAD'] || undefined,

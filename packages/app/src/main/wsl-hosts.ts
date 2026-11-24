@@ -15,8 +15,18 @@ import type { HostInstallProgress } from '../shared/hosts-api'
 /** How long a host in WSL gets to say hello: a stopped distribution boots first, which can take a while. */
 export const WSL_HELLO_TIMEOUT_MS = 60_000
 
-/** Where the host of this version is installed in a distribution (installing it when it is not). */
-export type WslHostInstall = (target: { distro: string; home: string; arch: HostPayloadArch; onProgress: (progress: HostInstallProgress) => void }) => Promise<{ dir: string; nodePath: string; entry: string }>
+/**
+ * The timeout of the first `wsl.exe` calls into a distribution (the probe, the install's steps): a
+ * stopped distribution boots during the first one, and moving a payload folder takes a while too.
+ * Never shorter than the hello's.
+ */
+export const WSL_FIRST_RUN_TIMEOUT_MS = Math.max(120_000, WSL_HELLO_TIMEOUT_MS)
+
+/**
+ * Where the host of this version is installed in a distribution (installing it when it is not).
+ * `run` is a `wsl.exe` run with the first-call timeout, for its steps.
+ */
+export type WslHostInstall = (target: { distro: string; home: string; arch: HostPayloadArch; run: WslRun; onProgress: (progress: HostInstallProgress) => void }) => Promise<{ dir: string; nodePath: string; entry: string }>
 
 /** The parts of a HostProcess this uses (faked in tests). */
 export interface WslHostProcess {
@@ -28,7 +38,10 @@ export interface WslHostsDeps {
   platform: NodeJS.Platform
   /** The host build this app expects inside the distribution. */
   hostVersion: string
+  /** A `wsl.exe` run with the default timeout: the setup check's commands, once the host is installed. */
   run: WslRun
+  /** A `wsl.exe` run with this timeout: the probe and the install (`WSL_FIRST_RUN_TIMEOUT_MS`). */
+  runner(timeoutMs: number): WslRun
   install: WslHostInstall
   register(host: SessionHost): void
   log: Pick<Logger, 'info' | 'warn' | 'error'>
@@ -137,10 +150,12 @@ export class WslHosts {
     let dir: string
     this.report(distro, { type: 'connecting' })
     try {
-      const info = await probeWslDistro(this.deps.run, distro)
+      // The first call into the distribution, which may have to boot it first.
+      const run = this.deps.runner(WSL_FIRST_RUN_TIMEOUT_MS)
+      const info = await probeWslDistro(run, distro)
       const arch = nodeArchOfMachine(info.arch)
       if (!arch) throw new Error(`no host is built for its processor (${info.arch})`)
-      const payload = await this.deps.install({ distro, home: info.home, arch, onProgress: (progress) => this.report(distro, { type: 'installing', progress }) })
+      const payload = await this.deps.install({ distro, home: info.home, arch, run, onProgress: (progress) => this.report(distro, { type: 'installing', progress }) })
       dir = payload.dir
       this.payloads.set(distro, { dir, arch })
       launch = wslHostLaunch({ distro, nodePath: payload.nodePath, entry: payload.entry, hostVersion: this.deps.hostVersion, args: wslHostArgs(payload.dir, arch) })
