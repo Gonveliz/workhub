@@ -594,7 +594,8 @@ const execution = composeExecutionServices({
   extraPath,
   clientVersion: app.getVersion(),
   kiroDir,
-  claudeTranscripts: transcriptReader.read
+  claudeTranscripts: transcriptReader.read,
+  log: (m) => diagnostics.log.warn(m)
 })
 const { runtimes, terminal, history: historySources } = execution
 // The host each profile names (`profile.host`), read again on every config write: `hostFor` is

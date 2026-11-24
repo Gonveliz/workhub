@@ -26,6 +26,8 @@ export interface ExecutionServiceDeps {
   kiroDir?: string
   /** Reads a Claude transcript's conversation for past sessions (the app: in its transcript worker). */
   claudeTranscripts?: ClaudeTranscriptReader
+  /** Where a runtime reports what it could not tell the session (a prompt Claude Code never received). */
+  log?: (message: string) => void
 }
 
 export interface ExecutionServices {
@@ -42,10 +44,10 @@ export interface ExecutionServices {
 
 /** Builds a fresh set of execution services; nothing starts until a session or reader is used. */
 export function composeExecutionServices(deps: ExecutionServiceDeps): ExecutionServices {
-  const { bridgeDir, sessionPath, fallbackPath, extraPath, clientVersion, kiroDir, claudeTranscripts } = deps
+  const { bridgeDir, sessionPath, fallbackPath, extraPath, clientVersion, kiroDir, claudeTranscripts, log } = deps
   const terminal = new TerminalRuntime({ path: sessionPath, fallbackPath })
   const runtimes = {
-    native: new ClaudeNativeRuntime({ bridgeDir, path: sessionPath }),
+    native: new ClaudeNativeRuntime({ bridgeDir, path: sessionPath, log }),
     acp: new AcpRuntime({
       clientName: 'workhub',
       clientVersion,
