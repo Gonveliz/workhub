@@ -162,6 +162,11 @@ saved with the profile; the control is not shown on macOS or Linux.
 - **New session** lists the agents the distribution can run: Claude Code (the one Workhub installs
   there), tagged **starting in WSL** until Workhub connects; the other agents and shells are tagged
   **not available in WSL yet** and cannot be started for that profile.
+- **Worktrees** are not available for a WSL profile yet: its worktree settings (**New sessions start
+  in a worktree** and each folder's **Worktree for new sessions**) and **Use a worktree** in **New
+  session** are off and disabled, marked **Not available in WSL yet**. A session of the profile
+  always starts in its folder; a request that explicitly asks for a worktree (through the control
+  endpoint, for example) is refused instead of starting without one.
 - The **setup check** (**Help → Setup Check…**) checks Claude Code, its sign-in and git inside the
   distribution while the active profile runs in WSL; their rows are named **(WSL: <distro>)** and
   show **Waiting** until Workhub connects there. It never offers a Windows install for them.

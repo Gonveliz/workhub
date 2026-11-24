@@ -315,6 +315,42 @@ describe('SessionManager: a restored session bound to its host later', () => {
   })
 })
 
+describe('SessionManager: worktrees on another host', () => {
+  function worktreeSetup() {
+    const wsl = { ...services('in WSL'), hostId: 'wsl:Ubuntu' }
+    const local = services('on this computer')
+    const worktrees = { repoRootOf: vi.fn(async () => '/home/ana/acme'), create: vi.fn(async () => undefined), remove: vi.fn(), status: vi.fn() }
+    const manager = new SessionManager({
+      config: { current: async () => emptyConfig(), replaceSessionIdentity: async () => undefined } as unknown as ConfigurationService,
+      ...local,
+      hostFor: (target) => (target.profileId === 'linux' ? wsl : local),
+      worktrees: worktrees as never,
+      emitEvent: () => {},
+      emitChanged: () => {},
+      emitReplay: () => {},
+      pollMs: 60_000
+    })
+    return { manager, wsl, worktrees }
+  }
+
+  it('refuses a session that asks for a worktree on a WSL host, and makes none', async () => {
+    const { manager, wsl, worktrees } = worktreeSetup()
+    await expect(manager.start({ profileId: 'linux', agentKey: 'claude', cwd: '/home/ana/acme', worktree: { branch: 'fix' } })).rejects.toThrow('Worktrees are not available in WSL yet')
+    expect(worktrees.repoRootOf).not.toHaveBeenCalled()
+    expect(worktrees.create).not.toHaveBeenCalled()
+    expect(wsl.native.started).toEqual([])
+  })
+
+  it('starts a session that only takes a worktree when it can in the folder itself', async () => {
+    const { manager, wsl, worktrees } = worktreeSetup()
+    const view = await manager.start({ profileId: 'linux', agentKey: 'claude', cwd: '/home/ana/acme', worktree: { optional: true } })
+    expect(view).toMatchObject({ cwd: '/home/ana/acme', hostId: 'wsl:Ubuntu' })
+    expect(view.worktree).toBeUndefined()
+    expect(worktrees.create).not.toHaveBeenCalled()
+    await manager.stopAll()
+  })
+})
+
 describe('HostRegistry', () => {
   const execution = {} as ExecutionServices
 

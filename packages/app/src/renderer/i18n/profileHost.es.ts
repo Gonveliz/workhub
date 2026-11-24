@@ -23,5 +23,8 @@ export const profileHostEs: Record<keyof typeof profileHostEn, string> = {
   'profileHost.folderNotWsl': 'Este perfil se ejecuta en WSL: elige una carpeta dentro de {distro} (\\\\wsl.localhost\\{distro}\\…), no una carpeta de Windows.',
   'profileHost.folderOtherDistro': 'Esa carpeta está en {picked}, pero este perfil se ejecuta en {distro}.',
   'profileHost.sessionTag': 'WSL: {distro}',
-  'profileHost.sessionTagHint': 'Esta sesión se ejecuta dentro de la distribución de WSL {distro}'
+  'profileHost.sessionTagHint': 'Esta sesión se ejecuta dentro de la distribución de WSL {distro}',
+  'profileHost.noWorktrees': 'Los worktrees todavía no están disponibles en WSL: inicia la sesión sin uno.',
+  'profileHost.noWorktreesHint': 'Todavía no disponible en WSL.',
+  'profileHost.accountConfigDir': 'La cuenta {account} tiene su propia carpeta de configuración, que las sesiones en WSL todavía no pueden usar: elige otra cuenta para este perfil.'
 }

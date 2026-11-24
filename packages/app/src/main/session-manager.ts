@@ -51,7 +51,7 @@ import { JOURNAL_MAX_ENTRIES } from './chat-journal'
 import { ConsoleActivity } from './console-activity'
 import { NO_CONTROL_ENV } from './control-server'
 import { pathInsideFolder } from './reveal'
-import { hostLabel, type HostControlInfo, type HostTarget } from './hosts'
+import { hostLabel, LOCAL_HOST_ID, type HostControlInfo, type HostTarget } from './hosts'
 import { SendGate } from './send-gate'
 import { StallWatch } from './stall-watch'
 import { translate, type MessageKey } from '../renderer/i18n/translate'
@@ -606,6 +606,11 @@ export class SessionManager {
     return { env, mcp }
   }
 
+  /** A message in the user's language (English without `deps.text`). */
+  private t(key: MessageKey, params?: Record<string, string | number>): string {
+    return this.deps.text ? this.deps.text(key, params) : translate('en', key, params)
+  }
+
   /** Refuses to run anything for a session whose host has not connected yet (its services are placeholders). */
   private requireHost(s: ManagedSession): void {
     if (s.awaitingHost) throw new Error(`${hostLabel(s.awaitingHost)} has not connected yet: the session starts there once it connects`)
@@ -619,6 +624,12 @@ export class SessionManager {
   private async placeInWorktree(input: StartSessionInput, config: WorkhubConfig, internal: { restored?: boolean; worktree?: SessionWorktree }, services: SessionServices): Promise<PlacedSession> {
     if (internal.worktree) return { cwd: input.cwd, worktree: internal.worktree }
     const asked = input.worktree
+    // Not yet on another host (its worktree would be made on this computer): a session that asks
+    // for one is refused; one that takes a worktree only when it can starts in the folder.
+    if (asked && services.hostId && services.hostId !== LOCAL_HOST_ID) {
+      if (asked.optional) return { cwd: input.cwd }
+      throw new Error(this.t('profileHost.noWorktrees'))
+    }
     const worktrees = this.deps.worktrees
     if (!asked || !worktrees || input.readOnly || internal.restored || input.resumeAgentSessionId || input.identity) return { cwd: input.cwd }
     const repoRoot = await worktrees.repoRootOf(input.cwd)

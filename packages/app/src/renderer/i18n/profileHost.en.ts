@@ -22,5 +22,8 @@ export const profileHostEn = {
   'profileHost.folderNotWsl': 'This profile runs in WSL: pick a folder inside {distro} (\\\\wsl.localhost\\{distro}\\…), not a Windows folder.',
   'profileHost.folderOtherDistro': 'That folder is in {picked}, but this profile runs in {distro}.',
   'profileHost.sessionTag': 'WSL: {distro}',
-  'profileHost.sessionTagHint': 'This session runs inside the WSL distribution {distro}'
+  'profileHost.sessionTagHint': 'This session runs inside the WSL distribution {distro}',
+  'profileHost.noWorktrees': 'Worktrees are not available in WSL yet: start the session without one.',
+  'profileHost.noWorktreesHint': 'Not available in WSL yet.',
+  'profileHost.accountConfigDir': 'The account {account} has its own config folder, which sessions in WSL cannot use yet: pick another account for this profile.'
 } as const

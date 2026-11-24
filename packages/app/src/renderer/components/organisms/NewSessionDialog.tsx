@@ -1,7 +1,7 @@
 import { AgentIcon } from '../atoms/AgentIcon'
 import { FolderOpen } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { agentSetupKind, pickAgent, worktreeDefault, worktreeSettings, type AgentAvailability, type EffectiveAgent, type Profile, type SessionGroups, type SetupFix, EMPTY_SESSION_GROUPS } from '@workhub/core'
+import { agentSetupKind, pickAgent, worktreeDefault, worktreeSettings, worktreesAvailable, type AgentAvailability, type EffectiveAgent, type Profile, type SessionGroups, type SetupFix, EMPTY_SESSION_GROUPS } from '@workhub/core'
 import { InstallAction } from './InstallAction'
 import { newSessionProfile, seedFolder } from '../../lib/folders'
 import { useI18n } from '../../i18n/I18nProvider'
@@ -105,7 +105,9 @@ export function NewSessionDialog({ open, onOpenChange, profileId, agents: active
   // Worktree: defaulted from the folder's profile (and the folder's own option) until the user flips it.
   const [worktreeChoice, setWorktreeChoice] = useState<boolean | null>(null)
   const [branch, setBranch] = useState('')
-  const useWorktree = worktreeChoice ?? worktreeDefault(owner, cwd, home)
+  // Not offered for a WSL profile yet: its sessions never start in a worktree.
+  const worktreesOk = worktreesAvailable(owner)
+  const useWorktree = worktreesOk && (worktreeChoice ?? worktreeDefault(owner, cwd, home))
   const branchPrefix = worktreeSettings(owner).branchPrefix
   useEffect(() => {
     if (!open) return
@@ -402,8 +404,8 @@ export function NewSessionDialog({ open, onOpenChange, profileId, agents: active
           </div>
         </Field>
         {otherProfile && owner && <p className="-mt-2 text-xs text-subtle">{t('newSession.otherProfile', { name: owner.name })}</p>}
-        <SwitchRow label={t('newSession.worktree')} hint={t('newSession.worktreeHint')}>
-          <Switch checked={useWorktree} onChange={setWorktreeChoice} aria-label={t('newSession.worktree')} />
+        <SwitchRow label={t('newSession.worktree')} hint={worktreesOk ? t('newSession.worktreeHint') : t('profileHost.noWorktreesHint')}>
+          <Switch checked={useWorktree} disabled={!worktreesOk} onChange={setWorktreeChoice} aria-label={t('newSession.worktree')} />
         </SwitchRow>
         {useWorktree && (
           <Field label={t('newSession.branch')} hint={branchPrefix ? t('newSession.branchPrefix', { prefix: branchPrefix }) : undefined}>

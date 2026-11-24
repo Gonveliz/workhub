@@ -1,7 +1,7 @@
 import { Plus, Trash2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { ENV_NAME, worktreeSettings, type ChromeProfile, type FolderOptions, type Profile, type WorktreeSettings } from '@workhub/core'
+import { ENV_NAME, worktreeSettings, worktreesAvailable, type ChromeProfile, type FolderOptions, type Profile, type WorktreeSettings } from '@workhub/core'
 import { Button, Input, Select, Switch } from '../components/atoms'
 import { Field, HelpTip, SwitchRow } from '../components/molecules'
 import { useI18n } from '../i18n/I18nProvider'
@@ -285,9 +285,10 @@ export function ProfileExtraFields({ form, onChange, env, parts = ALL_PARTS }: {
                 ]}
               />
             </SwitchRow>
-            <SwitchRow label={t('profileExtra.folderWorktrees')} hint={t('profileExtra.folderWorktreesHint')}>
+            <SwitchRow label={t('profileExtra.folderWorktrees')} hint={worktreesAvailable(form) ? t('profileExtra.folderWorktreesHint') : t('profileHost.noWorktreesHint')}>
               <Select
                 className="w-44"
+                disabled={!worktreesAvailable(form)}
                 aria-label={t('profileExtra.folderWorktrees')}
                 value={folderWorktreeMode(form.folderOptions?.[folder]?.worktrees)}
                 onChange={(v) => setFolder(folder, { worktrees: v === 'on' ? true : v === 'off' ? false : undefined })}
@@ -342,10 +343,12 @@ function WorktreeFields({ form, onChange }: { form: Profile; onChange: (profile:
   const { t } = useI18n()
   const settings = worktreeSettings(form)
   const set = (patch: Partial<WorktreeSettings>) => onChange({ ...form, worktrees: { ...settings, ...patch } })
+  // A WSL profile's sessions never get a worktree yet: the switch shows off and cannot be turned on.
+  const available = worktreesAvailable(form)
   return (
     <div className="flex flex-col gap-3 py-2">
-      <SwitchRow label={t('profileExtra.worktreesEnabled')} hint={t('profileExtra.worktreesEnabledHint')}>
-        <Switch checked={settings.enabled} onChange={(on) => set({ enabled: on })} />
+      <SwitchRow label={t('profileExtra.worktreesEnabled')} hint={available ? t('profileExtra.worktreesEnabledHint') : t('profileHost.noWorktreesHint')}>
+        <Switch checked={available && settings.enabled} disabled={!available} aria-label={t('profileExtra.worktreesEnabled')} onChange={(on) => set({ enabled: on })} />
       </SwitchRow>
       <Field label={t('profileExtra.worktreesLocation')} hint={t('profileExtra.worktreesLocationHint')}>
         <Input value={settings.location} placeholder="${folder}/_worktrees" spellCheck={false} onChange={(e) => set({ location: e.target.value })} />
