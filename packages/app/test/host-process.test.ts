@@ -267,6 +267,8 @@ describe('HostProcess', () => {
     await settle()
     expect(onLost.mock.calls[0]).toEqual(['the host process exited (1)', true])
     expect(onLost.mock.lastCall).toEqual([expect.stringContaining('incompatible host'), false])
+    // Reported once each: the refused restart is not also reported as another loss, nor its reason overwritten.
+    expect(onLost.mock.calls).toHaveLength(2)
     await vi.advanceTimersByTimeAsync(60_000)
     expect(children).toHaveLength(2)
     hostProcess.stop()

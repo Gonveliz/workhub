@@ -121,8 +121,16 @@ export class HostProcess {
     this.client = client
     if (options.serveControl) answerRelayedControl(client, options.serveControl, (m) => options.log.warn(m))
     let lost = false
+    // Until the hello is settled a loss is only noted: the outcome of the connection decides what is
+    // reported (a refused host is given up on, once, with its own reason).
+    let settled = false
+    let lostEarly: string | undefined
     const onLost = (reason: string) => {
       if (lost) return
+      if (!settled) {
+        lostEarly ??= reason
+        return
+      }
       lost = true
       this.lost(child, client, reason)
     }
@@ -134,15 +142,22 @@ export class HostProcess {
     client.onClose(onLost)
     try {
       await client.ready
+      settled = true
+      if (lostEarly !== undefined) onLost(lostEarly)
       return await this.build(client)
     } catch (err) {
+      settled = true
+      options.log.error(`host: could not connect: ${message(err)}`)
       if (err instanceof HostHelloError && err.reason !== 'timeout' && err.reason !== 'closed') {
         this.gaveUp = true
-        // A restart that cannot be used: no further one follows.
+        lost = true
+        client.close()
+        this.end(child)
+        // A restart that cannot be used: no further one follows, and this is its only report.
         if (this.supervising) options.onLost?.(message(err), false)
+      } else {
+        onLost(lostEarly ?? 'the connection failed')
       }
-      options.log.error(`host: could not connect: ${message(err)}`)
-      onLost('the connection failed')
       throw err
     }
   }
