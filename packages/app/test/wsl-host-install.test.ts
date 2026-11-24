@@ -149,6 +149,34 @@ describe('ensureWslHost', () => {
     expect(again.state.unpacked).toEqual(PAYLOAD)
   })
 
+  it('downloads once for distributions installed at the same time, and both get the whole payload', async () => {
+    const cacheDir = tempDir()
+    const big = Buffer.alloc(64 * 1024, 7)
+    // The archive arrives in pieces, so two downloads into one file would interleave.
+    const slow = () =>
+      new ReadableStream<Uint8Array>({
+        async start(controller) {
+          for (let i = 0; i < big.length; i += 4096) {
+            await new Promise((r) => setTimeout(r, 0))
+            controller.enqueue(new Uint8Array(big.subarray(i, i + 4096)))
+          }
+          controller.close()
+        }
+      })
+    const fetch = vi.fn(async (url: string) => (url.endsWith('.sha256') ? new Response(`${sha(big)}  ${NAME}\n`) : new Response(slow())))
+    const ubuntu = distro()
+    const debian = distro()
+    const results = await Promise.all([
+      ensureWslHost(options(ubuntu, { fetch, cacheDir })),
+      ensureWslHost(options(debian, { fetch, cacheDir, distro: 'Debian' }))
+    ])
+    expect(results.map((r) => r.installed)).toEqual([true, true])
+    expect(fetch.mock.calls.filter((c) => !String(c[0]).endsWith('.sha256'))).toHaveLength(1)
+    expect(ubuntu.state.unpacked).toEqual(big)
+    expect(debian.state.unpacked).toEqual(big)
+    expect(readdirSync(join(cacheDir, '2.1.0')).sort()).toEqual([NAME, `${NAME}.sha256`])
+  })
+
   it('reports the download bytes, the checksum and the unpacking, and nothing when the host is there', async () => {
     const d = distro()
     const fetch = vi.fn(async (url: string) =>

@@ -158,6 +158,22 @@ async function obtainPayload(options: WslHostInstallOptions): Promise<string> {
     if (expected && (await sha256OfFile(cached)) === expected) return cached
   }
 
+  // Distributions installed at the same time share one download of a payload.
+  const inFlight = downloads.get(cached)
+  if (inFlight) return inFlight
+  const download = downloadPayload(options, folder, cached).finally(() => downloads.delete(cached))
+  downloads.set(cached, download)
+  return download
+}
+
+/** The downloads under way, by the cached file they end as. */
+const downloads = new Map<string, Promise<string>>()
+
+/** Downloads the payload of this version's release into `cached`, checked against its published SHA-256. */
+async function downloadPayload(options: WslHostInstallOptions, folder: string, cached: string): Promise<string> {
+  const { version, arch, log } = options
+  const name = hostPayloadName(version, arch)
+  const cachedSum = `${cached}.sha256`
   const urls = hostPayloadUrls(options.repo, version, arch)
   log.info(`host install: downloading ${urls.archive}`)
   const sumRes = await options.fetch(urls.checksum)
@@ -168,7 +184,8 @@ async function obtainPayload(options: WslHostInstallOptions): Promise<string> {
   const res = await options.fetch(urls.archive)
   if (!res.ok || !res.body) throw new WslHostInstallError(`could not download ${urls.archive} (HTTP ${res.status})`)
   await mkdir(folder, { recursive: true })
-  const partial = `${cached}.partial`
+  // Its own temporary file: a download never writes into another's.
+  const partial = `${cached}.${randomBytes(4).toString('hex')}.partial`
   const hash = createHash('sha256')
   const progress = downloadProgress(res, options.onProgress)
   try {
