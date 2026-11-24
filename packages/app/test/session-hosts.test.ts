@@ -268,6 +268,53 @@ describe('SessionManager: control endpoint per host', () => {
   })
 })
 
+describe('SessionManager: a restored session bound to its host later', () => {
+  function restoredSetup() {
+    const control = { socket: '/run/wh/host-1.sock', node: '/opt/wh/node', mcpScript: '/opt/wh/bridge/workhub-mcp.mjs' }
+    const wsl = { ...services('in WSL'), hostId: 'wsl:Ubuntu', control }
+    const host = connecting()
+    const local = services('on this computer')
+    const envFor = vi.fn((id: string, c: unknown) => ({ WORKHUB_SESSION: id, WORKHUB_SOCKET: c ? (c as { socket: string }).socket : '/app.sock' }))
+    const mcpFor = vi.fn(async (_env: Record<string, string>, _agent: unknown, c: unknown) => [{ name: 'workhub', command: c ? (c as { node: string }).node : 'C:\\Workhub\\Workhub.exe', args: [], env: {} }])
+    const manager = new SessionManager({
+      config: { current: async () => emptyConfig(), replaceSessionIdentity: async () => undefined } as unknown as ConfigurationService,
+      ...local,
+      hostFor: (target) => (target.profileId === 'linux' ? host.pending : local),
+      sessionEnv: envFor,
+      sessionMcp: mcpFor,
+      emitEvent: () => {},
+      emitChanged: () => {},
+      emitReplay: () => {},
+      pollMs: 60_000
+    })
+    return { manager, local, wsl, host, control }
+  }
+
+  it("refuses to switch modes or open the shell while the session's host has not connected", async () => {
+    const { manager, local } = restoredSetup()
+    const view = await manager.start({ profileId: 'linux', agentKey: 'claude', cwd: '/home/ana/acme', resumeAgentSessionId: 'abc' }, { restored: true, dormant: true })
+    await expect(manager.setMode(view.id, 'shell')).rejects.toThrow('WSL host Ubuntu has not connected yet')
+    await expect(manager.setMode(view.id, 'app')).rejects.toThrow('WSL host Ubuntu has not connected yet')
+    expect(local.terminal.started).toEqual([])
+    expect(local.native.started).toEqual([])
+  })
+
+  it("rebuilds its environment and Workhub's MCP server from the host's control once it connects", async () => {
+    const { manager, local, wsl, host, control } = restoredSetup()
+    const view = await manager.start({ profileId: 'linux', agentKey: 'claude', cwd: '/home/ana/acme', resumeAgentSessionId: 'abc' }, { restored: true, dormant: true })
+    host.connect(wsl)
+    await flush()
+    await flush()
+    await manager.setMode(view.id, 'app')
+    await vi.waitFor(() => expect(wsl.native.started).toHaveLength(1))
+    expect(local.native.started).toEqual([])
+    const started = wsl.native.started[0]!
+    expect(started.env).toMatchObject({ WORKHUB_SESSION: view.id, WORKHUB_SOCKET: control.socket })
+    expect(JSON.stringify(started)).not.toContain('Workhub.exe')
+    await manager.stopAll()
+  })
+})
+
 describe('HostRegistry', () => {
   const execution = {} as ExecutionServices
 

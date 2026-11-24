@@ -51,7 +51,7 @@ import { JOURNAL_MAX_ENTRIES } from './chat-journal'
 import { ConsoleActivity } from './console-activity'
 import { NO_CONTROL_ENV } from './control-server'
 import { pathInsideFolder } from './reveal'
-import type { HostControlInfo, HostTarget } from './hosts'
+import { hostLabel, type HostControlInfo, type HostTarget } from './hosts'
 import { SendGate } from './send-gate'
 import { StallWatch } from './stall-watch'
 import { translate, type MessageKey } from '../renderer/i18n/translate'
@@ -121,6 +121,13 @@ interface ManagedSession {
   toolStatus: Map<string, { status?: string; startedAt?: number }>
   /** Brought back at launch without its process; the session that starts it replaces it in the list. */
   dormant?: boolean
+  /**
+   * The host a restored session waits for (`wsl:<distro>`), until it connects: its services, runtime,
+   * environment and MCP servers are this computer's placeholders meanwhile, so nothing may start.
+   */
+  awaitingHost?: string
+  /** The variables the caller added at start (`internal.env`), kept for an environment built again. */
+  extraEnv?: Record<string, string>
   /**
    * While a resumed chat is replayed: its live chat events and its state wait here, so the
    * renderer gets the earlier conversation first and the composer opens only after it.
@@ -308,14 +315,21 @@ export class SessionManager {
       this.deps.log?.(`session ${id}: ${error}`)
       this.update(id, { state: 'error', error })
     }
-    pending.ready.then((services) => {
+    pending.ready.then(async (services) => {
+      if (!waiting()) return
+      // Its environment and MCP servers were built for this computer's endpoint: built again for the host's.
+      const s0 = this.sessions.get(id)!
+      const { env, mcp } = await this.environment(id, s0.agent, s0.account, { profileId: s0.view.profileId ?? null, cwd: s0.view.cwd, readOnly: s0.readOnly }, services, s0.extraEnv)
       const s = waiting()
       if (!s) return
       this.watch(services)
       s.services = services
       s.runtime = (s.agent.adapter === 'terminal' ? services.terminal : services.runtimes[s.agent.adapter]) ?? s.runtime
+      s.env = env
+      s.mcp = mcp
+      s.awaitingHost = undefined
       if (then) void then().catch(fail)
-    }, fail)
+    }, fail).catch(fail)
   }
 
   /** The terminal runtime behind a channel (`<id>:console` or `<id>:shell`): its session's host's. */
@@ -389,7 +403,7 @@ export class SessionManager {
     if (!runtime) throw new Error(`no runtime for adapter "${agent.adapter}"`)
     const placed = await this.placeInWorktree(owned, config, internal, services)
     if (pending) {
-      const view = await this.launch(config, choice, agent, account, services, runtime, { ...owned, cwd: placed.cwd }, placed, { ...internal, dormant: true })
+      const view = await this.launch(config, choice, agent, account, services, runtime, { ...owned, cwd: placed.cwd }, placed, { ...internal, dormant: true, awaitingHost: pending.hostId })
       this.bindWhenReady(view.id, pending, internal.dormant ? undefined : () => this.start(asked, internal))
       return view
     }
@@ -444,7 +458,7 @@ export class SessionManager {
     runtime: AgentRuntime,
     input: StartSessionInput,
     placed: PlacedSession,
-    internal: { env?: Record<string, string>; origin?: SessionOrigin; restored?: boolean; handOver?: boolean; dormant?: boolean; title?: string }
+    internal: { env?: Record<string, string>; origin?: SessionOrigin; restored?: boolean; handOver?: boolean; dormant?: boolean; title?: string; awaitingHost?: string }
   ): Promise<SessionView> {
 
     const capabilities = runtime.capabilities(agent)
@@ -463,13 +477,7 @@ export class SessionManager {
     const name = this.deps.names?.get(identity)
     const id = randomUUID()
     // Built before the session is listed: a profile environment that fails leaves no session behind.
-    const env = {
-      ...launchEnvironment(agent, account, account ? await this.deps.accountEnv?.(account) : undefined),
-      ...((await this.deps.profileEnv?.(input.profileId, input.cwd)) ?? {}),
-      ...(input.readOnly ? NO_CONTROL_ENV : (this.deps.sessionEnv?.(id, services.control) ?? NO_CONTROL_ENV)),
-      ...(internal.env ?? {})
-    }
-    const mcp = input.readOnly ? [] : ((await this.deps.sessionMcp?.(env, agent, services.control)) ?? [])
+    const { env, mcp } = await this.environment(id, agent, account, { profileId: input.profileId, cwd: input.cwd, readOnly: input.readOnly === true }, services, internal.env)
     const view: SessionView = {
       id,
       identity,
@@ -514,6 +522,8 @@ export class SessionManager {
       switching: false,
       readOnly: input.readOnly === true,
       ...(input.effort ? { effort: input.effort } : {}),
+      ...(internal.env ? { extraEnv: internal.env } : {}),
+      ...(internal.awaitingHost ? { awaitingHost: internal.awaitingHost } : {}),
       openPermissions: new Map(),
       answeredPermissions: [],
       console: new ConsoleActivity(),
@@ -572,6 +582,33 @@ export class SessionManager {
       this.update(view.id, { state: 'error', error })
     })
     return view
+  }
+
+  /**
+   * A session's variables (its agent and account, its profile, Workhub's control endpoint on its
+   * host, the caller's) and the MCP servers Workhub hands it there.
+   */
+  private async environment(
+    id: string,
+    agent: AgentDefinition,
+    account: AgentAccount | null,
+    input: { profileId: string | null; cwd: string; readOnly: boolean },
+    services: SessionServices,
+    extra: Record<string, string> | undefined
+  ): Promise<{ env: Record<string, string>; mcp: McpServerLaunch[] }> {
+    const env = {
+      ...launchEnvironment(agent, account, account ? await this.deps.accountEnv?.(account) : undefined),
+      ...((await this.deps.profileEnv?.(input.profileId, input.cwd)) ?? {}),
+      ...(input.readOnly ? NO_CONTROL_ENV : (this.deps.sessionEnv?.(id, services.control) ?? NO_CONTROL_ENV)),
+      ...(extra ?? {})
+    }
+    const mcp = input.readOnly ? [] : ((await this.deps.sessionMcp?.(env, agent, services.control)) ?? [])
+    return { env, mcp }
+  }
+
+  /** Refuses to run anything for a session whose host has not connected yet (its services are placeholders). */
+  private requireHost(s: ManagedSession): void {
+    if (s.awaitingHost) throw new Error(`${hostLabel(s.awaitingHost)} has not connected yet: the session starts there once it connects`)
   }
 
   /**
@@ -742,6 +779,7 @@ export class SessionManager {
    */
   async setMode(id: string, mode: SessionMode, options: SetModeOptions = {}): Promise<void> {
     const s = this.require(id)
+    this.requireHost(s)
     if (!s.view.modes.includes(mode)) throw new Error(`mode ${mode} is not available for this session`)
     if (mode === 'shell') {
       if (!s.view.shellRunning) await this.startShell(s)
@@ -1027,6 +1065,7 @@ export class SessionManager {
   }
 
   private async startShell(s: ManagedSession): Promise<void> {
+    this.requireHost(s)
     const channel = terminalChannel(s.view.id, 'shell')
     const size = this.sizes.get(channel) ?? this.sizes.get(terminalChannel(s.view.id, 'console'))
     await s.services.terminal.start({ sessionId: channel, agent: SHELL, account: null, cwd: s.view.cwd, env: s.env, cols: size?.cols ?? 100, rows: size?.rows ?? 30 })
