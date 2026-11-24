@@ -1084,8 +1084,12 @@ function sessionHostOf(sessionId: string): SessionHost | undefined {
   return hostId ? hosts.get(hostId) : hosts.local
 }
 
-// The monitor's "Local changes" of a session's folder (read-only git commands).
+// The monitor's "Local changes" of a session's folder (read-only git commands), with its host's git.
 const localGit = new GitReview(execution.git)
+function localGitOf(sessionId: string): GitReview | null {
+  const host = sessionHostOf(sessionId)
+  return !host ? null : host.id === hosts.local.id ? localGit : new GitReview(host.git)
+}
 
 // AI review before a pull request: a reviewer agent on a separate checkout of the dev session's branch.
 const aiReview = new AiReviewService({
@@ -1113,6 +1117,13 @@ const localReview = new LocalReviewService({
   sessions,
   deliver: (id, text) => driver.deliver(id, text),
   changes: new LocalChanges(execution.git),
+  // A WSL session's repos are read with its host's git; it cannot revert there yet.
+  hostOf: (sessionId) => {
+    const hostId = sessions.list().find((v) => v.id === sessionId)?.hostId
+    if (!elsewhere(hostId)) return undefined
+    const host = hosts.get(hostId!)
+    return host ? { changes: new LocalChanges(host.git), realpath: host.realpath } : null
+  },
   // Content HEAD does not have (an untracked or new file) goes to the system trash, never deleted.
   reverter: new LocalReverter({ git: execution.git, trash: (path) => shell.trashItem(path) }),
   myPullRequests: async (profileId) => {
@@ -1123,7 +1134,8 @@ const localReview = new LocalReviewService({
   history: (sessionId) => sessions.history(sessionId),
   touchedRepos: async (sessionId) => {
     const cwd = sessions.cwdOf(sessionId)
-    return cwd ? ((await localGit.localChanges(cwd, sessions.changePathsOf(sessionId)))?.repos ?? []) : []
+    const git = cwd ? localGitOf(sessionId) : null
+    return cwd && git ? ((await git.localChanges(cwd, sessions.changePathsOf(sessionId)))?.repos ?? []) : []
   }
 })
 
@@ -1481,7 +1493,7 @@ function registerIpc(): void {
     configChanged,
     ownerStarts,
     driver,
-    localGit,
+    localGitOf,
     sessionWindows,
     continuity
   })

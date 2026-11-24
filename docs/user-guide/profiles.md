@@ -177,11 +177,13 @@ saved with the profile; the control is not shown on macOS or Linux.
   show **Waiting** until Workhub connects there. It never offers a Windows install for them.
 
 What works so far: Claude Code sessions (chat, the transcript, resuming a session), the changes a
-session made (read only), and Workhub's MCP server and control endpoint for those sessions, reached
-through a socket of the Workhub process inside the distribution. Not yet: the History screen does
-not list sessions from inside WSL, reverting changes, worktrees per session, creating a pull
-request from a repository in WSL, the Terminal and Shell views, agents other than Claude Code, and
-usage scans.
+session made (**Local changes** and **Review changes**, read with the distribution's git, including a
+review a tool asks for through the control endpoint), and Workhub's MCP server and control endpoint
+for those sessions, reached through a socket of the Workhub process inside the distribution. Not
+yet: the History screen does not list sessions from inside WSL, reverting changes (the review window
+says so), the AI review before a pull request (its panel says so), worktrees per session, creating a
+pull request from a repository in WSL, the Terminal and Shell views, agents other than Claude Code,
+and usage scans.
 
 **Troubleshooting.** The profile's sessions never run on this computer in place of the
 distribution (their folders are Linux paths). Until Workhub connects there, a new session waits for
