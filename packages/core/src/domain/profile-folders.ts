@@ -43,10 +43,17 @@ export const PROJECT_CHILDREN_CAP = 500
 /** The separator a path uses: `\\` for a Windows path without forward slashes, else `/`. */
 const separatorOf = (path: string): string => (path.includes('\\') && !path.includes('/') ? '\\' : '/')
 
+/** `path` without its trailing `/` and `\\` (a linear scan: no backtracking pattern on long runs). */
+function trimSeparators(path: string): string {
+  let end = path.length
+  while (end > 0 && (path[end - 1] === '/' || path[end - 1] === '\\')) end--
+  return path.slice(0, end)
+}
+
 /** `~` and `~/…` under `home`; anything else as written. */
 export function expandHomePath(path: string, home?: string): string {
   if (!home) return path
-  const h = home.replace(/[\\/]+$/, '')
+  const h = trimSeparators(home)
   if (path === '~') return h
   if (path.startsWith('~/') || path.startsWith('~\\')) return `${h}${separatorOf(h)}${path.slice(2)}`
   return path
@@ -55,7 +62,7 @@ export function expandHomePath(path: string, home?: string): string {
 /** Home expanded and the trailing separators dropped. */
 export function normalizeFolder(path: string, home?: string): string {
   const expanded = expandHomePath(path.trim(), home)
-  return expanded.replace(/[\\/]+$/, '') || expanded
+  return trimSeparators(expanded) || expanded
 }
 
 /**
