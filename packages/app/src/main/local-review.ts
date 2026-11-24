@@ -78,9 +78,9 @@ async function realPath(path: string): Promise<string> {
 const isLive = (v: SessionView) => v.state === 'ready' || v.state === 'busy' || v.state === 'starting'
 
 /** Whether `path` (relative to `root`) stays inside `root`. */
-export function insideRoot(root: string, path: string): string | null {
-  // A POSIX root is a host's (WSL), also on Windows: its paths join as POSIX paths.
-  const paths = root.startsWith('/') ? posix : { isAbsolute, resolve, relative }
+export function insideRoot(root: string, path: string, onHost = false): string | null {
+  // A session on another host (WSL) has POSIX paths, also on Windows; this computer's keep its own.
+  const paths = onHost ? posix : { isAbsolute, resolve, relative }
   if (!path || isAbsolute(path) || paths.isAbsolute(path)) return null
   const full = paths.resolve(root, path)
   const rel = paths.relative(root, full)
@@ -224,7 +224,7 @@ export class LocalReviewService {
   /** The absolute path of a file in a repo this session's review loaded; null otherwise. */
   filePath(sessionId: string, repoRoot: string, path: string): string | null {
     if (!this.roots.get(sessionId)?.has(repoRoot)) return null
-    return insideRoot(repoRoot, path)
+    return insideRoot(repoRoot, path, this.deps.hostOf?.(sessionId) !== undefined)
   }
 
   /**

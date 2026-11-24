@@ -166,6 +166,13 @@ describe('LocalReviewService: a session in WSL', () => {
     expect(local.load).not.toHaveBeenCalled()
   })
 
+  it("opens files of the host's repo by its POSIX path, on any computer", async () => {
+    const { service } = makeOnHost()
+    await service.load('s1', 'uncommitted')
+    expect(service.filePath('s1', wslRoot, 'src/a.ts')).toBe('/home/ana/acme/src/a.ts')
+    expect(service.filePath('s1', wslRoot, '../etc/passwd')).toBeNull()
+  })
+
   it('refuses to revert there, and touches nothing', async () => {
     const { service, reverter } = makeOnHost()
     await service.load('s1', 'uncommitted')
