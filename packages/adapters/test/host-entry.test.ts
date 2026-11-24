@@ -1,4 +1,5 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -125,6 +126,8 @@ describe('runHost', () => {
     expect(await folders.stat(join(dir, 'notes.txt'))).toMatchObject({ size: 5, isFile: true, isDirectory: false })
     expect(await folders.stat(dir)).toMatchObject({ isFile: false, isDirectory: true })
     expect(await folders.stat(join(dir, 'missing'))).toBeNull()
+    expect(await folders.realpath(dir)).toBe(realpathSync(dir))
+    expect(await folders.realpath(join(dir, 'missing'))).toBeNull()
 
     const [reader] = await connectRemoteTranscriptReaders(client)
     expect(await reader!.read({ agentSessionId: 'agent-1', cwd: '/w/acme/api' })).toEqual({ title: 'read agent-1' })
@@ -141,6 +144,7 @@ describe('runHost', () => {
     client.close()
     expect(await remoteFolders(client).exists(dir)).toBe(false)
     expect(await remoteFolders(client).stat(dir)).toBeNull()
+    expect(await remoteFolders(client).realpath(dir)).toBeNull()
   })
 
   it('runs a session on a hosted runtime and forwards its events', async () => {

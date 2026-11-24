@@ -89,7 +89,7 @@ import { RecentCall } from './recent-call'
 import { PrEventService, registerPrEventsIpc } from './pr-events-service'
 import { OutputCoalescer } from './output-coalescer'
 import { routeSessionEvent } from './terminal-routing'
-import { followHostStatus, HostRegistry, localHost, type SessionHost } from './hosts'
+import { elsewhere, followHostStatus, HostRegistry, localHost, type SessionHost } from './hosts'
 import { mcpLaunchTarget, sessionEndpoint, type ControlServe } from './host-control'
 import { HostProcess } from './host-process'
 import { WslHosts } from './wsl-hosts'
@@ -1075,6 +1075,15 @@ const briefs = new BriefService({
   resumes: (config, agentKey) => knownAgents(config).find((a) => a.id === (agentKey.split(':')[0] ?? agentKey))?.adapter === 'native'
 })
 
+/**
+ * The host a session's files live on: this computer, or the host its view names (a WSL
+ * distribution); undefined while that host is not connected (nothing is read in its place).
+ */
+function sessionHostOf(sessionId: string): SessionHost | undefined {
+  const hostId = sessions.list().find((v) => v.id === sessionId)?.hostId
+  return hostId ? hosts.get(hostId) : hosts.local
+}
+
 // The monitor's "Local changes" of a session's folder (read-only git commands).
 const localGit = new GitReview(execution.git)
 
@@ -1737,14 +1746,23 @@ void app.whenReady().then(async () => {
   }, 8_000).unref()
   const controlDeps: ControlDeps = journalControl({
     auth: controlTokens.auth(() => sessions.list()),
+    // The session's folders are where it runs: a WSL session's are the distribution's.
+    isReviewFolder: async (sessionId, path) => {
+      const host = sessionHostOf(sessionId)
+      return host ? (await host.stat(path))?.isDirectory === true : false
+    },
     openReview: async (sessionId, repos) => {
       const v = sessions.list().find((s) => s.id === sessionId)
       if (!v) return { ok: false, status: 404, error: 'unknown session' }
       if (v.readOnly) return { ok: false, status: 403, error: 'a reviewer session cannot open a review' }
-      // An agent may only point the review at its own folder, its worktree or its profile's folders.
+      const host = sessionHostOf(sessionId)
+      if (!host) return { ok: false, status: 503, error: "the session's host is not connected" }
+      // An agent may only point the review at its own folder, its worktree or its profile's folders,
+      // compared on its host (where `~` in the profile's folders is that host's home).
       const profile = (await configuration.current()).profiles.find((p) => p.id === v.profileId)
-      const roots = [v.cwd, ...(profile ? profileFolderPaths(profile, homedir()).map((f) => f.path) : [])]
-      const outside = reviewPathOutside(repos, roots)
+      const folders = profile ? (elsewhere(host.id) && host.home ? profileFolderPaths({ folders: profile.folders }, host.home) : profileFolderPaths(profile, homedir())) : []
+      const roots = [v.cwd, ...folders.map((f) => f.path)]
+      const outside = await reviewPathOutside(repos, roots, host.realpath)
       if (outside) return { ok: false, status: 400, error: `not inside this session's folder, worktree or profile folders: ${outside}` }
       localReview.request(sessionId, repos)
       openLocalReviewWindow(sessionId, true)

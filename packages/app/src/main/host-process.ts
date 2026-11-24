@@ -192,6 +192,7 @@ export class HostProcess {
       git,
       exists: folders.exists,
       stat: folders.stat,
+      realpath: folders.realpath,
       ...(control === undefined ? {} : { control })
     }
   }

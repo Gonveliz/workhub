@@ -77,7 +77,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync,
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join, relative } from 'node:path'
+import { isAbsolute, join, posix, relative } from 'node:path'
 import type { AnalyticsControl } from './analytics-control'
 import { authorizeControl, bindBody, type ControlAuth, type ControlCaller } from './control-auth'
 import type { AutomationControl } from './automation-control'
@@ -106,6 +106,11 @@ export interface ControlDeps {
   auth: ControlAuth
   /** Opens the session's "Review changes" window on these repos (plus the ones it finds itself). */
   openReview(sessionId: string, repos: ReviewRequestRepo[]): ControlResult | Promise<ControlResult>
+  /**
+   * Whether a review request's path is a folder where the session's files live (its host: a WSL
+   * distribution, or this computer). Without it, this computer's disk is checked.
+   */
+  isReviewFolder?(sessionId: string, path: string): Promise<boolean>
   /** Validates and stores a flow map (the Flow maps screen); errors name the fields. `file` is a display name (`<id>.json`): maps live in the database. */
   saveFlowMap?(map: unknown, caller?: ControlCaller): { ok: true; file: string; id: string; note?: string } | { ok: false; errors: string[] }
   /** Adds the items of a body to a profile's inbox as pending (`parseInboxProposals` checks it). */
@@ -205,7 +210,7 @@ export function hasControlToken(req: Pick<IncomingMessage, 'headers'>, token: st
 }
 
 /** The repos of a review request, checked one by one; a string when the body is not one. */
-export function parseReviewBody(body: unknown, isDir: (path: string) => boolean): ReviewRequestRepo[] | string {
+export async function parseReviewBody(body: unknown, isDir: (path: string) => boolean | Promise<boolean>): Promise<ReviewRequestRepo[] | string> {
   if (body === undefined || body === null) return []
   if (typeof body !== 'object') return 'the body must be a JSON object'
   const repos = (body as { repos?: unknown }).repos
@@ -217,32 +222,37 @@ export function parseReviewBody(body: unknown, isDir: (path: string) => boolean)
     const path = typeof r === 'string' ? r : r && typeof r === 'object' ? (r as { path?: unknown }).path : undefined
     const base = r && typeof r === 'object' ? (r as { base?: unknown }).base : undefined
     if (typeof path !== 'string' || !isAbsolute(path)) return 'every repo needs an absolute "path"'
-    if (!isDir(path)) return `not a folder: ${path}`
+    if (!(await isDir(path))) return `not a folder: ${path}`
     if (base !== undefined && (typeof base !== 'string' || !/^[\w./-]{1,200}$/.test(base))) return `bad "base" for ${path}`
     out.push({ path, ...(typeof base === 'string' && base ? { base } : {}) })
   }
   return out
 }
 
+/** A path with its symlinks resolved on this computer's disk; null when it does not exist. */
+const localRealpath = async (p: string): Promise<string | null> => {
+  try {
+    return realpathSync(p)
+  } catch {
+    return null
+  }
+}
+
 /**
  * The first path of a review request that is not inside one of `roots` (the session's folder or
  * worktree and the folders of its profile), compared by real path so a symlink or `..` cannot
- * leave them; null when all are inside. A root that does not exist is skipped.
+ * leave them; null when all are inside. A root that does not exist is skipped. `real` resolves on
+ * the session's host (this computer's disk by default); POSIX paths are compared as POSIX paths
+ * (a WSL host's, also when this computer is Windows).
  */
-export function reviewPathOutside(repos: readonly ReviewRequestRepo[], roots: readonly string[]): string | null {
-  const real = (p: string): string | null => {
-    try {
-      return realpathSync(p)
-    } catch {
-      return null
-    }
-  }
-  const allowed = roots.map(real).filter((r): r is string => r !== null)
+export async function reviewPathOutside(repos: readonly ReviewRequestRepo[], roots: readonly string[], real: (path: string) => Promise<string | null> = localRealpath): Promise<string | null> {
+  const allowed = (await Promise.all(roots.map(real))).filter((r): r is string => r !== null)
   for (const { path } of repos) {
-    const target = real(path)
+    const target = await real(path)
     const inside = target !== null && allowed.some((root) => {
-      const rel = relative(root, target)
-      return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+      const paths = root.startsWith('/') && target.startsWith('/') ? posix : { relative, isAbsolute }
+      const rel = paths.relative(root, target)
+      return rel === '' || (!rel.startsWith('..') && !paths.isAbsolute(rel))
     })
     if (!inside) return path
   }
@@ -463,9 +473,10 @@ export async function serveControl(deps: ControlDeps, req: ControlRequest, isDir
   if (req.method !== 'POST') return json(405, { ok: false, error: 'use POST' })
   const sent = readBody(req, caller)
   if (!sent.ok) return json(sent.status, { ok: false, error: sent.error })
-  const repos = parseReviewBody(sent.body, isDir)
+  const sessionId = review[1]!
+  const repos = await parseReviewBody(sent.body, deps.isReviewFolder ? (path) => deps.isReviewFolder!(sessionId, path) : isDir)
   if (typeof repos === 'string') return json(400, { ok: false, error: repos })
-  const result = await deps.openReview(review[1]!, repos)
+  const result = await deps.openReview(sessionId, repos)
   if (!result.ok) return json(result.status, { ok: false, error: result.error })
   return json(200, { ok: true })
 }

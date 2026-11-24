@@ -9,7 +9,7 @@
 // this computer while the named host is not connected: at worst it finds nothing there.
 import { existsSync } from 'node:fs'
 import type { GitRunner } from '@workhub/adapters/git-review'
-import { statPath, type HostFileInfo } from '@workhub/adapters/host'
+import { realPathOrNull, statPath, type HostFileInfo } from '@workhub/adapters/host'
 import type { HostStatusEvent } from './host-status'
 import { hostIdOf, type AgentRuntime, type ProfileHost, type SessionHistorySource, type TranscriptReader } from '@workhub/core'
 
@@ -61,6 +61,8 @@ export interface HostFolders {
   exists(path: string): Promise<boolean>
   /** A path's size, times and kind on the host; null when it cannot be read (missing, no access). */
   stat(path: string): Promise<HostFileInfo | null>
+  /** A path with its symlinks resolved on the host; null when it does not exist there. */
+  realpath(path: string): Promise<string | null>
 }
 
 /**
@@ -112,7 +114,8 @@ export function localHost(services: HostServices): SessionHost {
     services,
     git: services.git,
     exists: async (path) => existsSync(path),
-    stat: localStat
+    stat: localStat,
+    realpath: realPathOrNull
   }
 }
 
