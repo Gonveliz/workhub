@@ -89,7 +89,7 @@ import { RecentCall } from './recent-call'
 import { PrEventService, registerPrEventsIpc } from './pr-events-service'
 import { OutputCoalescer } from './output-coalescer'
 import { routeSessionEvent } from './terminal-routing'
-import { HostRegistry, localHost, type SessionHost } from './hosts'
+import { followHostStatus, HostRegistry, localHost, type SessionHost } from './hosts'
 import { mcpLaunchTarget, sessionEndpoint, type ControlServe } from './host-control'
 import { HostProcess } from './host-process'
 import { WslHosts } from './wsl-hosts'
@@ -627,9 +627,8 @@ const wslHosts = new WslHosts({
   log: diagnostics.log,
   status: (id, event) => {
     hostStatus.apply(id, event)
-    // Sessions waiting for the host fail with the reason it is not there, or keep waiting while it starts.
-    if (event.type === 'failed' || event.type === 'unavailable') hosts.failed(id, event.detail)
-    else if (event.type === 'connecting' || event.type === 'installing') hosts.starting(id)
+    // Sessions waiting for the host fail with the reason it is not there, or keep waiting while it (re)starts.
+    followHostStatus(hosts, id, event)
     // The setup check waits for this host to check a WSL profile's tools: it reads them again now.
     if (event.type === 'connected') broadcast.toWindows('setup:changed')
   },

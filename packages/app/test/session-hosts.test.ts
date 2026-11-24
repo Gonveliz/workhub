@@ -17,7 +17,7 @@ import {
 } from '@workhub/core'
 import type { GitRunner } from '@workhub/adapters/git-review'
 import type { ExecutionServices } from '@workhub/adapters/host'
-import { HostRegistry, localHost, originUrl, type HostTarget, type PendingHost } from '../src/main/hosts'
+import { followHostStatus, HostRegistry, localHost, originUrl, type HostTarget, type PendingHost } from '../src/main/hosts'
 import { SessionManager, type PendingServices, type SessionServices } from '../src/main/session-manager'
 
 /** A runtime that records what it was asked and lets the test emit events. */
@@ -350,6 +350,27 @@ describe('HostRegistry', () => {
       const wsl = { ...localHost(execution), id: 'wsl:Ubuntu' }
       hosts.register(wsl)
       await expect(again.ready).resolves.toBe(wsl)
+    })
+
+    it('makes new sessions wait while a dropped host restarts, never handing out the closed one', async () => {
+      const hosts = new HostRegistry(localHost(execution), (id) => named[id])
+      const old = { ...localHost(execution), id: 'wsl:Ubuntu' }
+      followHostStatus(hosts, 'wsl:Ubuntu', { type: 'connecting' })
+      hosts.register(old)
+      expect(hosts.sessionHostFor({ profileId: 'linux' })).toBe(old)
+      followHostStatus(hosts, 'wsl:Ubuntu', { type: 'lost', reason: 'the host process exited (1)', restarting: true })
+      const waiting = pending(hosts.sessionHostFor({ profileId: 'linux' }))
+      expect(hosts.get('wsl:Ubuntu')).toBeUndefined()
+      const restarted = { ...localHost(execution), id: 'wsl:Ubuntu' }
+      hosts.register(restarted)
+      await expect(waiting.ready).resolves.toBe(restarted)
+    })
+
+    it('fails the waiting sessions when the host status says it failed or is unavailable', async () => {
+      const hosts = new HostRegistry(localHost(execution), (id) => named[id])
+      const waiting = pending(hosts.sessionHostFor({ profileId: 'linux' }))
+      followHostStatus(hosts, 'wsl:Ubuntu', { type: 'failed', detail: 'no WSL' })
+      await expect(waiting.ready).rejects.toThrow('WSL host Ubuntu is not available: no WSL')
     })
 
     it('gives up on a host that does not connect in time', async () => {

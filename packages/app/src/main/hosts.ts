@@ -10,6 +10,7 @@
 import { existsSync } from 'node:fs'
 import type { GitRunner } from '@workhub/adapters/git-review'
 import { statPath, type HostFileInfo } from '@workhub/adapters/host'
+import type { HostStatusEvent } from './host-status'
 import { hostIdOf, type AgentRuntime, type ProfileHost, type SessionHistorySource, type TranscriptReader } from '@workhub/core'
 
 export type { HostFileInfo }
@@ -155,6 +156,16 @@ export class HostRegistry {
     this.failures.delete(id)
   }
 
+  /**
+   * A named host went away and is being started again: it leaves the registry (its channel is
+   * closed), and new sessions wait for the restarted one instead of failing on the old one.
+   */
+  lost(id: HostId): void {
+    if (id === LOCAL_HOST_ID) return
+    this.hosts.delete(id)
+    this.failures.delete(id)
+  }
+
   private settle(id: HostId, outcome: SessionHost | Error): void {
     const waiters = this.waiting.get(id)
     this.waiting.delete(id)
@@ -212,6 +223,16 @@ export class HostRegistry {
     })
     return { id, ready: handled(ready) }
   }
+}
+
+/**
+ * What a host's status means for the sessions that need it: they fail with the reason when it failed
+ * or is unavailable, and wait while it starts, installs or restarts after a loss.
+ */
+export function followHostStatus(registry: HostRegistry, id: HostId, event: HostStatusEvent): void {
+  if (event.type === 'failed' || event.type === 'unavailable') registry.failed(id, event.detail)
+  else if (event.type === 'connecting' || event.type === 'installing') registry.starting(id)
+  else if (event.type === 'lost' && event.restarting) registry.lost(id)
 }
 
 /** The promise itself, marked handled: a caller may attach its handlers only after other awaits. */
