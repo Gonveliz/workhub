@@ -26,6 +26,12 @@
  *   curl --unix-socket "$WORKHUB_SOCKET" -X POST http://workhub/v1/flow-maps \
  *     -H 'content-type: application/json' --data-binary @checkout.flow-map.json
  *
+ * A tool that follows a job done by several agents sends it to the panel of its chat as one JSON
+ * board document (the whole board each time; `boards.ts`). 413 over 256 KB, 409 when Live boards is off:
+ *
+ *   curl --unix-socket "$WORKHUB_SOCKET" -X POST http://workhub/v1/boards \
+ *     -H 'content-type: application/json' --data-binary @release.board.json
+ *
  * And it takes proposals for Plan's inbox (pending items the user approves, keeps or discards):
  *
  *   curl --unix-socket "$WORKHUB_SOCKET" -X POST http://workhub/v1/inbox \
@@ -75,6 +81,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, statSync, unlinkSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import type { Duplex } from 'node:stream'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, posix, relative } from 'node:path'
@@ -86,6 +93,7 @@ import type { SessionControl } from './session-control'
 
 /** The largest request body the endpoint reads, in bytes (a host's socket applies the same cap). */
 export const MAX_CONTROL_BODY = 256 * 1024
+const BOARD_TOO_LARGE = 'the board is over 256 KB: shorten the log or the tables'
 const MAX_REPOS = 20
 
 export interface ReviewRequestRepo {
@@ -113,6 +121,8 @@ export interface ControlDeps {
   isReviewFolder?(sessionId: string, path: string): Promise<boolean>
   /** Validates and stores a flow map (the Flow maps screen); errors name the fields. `file` is a display name (`<id>.json`): maps live in the database. */
   saveFlowMap?(map: unknown, caller?: ControlCaller): { ok: true; file: string; id: string; note?: string } | { ok: false; errors: string[] }
+  /** Validates and stores a Live boards document for the caller's profile (`boards.ts`); refusals carry their HTTP status. Not journaled: a board is display only. */
+  saveBoard?(board: unknown, caller: NonNullable<ControlCaller>): Promise<{ ok: true; id: string; dropped: string[] } | { ok: false; status: number; error: string; errors?: string[] }>
   /** Adds the items of a body to a profile's inbox as pending (`parseInboxProposals` checks it). */
   addInboxItems?(body: unknown): Promise<{ ok: true; added: string[]; duplicates: string[] } | { ok: false; status: number; error: string }>
   /** Plan for agents: today's meetings, reading and updating the inbox, milestones, people. */
@@ -267,6 +277,16 @@ const isDirectory = (path: string) => {
   }
 }
 
+/**
+ * Requests whose upload went past `DISCARD_CAP` with more still coming. Only these have their connection closed
+ * once the answer is out; any other request, oversized or not, leaves its connection alone.
+ */
+const oversized = new WeakSet<IncomingMessage>()
+/** How long the socket of such a request may outlive its answer. */
+const CLOSE_GRACE_MS = 1000
+/** The most one request may make the app read and throw away after going over `MAX_CONTROL_BODY`. */
+const DISCARD_CAP = 8 * 1024 * 1024
+
 const JSON_HEADERS: Readonly<Record<string, string>> = Object.freeze({ 'content-type': 'application/json' })
 
 /** One request to the endpoint as plain values: an HTTP request, or one a host relays from its socket. */
@@ -301,6 +321,23 @@ function failed(deps: Pick<ControlDeps, 'log'>, res: ServerResponse, e: unknown)
 }
 
 function send(res: ServerResponse, r: ControlResponse): void {
+  if (oversized.has(res.req)) {
+    // The upload went past `DISCARD_CAP` and is still coming: the app stopped reading it. The answer goes out
+    // with no `Connection: close` header (Node would then destroy the socket the moment the answer is flushed,
+    // resetting it with the upload unread). Once the answer is flushed the server ends its side (FIN) and
+    // destroys the socket when the client hangs up or after `CLOSE_GRACE_MS`, whichever comes first, so a
+    // client still sending cannot hold the connection. This client may see a reset instead of the answer.
+    const socket = res.socket // taken now: `res` lets go of it once the answer is flushed
+    res.writeHead(r.status, r.headers)
+    res.end(r.body, () => {
+      if (!socket || socket.destroyed) return
+      const timer = setTimeout(() => socket.destroy(), CLOSE_GRACE_MS)
+      timer.unref()
+      socket.once('close', () => clearTimeout(timer))
+      socket.end()
+    })
+    return
+  }
   res.writeHead(r.status, r.headers)
   res.end(r.body)
 }
@@ -312,17 +349,28 @@ const PLAN_READS: Record<string, 'today' | 'milestones' | 'people'> = { '/v1/pla
 async function readText(req: IncomingMessage): Promise<{ body: string } | { tooLarge: true }> {
   let size = 0
   const chunks: Buffer[] = []
-  for await (const chunk of req) {
+  // `destroyOnReturn: false`: leaving the loop must not destroy the request before the caller has its answer.
+  // Chunks are kept only up to `MAX_CONTROL_BODY`. Past it the request is still read, and thrown away, until it
+  // ends or `DISCARD_CAP` bytes have gone by. If it ends inside the cap, it is `tooLarge` with the request fully
+  // read, so the answer goes out like any other and the connection stays usable. If the cap is passed
+  // with the upload still coming, the request is marked in `oversized` and `send` closes the connection after
+  // its answer.
+  for await (const chunk of req.iterator({ destroyOnReturn: false })) {
     size += (chunk as Buffer).length
-    if (size > MAX_CONTROL_BODY) return { tooLarge: true }
-    chunks.push(chunk as Buffer)
+    if (size > DISCARD_CAP) {
+      oversized.add(req)
+      return { tooLarge: true }
+    }
+    if (size <= MAX_CONTROL_BODY) chunks.push(chunk as Buffer)
+    else chunks.length = 0 // over the limit: nothing more is kept, what was kept is dropped
   }
+  if (size > MAX_CONTROL_BODY) return { tooLarge: true }
   return { body: Buffer.concat(chunks).toString('utf8') }
 }
 
-/** The JSON body bound to the caller's session (`bindBody`), or the answer that refuses it. */
-function readBody(req: ControlRequest, caller: ControlCaller): { ok: true; body: unknown } | { ok: false; status: number; error: string } {
-  if (req.bodyTooLarge) return { ok: false, status: 400, error: 'body too large' }
+/** The JSON body bound to the caller's session (`bindBody`), or the answer that refuses it; `tooLarge` lets one route answer 413. */
+function readBody(req: ControlRequest, caller: ControlCaller): { ok: true; body: unknown } | { ok: false; status: number; error: string; tooLarge?: true } {
+  if (req.bodyTooLarge) return { ok: false, status: 400, error: 'body too large', tooLarge: true }
   const text = (req.body ?? '').trim()
   let body: unknown
   try {
@@ -353,6 +401,16 @@ export async function serveControl(deps: ControlDeps, req: ControlRequest, isDir
     const body = read.body
     const saved = deps.saveFlowMap(body, caller)
     return saved.ok ? json(200, saved) : json(400, { ok: false, error: saved.errors.join('; '), errors: saved.errors })
+  }
+  if (url.pathname === '/v1/boards') {
+    if (req.method !== 'POST') return json(405, { ok: false, error: 'use POST' })
+    if (!deps.saveBoard) return json(404, { ok: false, error: 'live boards are not available' })
+    if (!caller) return json(401, { ok: false, error: 'this needs the session token: send X-Workhub-Token: $WORKHUB_SESSION_TOKEN' })
+    // The board itself is the body (no session bound into it: the strict parser would refuse it); the session is the caller's.
+    const read = readBody(req, null)
+    if (!read.ok) return json(read.tooLarge ? 413 : read.status, { ok: false, error: read.tooLarge ? BOARD_TOO_LARGE : read.error })
+    const saved = await deps.saveBoard(read.body, caller)
+    return saved.ok ? json(200, saved) : json(saved.status, { ok: false, error: saved.error, ...(saved.errors ? { errors: saved.errors } : {}) })
   }
   if (url.pathname === '/v1/inbox') {
     if (req.method === 'GET') return deps.plan ? fromReply(await deps.plan.inbox(url.searchParams)) : json(404, { ok: false, error: 'the inbox is not available' })
@@ -527,6 +585,7 @@ export async function startControlServer(socketPath: string, deps: ControlDeps):
   const server = createServer((req, res) => {
     handleControl(deps, req, res).catch((e: unknown) => failed(deps, res, e))
   })
+  answerBeforeClientError(server)
   return new Promise((resolve) => {
     server.once('error', (e) => {
       deps.log?.(`control endpoint not started: ${e.message}`)
@@ -546,6 +605,24 @@ export async function startControlServer(socketPath: string, deps: ControlDeps):
 }
 
 /**
+ * Bytes after a request that cannot be parsed (a GET that sent a body without a length) end the
+ * connection. A request is answered once its body is read, which is after those bytes arrived: its
+ * answer goes out first, then the connection closes, instead of Node's bare 400 in its place.
+ */
+function answerBeforeClientError(server: Server): void {
+  server.on('clientError', (err: NodeJS.ErrnoException, socket: Duplex) => {
+    const pending = (socket as Duplex & { _httpMessage?: ServerResponse | null })._httpMessage
+    if (err.code !== 'ECONNRESET' && socket.writable && pending && !pending.headersSent) {
+      pending.once('finish', () => socket.end())
+      setTimeout(() => socket.destroy(), CLOSE_GRACE_MS * 30).unref()
+      return
+    }
+    if (err.code !== 'ECONNRESET' && socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
+    else socket.destroy()
+  })
+}
+
+/**
  * Starts the endpoint on a random port of 127.0.0.1, answering only requests with the token
  * (Windows). A request a browser page sends carries an `Origin` and is refused too, so a web page
  * cannot use the port even if it guessed the token. Resolves to null when it cannot listen.
@@ -555,6 +632,7 @@ export function startLoopbackControlServer(token: string, deps: ControlDeps): Pr
     if (req.headers.origin !== undefined || !hasControlToken(req, token)) return send(res, json(401, { ok: false, error: 'missing or wrong token: send Authorization: Bearer $WORKHUB_TOKEN' }))
     handleControl(deps, req, res).catch((e: unknown) => failed(deps, res, e))
   })
+  answerBeforeClientError(server)
   return new Promise((resolve) => {
     server.once('error', (e) => {
       deps.log?.(`control endpoint not started: ${e.message}`)
