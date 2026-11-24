@@ -16,7 +16,7 @@ export const profileHostEs: Record<keyof typeof profileHostEn, string> = {
   'profileHost.unpacking': 'Instalando Workhub en {distro}…',
   'profileHost.connected': 'Conectado: las sesiones de este perfil se ejecutan en {distro}.',
   'profileHost.noControl': 'Conectado, pero las sesiones en {distro} no llegan a las herramientas de Workhub (MCP). Ayuda › Mostrar registros indica el motivo.',
-  'profileHost.failed': 'No se pudo iniciar Workhub en {distro}: {detail}. Mientras tanto, las sesiones se ejecutan en este equipo.',
+  'profileHost.failed': 'No se pudo iniciar Workhub en {distro}: {detail}. Las sesiones de este perfil no pueden iniciar hasta que se conecte o pulses Reintentar.',
   'profileHost.unavailable': 'WSL no está disponible aquí.',
   'profileHost.retry': 'Reintentar',
   'profileHost.retryLabel': 'Reintentar el inicio de Workhub en {distro}',

@@ -15,7 +15,7 @@ export const profileHostEn = {
   'profileHost.unpacking': 'Installing Workhub in {distro}…',
   'profileHost.connected': 'Connected: this profile’s sessions run in {distro}.',
   'profileHost.noControl': 'Connected, but sessions in {distro} cannot reach Workhub’s tools (MCP). Help › Reveal Logs shows why.',
-  'profileHost.failed': 'Could not start Workhub in {distro}: {detail}. Meanwhile sessions run on this computer.',
+  'profileHost.failed': 'Could not start Workhub in {distro}: {detail}. Sessions of this profile cannot start until it connects or you press Retry.',
   'profileHost.unavailable': 'WSL is not available here.',
   'profileHost.retry': 'Retry',
   'profileHost.retryLabel': 'Retry starting Workhub in {distro}',
