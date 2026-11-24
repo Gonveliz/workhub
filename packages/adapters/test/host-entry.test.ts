@@ -1,5 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { realpathSync } from 'node:fs'
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -126,7 +125,8 @@ describe('runHost', () => {
     expect(await folders.stat(join(dir, 'notes.txt'))).toMatchObject({ size: 5, isFile: true, isDirectory: false })
     expect(await folders.stat(dir)).toMatchObject({ isFile: false, isDirectory: true })
     expect(await folders.stat(join(dir, 'missing'))).toBeNull()
-    expect(await folders.realpath(dir)).toBe(realpathSync(dir))
+    // Resolved like the host does (Windows long names, not the 8.3 short ones of a temp folder).
+    expect(await folders.realpath(dir)).toBe(await realpath(dir))
     expect(await folders.realpath(join(dir, 'missing'))).toBeNull()
 
     const [reader] = await connectRemoteTranscriptReaders(client)
