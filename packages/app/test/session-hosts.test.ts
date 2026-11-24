@@ -347,6 +347,8 @@ describe('SessionManager: worktrees on another host', () => {
     expect(view).toMatchObject({ cwd: '/home/ana/acme', hostId: 'wsl:Ubuntu' })
     expect(view.worktree).toBeUndefined()
     expect(worktrees.create).not.toHaveBeenCalled()
+    await flush()
+    expect(wsl.native.started.map((r) => r.cwd)).toEqual(['/home/ana/acme'])
     await manager.stopAll()
   })
 })
