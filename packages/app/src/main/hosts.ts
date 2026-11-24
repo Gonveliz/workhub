@@ -35,6 +35,14 @@ export function hostLabel(id: HostId): string {
   return id.startsWith('wsl:') ? `WSL host ${id.slice(4)}` : `host ${id}`
 }
 
+/**
+ * Whether a host's folders are another system's (a WSL distribution): its paths, home, git and
+ * files are not this computer's. False for this computer and for the development child host.
+ */
+export function elsewhere(id: HostId | undefined): boolean {
+  return id?.startsWith('wsl:') === true
+}
+
 /** The error of a session whose host is not there. */
 export function hostUnavailable(id: HostId, reason: string): Error {
   return new Error(`${hostLabel(id)} is not available: ${reason}`)
@@ -87,6 +95,8 @@ export interface SessionHost extends HostFolders {
    * host on Windows, where no socket is relayed), null for a host that offers none.
    */
   control?: HostControlInfo | null
+  /** Its home folder (what `~` means there), when known: a WSL host's comes from the distribution's probe. */
+  home?: string
 }
 
 /** Picks the host of a session or folder. */

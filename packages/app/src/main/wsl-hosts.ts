@@ -148,11 +148,13 @@ export class WslHosts {
     const fallback = 'the sessions of its profiles cannot start'
     let launch: HostLaunch
     let dir: string
+    let home: string
     this.report(distro, { type: 'connecting' })
     try {
       // The first call into the distribution, which may have to boot it first.
       const run = this.deps.runner(WSL_FIRST_RUN_TIMEOUT_MS)
       const info = await probeWslDistro(run, distro)
+      home = info.home
       const arch = nodeArchOfMachine(info.arch)
       if (!arch) throw new Error(`no host is built for its processor (${info.arch})`)
       const payload = await this.deps.install({ distro, home: info.home, arch, run, onProgress: (progress) => this.report(distro, { type: 'installing', progress }) })
@@ -171,7 +173,8 @@ export class WslHosts {
       id,
       hostVersion: this.deps.hostVersion,
       launch: () => launch,
-      onRestart: (host) => {
+      onRestart: (restarted) => {
+        const host = { ...restarted, home }
         this.deps.register(host)
         this.report(distro, { type: 'connected', control: host.control !== null })
       },
@@ -183,7 +186,7 @@ export class WslHosts {
     })
     this.processes.set(distro, hostProcess)
     try {
-      const host = await hostProcess.connect()
+      const host = { ...(await hostProcess.connect()), home }
       if (this.stopped) return
       this.deps.register(host)
       this.report(distro, { type: 'connected', control: host.control !== null })

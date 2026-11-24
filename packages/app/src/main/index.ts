@@ -779,9 +779,9 @@ const sessions = new SessionManager({
     return workhubMcpLaunch(env, mcpLaunchTarget(control, { node: process.execPath, script: join(bridgeDir, WORKHUB_MCP_SCRIPT) }))
   },
   names: sessionNames,
-  profileEnv: async (profileId, cwd) => {
+  profileEnv: async (profileId, cwd, hostHome) => {
     const config = await configuration.current()
-    return profileSessionEnv(config.profiles.find((p) => p.id === profileId), cwd, secrets, homedir())
+    return profileSessionEnv(config.profiles.find((p) => p.id === profileId), cwd, secrets, homedir(), hostHome)
   },
   accountEnv: (account) => accountSessionEnv(account, secrets),
   runtimes,
@@ -790,7 +790,7 @@ const sessions = new SessionManager({
   history: historySources,
   // Sessions wait for the host their profile names; they never run on this computer in its place (hosts.ts).
   hostFor: (target) => {
-    const servicesOf = (host: SessionHost) => ({ ...host.services, exists: host.exists, control: host.control, hostId: host.id })
+    const servicesOf = (host: SessionHost) => ({ ...host.services, exists: host.exists, control: host.control, hostId: host.id, ...(host.home ? { home: host.home } : {}) })
     const host = hosts.sessionHostFor(target)
     if (!('ready' in host)) return servicesOf(host)
     const ready = host.ready.then(servicesOf)

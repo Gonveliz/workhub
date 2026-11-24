@@ -351,6 +351,53 @@ describe('SessionManager: worktrees on another host', () => {
   })
 })
 
+describe('SessionManager: accounts and home on another host', () => {
+  function accountSetup() {
+    const wsl = { ...services('in WSL'), hostId: 'wsl:Ubuntu', home: '/home/ana' }
+    const local = services('on this computer')
+    const config = { ...emptyConfig(), accounts: [{ id: 'work', agentId: 'claude', name: 'Work', configDir: 'C:\\Users\\ana\\.claude-work' }, { id: 'plain', agentId: 'claude', name: 'Plain' }] }
+    const profileEnv = vi.fn(async (_profileId: string | null, _cwd: string, _home?: string | null) => ({}))
+    const manager = new SessionManager({
+      config: { current: async () => config, replaceSessionIdentity: async () => undefined } as unknown as ConfigurationService,
+      ...local,
+      hostFor: (target) => (target.profileId === 'linux' ? wsl : local),
+      profileEnv,
+      emitEvent: () => {},
+      emitChanged: () => {},
+      emitReplay: () => {},
+      pollMs: 60_000
+    })
+    return { manager, wsl, local, profileEnv }
+  }
+
+  it('refuses an account with its own config folder for a session in WSL, and starts nothing', async () => {
+    const { manager, wsl } = accountSetup()
+    await expect(manager.start({ profileId: 'linux', agentKey: 'claude:work', cwd: '/home/ana/acme' })).rejects.toThrow('The account Work has its own config folder')
+    expect(wsl.native.started).toEqual([])
+  })
+
+  it("still runs that account on this computer, and an account without one in WSL", async () => {
+    const { manager, wsl, local } = accountSetup()
+    await manager.start({ profileId: null, agentKey: 'claude:work', cwd: '/w/acme' })
+    await manager.start({ profileId: 'linux', agentKey: 'claude:plain', cwd: '/home/ana/acme' })
+    await flush()
+    expect(local.native.started).toHaveLength(1)
+    expect(wsl.native.started).toHaveLength(1)
+    await manager.stopAll()
+  })
+
+  it("expands the profile environment with the host's home, and this computer's for local sessions", async () => {
+    const { manager, profileEnv } = accountSetup()
+    await manager.start({ profileId: 'linux', agentKey: 'claude', cwd: '/home/ana/acme' })
+    await manager.start({ profileId: null, agentKey: 'claude', cwd: '/w/acme' })
+    expect(profileEnv.mock.calls).toEqual([
+      ['linux', '/home/ana/acme', '/home/ana'],
+      [null, '/w/acme', undefined]
+    ])
+    await manager.stopAll()
+  })
+})
+
 describe('HostRegistry', () => {
   const execution = {} as ExecutionServices
 

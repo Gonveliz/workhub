@@ -97,6 +97,8 @@ describe('WslHosts', () => {
     ])
     expect(install).toHaveBeenCalledWith({ distro: 'Ubuntu', home: '/users/ana', arch: 'x64', run: expect.any(Function), onProgress: expect.any(Function) })
     expect(registered.map((h) => h.id)).toEqual(['wsl:Ubuntu'])
+    // Its home is the distribution's (what `~` means there).
+    expect(registered[0]!.home).toBe('/users/ana')
     expect(log.info).toHaveBeenCalledWith(expect.stringContaining('host wsl:Ubuntu: connected'))
 
     hosts.ensure([{ kind: 'wsl', distro: 'Debian' }])

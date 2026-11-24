@@ -238,6 +238,15 @@ describe('profile environment', () => {
     expect(await storedProfileEnvNames(profile, secrets)).toEqual(['ROOT'])
     expect(await profileSessionEnv(undefined, '/repo', secrets, '/h')).toEqual({})
   })
+  it("expands ~ in a WSL profile's folders with the distribution's home, never this computer's", async () => {
+    const secrets = store()
+    await saveProfileEnv('acme', { ROOT: '${PROFILE_ROOT}' }, [], secrets)
+    const wsl: Profile = { ...profile, envNames: ['ROOT'], host: { kind: 'wsl', distro: 'Ubuntu' } }
+    // The host's home is known: the folder is expanded as there.
+    expect(await profileSessionEnv(wsl, '/home/ana/work/acme', secrets, 'C:\\Users\\ana', '/home/ana')).toEqual({ ROOT: '/home/ana/work' })
+    // Not known: left as written, for the host to resolve.
+    expect(await profileSessionEnv(wsl, '/srv/acme', secrets, 'C:\\Users\\ana', null)).toEqual({ ROOT: '~/work' })
+  })
   it('expands both variables', () => {
     expect(expandEnvValue('${FOLDER}|${PROFILE_ROOT}', { folder: '/a', profileRoot: '/b' })).toBe('/a|/b')
   })

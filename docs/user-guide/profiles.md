@@ -157,6 +157,11 @@ saved with the profile; the control is not shown on macOS or Linux.
   opens the Windows folder picker: pick the folder under **Linux → <distro>**
   (`\\wsl.localhost\<distro>\...`) and Workhub keeps its Linux path. A Windows folder is refused
   for a WSL profile.
+- `~` in a WSL profile's folders is the distribution's home (for example `/home/<you>`), never the
+  Windows one; `${PROFILE_ROOT}` in the session environment uses it too.
+- **Accounts** with their own config folder (**Config folder** in Settings → Agents) cannot be used
+  by a WSL profile yet: that folder is a Windows path. A session started with such an account is
+  refused with a message; use an account without one (the distribution's own sign-in).
 - **Sessions** of the profile run in the distribution. The session's title tooltip and its **More**
   menu say **WSL: <distro>**.
 - **New session** lists the agents the distribution can run: Claude Code (the one Workhub installs

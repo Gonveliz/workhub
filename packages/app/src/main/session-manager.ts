@@ -51,7 +51,7 @@ import { JOURNAL_MAX_ENTRIES } from './chat-journal'
 import { ConsoleActivity } from './console-activity'
 import { NO_CONTROL_ENV } from './control-server'
 import { pathInsideFolder } from './reveal'
-import { hostLabel, LOCAL_HOST_ID, type HostControlInfo, type HostTarget } from './hosts'
+import { elsewhere, hostLabel, type HostControlInfo, type HostTarget } from './hosts'
 import { SendGate } from './send-gate'
 import { StallWatch } from './stall-watch'
 import { translate, type MessageKey } from '../renderer/i18n/translate'
@@ -154,6 +154,8 @@ export interface SessionServices {
   control?: HostControlInfo | null
   /** The id of the host (`wsl:<distro>`); undefined or `local` for this computer. */
   hostId?: string
+  /** The home folder on the host (`~` there), when it is known; this computer's is used for local sessions. */
+  home?: string
 }
 
 /** The services of a host the session's profile names that has not connected yet. */
@@ -165,12 +167,19 @@ export interface PendingServices {
 
 const isPending = (x: SessionServices | PendingServices): x is PendingServices => 'ready' in x
 
+/** Whether these services are another system's (a WSL distribution), not this computer's. */
+const onHost = (services: SessionServices): boolean => elsewhere(services.hostId)
+
 export interface SessionManagerDeps extends SessionServices {
   /** How often the stuck-session check runs (tests shorten it). */
   stallCheckMs?: number
   config: ConfigurationService
   /** Environment variables the session's profile adds (Settings → Profiles); applied before the internal ones. */
-  profileEnv?: (profileId: string | null, cwd: string) => Promise<Record<string, string>>
+  /**
+   * The profile's variables. `hostHome` is what `~` means for a session on another host: its home,
+   * or null when it is not known (`~` is then left for the host to resolve); undefined on this computer.
+   */
+  profileEnv?: (profileId: string | null, cwd: string, hostHome?: string | null) => Promise<Record<string, string>>
   /** Environment variables the session's agent account adds, read from the secret store (Settings → Agents and accounts). */
   accountEnv?: (account: AgentAccount) => Promise<Record<string, string>>
   /**
@@ -394,6 +403,8 @@ export class SessionManager {
     // An account can run another build of the agent (its own command).
     const agent = accountAgent(choice.agent, account)
     const resolved = this.servicesFor(owned.profileId)
+    // An account's own config folder is a path on this computer: a session on another host cannot use it yet.
+    if (account?.configDir && elsewhere(resolved.hostId)) throw new Error(this.t('profileHost.accountConfigDir', { account: account.name }))
     // A restored session whose host is still connecting is listed now, stopped, under that host (the
     // runtimes here only describe it; it never starts on them). Any other session waits for the host.
     const pending = isPending(resolved) && internal.restored ? resolved : undefined
@@ -598,7 +609,7 @@ export class SessionManager {
   ): Promise<{ env: Record<string, string>; mcp: McpServerLaunch[] }> {
     const env = {
       ...launchEnvironment(agent, account, account ? await this.deps.accountEnv?.(account) : undefined),
-      ...((await this.deps.profileEnv?.(input.profileId, input.cwd)) ?? {}),
+      ...((await this.deps.profileEnv?.(input.profileId, input.cwd, onHost(services) ? (services.home ?? null) : undefined)) ?? {}),
       ...(input.readOnly ? NO_CONTROL_ENV : (this.deps.sessionEnv?.(id, services.control) ?? NO_CONTROL_ENV)),
       ...(extra ?? {})
     }
@@ -626,7 +637,7 @@ export class SessionManager {
     const asked = input.worktree
     // Not yet on another host (its worktree would be made on this computer): a session that asks
     // for one is refused; one that takes a worktree only when it can starts in the folder.
-    if (asked && services.hostId && services.hostId !== LOCAL_HOST_ID) {
+    if (asked && onHost(services)) {
       if (asked.optional) return { cwd: input.cwd }
       throw new Error(this.t('profileHost.noWorktrees'))
     }
